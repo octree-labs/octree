@@ -33,7 +33,6 @@ const ZOOM_STEP = 0.1;
 
 interface PDFViewerProps {
   pdfData?: string | null;
-  pdfUrl?: string | null;
   isLoading?: boolean;
   compilationError?: CompilationErrorType | null;
   onRetryCompile?: () => void;
@@ -43,7 +42,6 @@ interface PDFViewerProps {
 
 function DynamicPDFViewer({
   pdfData,
-  pdfUrl: pdfUrlProp,
   isLoading = false,
   compilationError,
   onRetryCompile,

@@ -30,7 +30,6 @@ const DynamicPDFViewer = dynamic(
 
 interface PDFViewerWrapperProps {
   pdfData?: string | null;
-  pdfUrl?: string | null;
   isLoading?: boolean;
   compilationError?: CompilationError | null;
   onRetryCompile?: () => void;
@@ -40,7 +39,6 @@ interface PDFViewerWrapperProps {
 
 function PDFViewerWrapper({
   pdfData,
-  pdfUrl,
   isLoading,
   compilationError,
   onRetryCompile,
@@ -51,7 +49,6 @@ function PDFViewerWrapper({
     <PDFErrorBoundary>
       <DynamicPDFViewer
         pdfData={pdfData}
-        pdfUrl={pdfUrl}
         isLoading={isLoading}
         compilationError={compilationError}
         onRetryCompile={onRetryCompile}

@@ -17,8 +17,7 @@ import {
 
 export interface CompilationState {
   compiling: boolean;
-  pdfData: string | null; // Base64 data (legacy)
-  pdfUrl: string | null; // URL to PDF in storage
+  pdfData: string | null;
   compilationError: CompilationError | null;
   exporting: boolean;
   handleCompile: () => Promise<boolean>;
@@ -45,14 +44,12 @@ export function useEditorCompilation({
   const fileName = selectedFile?.name;
   const [compiling, setCompiling] = useState(false);
   const [pdfData, setPdfData] = useState<string | null>(null);
-  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [compilationError, setCompilationError] =
     useState<CompilationError | null>(null);
   const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     setPdfData(null);
-    setPdfUrl(null);
     setCompilationError(null);
   }, [projectId]);
 
@@ -229,22 +226,14 @@ export function useEditorCompilation({
         // If a partial PDF is available despite the error, display it
         if (data?.pdf) {
           setPdfData(data.pdf);
-          setPdfUrl(null);
         }
 
         handled = true;
         throw new Error(errorMessage);
       }
 
-      // Handle new pdfUrl response (preferred) or legacy pdf base64 response
-      if (data.pdfUrl) {
-        setPdfUrl(data.pdfUrl);
-        setPdfData(null); // Clear legacy data
-        setCompilationError(null);
-        return true;
-      } else if (data.pdf) {
+      if (data.pdf) {
         setPdfData(data.pdf);
-        setPdfUrl(null);
         setCompilationError(null);
         return true;
       }
@@ -373,7 +362,6 @@ export function useEditorCompilation({
   return {
     compiling,
     pdfData,
-    pdfUrl,
     compilationError,
     exporting,
     handleCompile,

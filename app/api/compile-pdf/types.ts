@@ -13,7 +13,9 @@ export interface CompileRequest {
 }
 
 export type CompileCachePayload = {
-  pdf: string;
+  pdf?: string; // Base64 PDF (deprecated, for backwards compatibility)
+  pdfUrl?: string; // Signed URL to PDF in Supabase storage
+  storagePath?: string; // Storage path for regenerating signed URLs on cache hit
   size: number;
   mimeType: string;
   debugInfo?: Record<string, unknown>;

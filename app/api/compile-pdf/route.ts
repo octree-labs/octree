@@ -8,6 +8,7 @@ import {
 } from './cache';
 import { validateCompileRequest } from './validation';
 import { compileLatex } from './compiler';
+import { createClient } from '@/lib/supabase/server';
 
 export const runtime = 'nodejs';
 export const config = {
@@ -76,8 +77,22 @@ export async function POST(request: Request) {
           projectId: body.projectId,
         }
       );
+
+      // Regenerate signed URL for cache hits (since signed URLs expire)
+      let pdfUrl = cachedPayload.pdfUrl;
+      if (cachedPayload.storagePath) {
+        const supabase = await createClient();
+        const { data: signedUrlData } = await supabase.storage
+          .from('octree')
+          .createSignedUrl(cachedPayload.storagePath, 3600);
+        if (signedUrlData?.signedUrl) {
+          pdfUrl = signedUrlData.signedUrl;
+        }
+      }
+
       return NextResponse.json({
         ...cachedPayload,
+        pdfUrl,
         debugInfo: {
           ...(cachedPayload.debugInfo ?? {}),
           cacheStatus: 'hit',
@@ -118,17 +133,60 @@ export async function POST(request: Request) {
       return NextResponse.json(errorResponse, { status: 500 });
     }
 
+    // Upload PDF to Supabase storage for large files (avoid content too large errors)
+    const supabase = await createClient();
+    const pdfFileName = `compiled_${compileResult.sha256 || Date.now()}.pdf`;
+    const storagePath = body.projectId
+      ? `projects/${body.projectId}/compiled/${pdfFileName}`
+      : `compiled/${pdfFileName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('octree')
+      .upload(storagePath, compileResult.pdfBuffer, {
+        contentType: 'application/pdf',
+        upsert: true,
+        cacheControl: '3600',
+      });
+
+    if (uploadError) {
+      console.error('Failed to upload PDF to storage:', uploadError);
+      return NextResponse.json(
+        {
+          error: 'Failed to store compiled PDF',
+          details: uploadError.message,
+        },
+        { status: 500 }
+      );
+    }
+
+    // Get a signed URL valid for 1 hour
+    const { data: signedUrlData, error: signedUrlError } = await supabase.storage
+      .from('octree')
+      .createSignedUrl(storagePath, 3600);
+
+    if (signedUrlError || !signedUrlData?.signedUrl) {
+      console.error('Failed to create signed URL:', signedUrlError);
+      return NextResponse.json(
+        {
+          error: 'Failed to generate PDF URL',
+          details: signedUrlError?.message,
+        },
+        { status: 500 }
+      );
+    }
+
     const responsePayload: CompileCachePayload = {
-      pdf: compileResult.base64PDF,
+      pdfUrl: signedUrlData.signedUrl,
+      storagePath, // Store for regenerating signed URLs on cache hit
       size: compileResult.pdfBuffer.length,
       mimeType: 'application/pdf',
       debugInfo: {
         contentLength: compileResult.pdfBuffer.byteLength,
-        base64Length: compileResult.base64PDF.length,
         requestId: compileResult.requestId,
         durationMs: compileResult.durationMs,
         queueMs: compileResult.queueMs,
         sha256: compileResult.sha256,
+        storagePath,
       },
     };
 

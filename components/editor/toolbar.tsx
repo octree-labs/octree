@@ -8,7 +8,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { UsageIndicator } from '@/components/subscription/usage-indicator';
+import { UsageIndicator, UpgradeButton } from '@/components/subscription/usage-indicator';
 import { Loader2, WandSparkles, ChevronDown, FileText, FolderArchive } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
@@ -77,6 +77,7 @@ export function EditorToolbar({
             <WandSparkles className="h-3.5 w-3.5" />
             <span className="font-medium">Edit with AI</span>
           </Button>
+          <UpgradeButton />
         </div>
 
         <div className="flex items-center gap-2">

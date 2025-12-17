@@ -11,8 +11,9 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { CreditCard, AlertCircle, CheckCircle, Zap } from 'lucide-react';
-import { PaywallDialog } from './paywall-dialog';
 import { PRO_MONTHLY_EDIT_LIMIT } from '@/data/constants';
+
+const STRIPE_CHECKOUT_URL = 'https://buy.stripe.com/6oUdR9fyd8Sd6Cifd46oo00';
 
 interface SubscriptionData {
   hasSubscription: boolean;
@@ -51,7 +52,6 @@ export function SubscriptionStatus() {
   const [subscriptionData, setSubscriptionData] =
     useState<SubscriptionData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [showPaywall, setShowPaywall] = useState(false);
 
   useEffect(() => {
     fetchSubscriptionStatus();
@@ -69,10 +69,6 @@ export function SubscriptionStatus() {
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const handleUpgradeClick = () => {
-    setShowPaywall(true);
   };
 
   if (isLoading) {
@@ -299,8 +295,7 @@ export function SubscriptionStatus() {
 
   // No subscription - show usage and upgrade options
   return (
-    <>
-      <Card>
+    <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <CreditCard className="h-5 w-5" />
@@ -352,22 +347,21 @@ export function SubscriptionStatus() {
 
           <div className="flex gap-2">
             <Button
-              onClick={handleUpgradeClick}
-              className="bg-blue-600 text-white hover:bg-blue-700"
+              asChild
+              size="sm"
+              className="bg-gradient-to-b from-primary-light to-primary hover:bg-gradient-to-b hover:from-primary-light/90 hover:to-primary/90"
             >
-              <CreditCard className="mr-2 h-4 w-4" />
-              {usage.limitReached ? 'Upgrade Now' : 'Subscribe Now'}
+              <a
+                href={STRIPE_CHECKOUT_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <CreditCard className="mr-2 h-4 w-4" />
+                {usage.limitReached ? 'Upgrade Now' : 'Subscribe Now'}
+              </a>
             </Button>
           </div>
         </CardContent>
-      </Card>
-
-      <PaywallDialog
-        isOpen={showPaywall}
-        onClose={() => setShowPaywall(false)}
-        editCount={usage.editCount}
-        remainingEdits={usage.remainingEdits ?? 0}
-      />
-    </>
+    </Card>
   );
 }

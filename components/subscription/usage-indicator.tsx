@@ -3,9 +3,11 @@
 import { useState, useEffect } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { CreditCard, Info } from 'lucide-react';
-import { PaywallDialog } from './paywall-dialog';
 import { FREE_DAILY_EDIT_LIMIT, PRO_MONTHLY_EDIT_LIMIT } from '@/data/constants';
+
+const STRIPE_CHECKOUT_URL = 'https://buy.stripe.com/6oUdR9fyd8Sd6Cifd46oo00';
 
 interface UsageIndicatorProps {
   className?: string;
@@ -23,10 +25,53 @@ interface UsageData {
   hasUnlimitedEdits: boolean;
 }
 
+export function UpgradeButton() {
+  const [usageData, setUsageData] = useState<UsageData | null>(null);
+
+  useEffect(() => {
+    const fetchUsageData = async () => {
+      try {
+        const response = await fetch('/api/subscription-status');
+        if (response.ok) {
+          const data = await response.json();
+          setUsageData(data.usage);
+        }
+      } catch (error) {
+        console.error('Error fetching usage data:', error);
+      }
+    };
+
+    fetchUsageData();
+    const handleUsageUpdate = () => fetchUsageData();
+    window.addEventListener('usage-update', handleUsageUpdate);
+    return () => window.removeEventListener('usage-update', handleUsageUpdate);
+  }, []);
+
+  if (!usageData) return null;
+  if (usageData.hasUnlimitedEdits) return null;
+  if (usageData.isPro) return null;
+
+  return (
+    <Button
+      asChild
+      size="sm"
+      className="h-8 gap-1.5 bg-gradient-to-b from-primary-light to-primary px-3 text-white hover:from-primary-light/90 hover:to-primary/90"
+    >
+      <a
+        href={STRIPE_CHECKOUT_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        <CreditCard className="h-3.5 w-3.5" />
+        <span className="font-medium">Subscribe</span>
+      </a>
+    </Button>
+  );
+}
+
 export function UsageIndicator({ className }: UsageIndicatorProps) {
   const [usageData, setUsageData] = useState<UsageData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [showPaywall, setShowPaywall] = useState(false);
 
   useEffect(() => {
     fetchUsageData();
@@ -52,10 +97,6 @@ export function UsageIndicator({ className }: UsageIndicatorProps) {
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const handleUpgradeClick = () => {
-    setShowPaywall(true);
   };
 
   if (isLoading) {
@@ -89,50 +130,38 @@ export function UsageIndicator({ className }: UsageIndicatorProps) {
   } = usageData;
 
   return (
-    <>
-      <div className={`flex items-center gap-2 ${className}`}>
-        <div className="flex items-center gap-1">
-          <Info className="h-4 w-4 text-neutral-500" />
-          <span className="text-xs text-neutral-600">
-            {usageData.isPro
-              ? monthlyLimitReached
-                ? 'Monthly limit reached'
-                : `${remainingMonthlyEdits} monthly edits left`
-              : limitReached
-                ? 'No free edits left'
-                : `${remainingEdits} free edits left`}
-          </span>
-        </div>
-
-        <Badge
-          variant={
-            limitReached || monthlyLimitReached ? 'destructive' : 'secondary'
-          }
-          className="text-xs"
-        >
-          {usageData.isPro ? `${monthlyEditCount}/${PRO_MONTHLY_EDIT_LIMIT}` : `${editCount}/${FREE_DAILY_EDIT_LIMIT}`}
-        </Badge>
-
-        {(limitReached || monthlyLimitReached) && (
-          <Button
-            size="sm"
-            onClick={handleUpgradeClick}
-            className="h-6 bg-blue-600 px-2 text-xs text-white hover:bg-blue-700"
-          >
-            {usageData.isPro ? 'Upgrade Plan' : 'Upgrade'}
-          </Button>
-        )}
-      </div>
-
-      <PaywallDialog
-        isOpen={showPaywall}
-        onClose={() => setShowPaywall(false)}
-        editCount={usageData.isPro ? monthlyEditCount : editCount}
-        remainingEdits={
-          (usageData.isPro ? remainingMonthlyEdits : remainingEdits) ?? 0
+    <div className={`flex items-center gap-2 ${className}`}>
+      <Badge
+        variant={
+          limitReached || monthlyLimitReached ? 'destructive' : 'secondary'
         }
-        isMonthly={usageData.isPro}
-      />
-    </>
+        className="text-xs"
+      >
+        {usageData.isPro
+          ? `${monthlyEditCount}/${PRO_MONTHLY_EDIT_LIMIT}`
+          : `${editCount}/${FREE_DAILY_EDIT_LIMIT}`}
+      </Badge>
+      {(limitReached || monthlyLimitReached) ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Info className="h-4 w-4 cursor-help text-neutral-500" />
+          </TooltipTrigger>
+          <TooltipContent>
+            Please Subscribe to continue using AI
+          </TooltipContent>
+        </Tooltip>
+      ) : (
+        <Info className="h-4 w-4 text-neutral-500" />
+      )}
+      <span className="text-xs text-neutral-600">
+        {usageData.isPro
+          ? monthlyLimitReached
+            ? 'Monthly limit reached'
+            : `${remainingMonthlyEdits} monthly edits left`
+          : limitReached
+            ? 'No free edits left'
+            : `${remainingEdits} free edits left`}
+      </span>
+    </div>
   );
 }

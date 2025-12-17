@@ -2,10 +2,6 @@
 
 An AI-powered collaborative LaTeX editor with real-time PDF compilation and intelligent editing suggestions.
 
-# System Design
-
-<img width="1021" height="448" alt="Screenshot 1447-04-19 at 1 02 32 AM" src="https://github.com/user-attachments/assets/9039ab85-7089-49b2-9dfa-64d92a4da700" />
-
 ## Prerequisites
 
 Before running this project locally, ensure you have the following installed:

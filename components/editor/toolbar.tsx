@@ -9,8 +9,19 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { UsageIndicator, UpgradeButton } from '@/components/subscription/usage-indicator';
-import { Loader2, WandSparkles, ChevronDown, FileText, FolderArchive } from 'lucide-react';
+import { PaywallDialog } from '@/components/subscription/paywall-dialog';
+import { Loader2, WandSparkles, ChevronDown, FileText, FolderArchive, Lock } from 'lucide-react';
 import { useEffect, useState } from 'react';
+
+interface SubscriptionData {
+  hasSubscription: boolean;
+  usage: {
+    editCount: number;
+    remainingEdits: number | null;
+    isPro: boolean;
+    hasUnlimitedEdits: boolean;
+  };
+}
 
 interface EditorToolbarProps {
   onTextFormat: (format: 'bold' | 'italic' | 'underline') => void;
@@ -38,10 +49,38 @@ export function EditorToolbar({
   hasPdfData = false,
 }: EditorToolbarProps) {
   const [isMac, setIsMac] = useState(true);
+  const [showPaywall, setShowPaywall] = useState(false);
+  const [subscriptionData, setSubscriptionData] = useState<SubscriptionData | null>(null);
 
   useEffect(() => {
     setIsMac(navigator.platform.toUpperCase().indexOf('MAC') >= 0);
+    
+    // Fetch subscription status
+    fetch('/api/subscription-status')
+      .then(res => res.ok ? res.json() : null)
+      .then(data => setSubscriptionData(data))
+      .catch(() => {});
   }, []);
+
+  const isPro = subscriptionData?.hasSubscription || 
+                subscriptionData?.usage?.isPro || 
+                subscriptionData?.usage?.hasUnlimitedEdits;
+
+  const handleExportPDF = () => {
+    if (!isPro) {
+      setShowPaywall(true);
+      return;
+    }
+    onExportPDF();
+  };
+
+  const handleExportZIP = () => {
+    if (!isPro) {
+      setShowPaywall(true);
+      return;
+    }
+    onExportZIP();
+  };
   return (
     <div className="flex-shrink-0 border-b border-slate-200 bg-white p-2">
       <div className="flex items-center justify-between">
@@ -133,24 +172,32 @@ export function EditorToolbar({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem
-                onClick={onExportPDF}
+                onClick={handleExportPDF}
                 disabled={!hasPdfData}
                 className="gap-2"
               >
                 <FileText className="size-4" />
                 Export as PDF
+                {!isPro && <Lock className="ml-auto size-3 text-amber-500" />}
               </DropdownMenuItem>
               <DropdownMenuItem
-                onClick={onExportZIP}
+                onClick={handleExportZIP}
                 className="gap-2"
               >
                 <FolderArchive className="size-4" />
                 Export as ZIP
+                {!isPro && <Lock className="ml-auto size-3 text-amber-500" />}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
       </div>
+
+      <PaywallDialog
+        isOpen={showPaywall}
+        onClose={() => setShowPaywall(false)}
+        variant="export"
+      />
     </div>
   );
 }

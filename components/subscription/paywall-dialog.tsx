@@ -13,20 +13,24 @@ import { Badge } from '@/components/ui/badge';
 import { CreditCard, Lock, CheckCircle } from 'lucide-react';
 import { FREE_DAILY_EDIT_LIMIT, PRO_MONTHLY_EDIT_LIMIT } from '@/data/constants';
 
+type PaywallVariant = 'edit-limit' | 'export';
+
 interface PaywallDialogProps {
   isOpen: boolean;
   onClose: () => void;
-  editCount: number;
-  remainingEdits: number;
+  editCount?: number;
+  remainingEdits?: number;
   isMonthly?: boolean;
+  variant?: PaywallVariant;
 }
 
 export function PaywallDialog({
   isOpen,
   onClose,
-  editCount,
-  remainingEdits,
+  editCount = 0,
+  remainingEdits = 0,
   isMonthly = false,
+  variant = 'edit-limit',
 }: PaywallDialogProps) {
   const [isLoading, setIsLoading] = useState(false);
 
@@ -46,15 +50,25 @@ export function PaywallDialog({
     `${PRO_MONTHLY_EDIT_LIMIT} AI-powered edits per month`,
     'Advanced LaTeX compilation',
     'Priority support',
-    'Early access to new features',
     'Export to multiple formats',
   ];
 
-  const limitType = isMonthly ? 'Monthly' : 'Daily';
+  // Variant-specific content
+  const isExportVariant = variant === 'export';
+  
+  const title = isExportVariant 
+    ? 'Subscribe to Export'
+    : isMonthly 
+      ? 'Monthly Limit Reached' 
+      : 'Daily Limit Reached';
+
+  const description = isExportVariant
+    ? 'Exporting documents is a Pro feature. Subscribe to download your work as PDF or ZIP.'
+    : isMonthly
+      ? `You've used ${editCount} out of ${PRO_MONTHLY_EDIT_LIMIT} monthly AI edits. Upgrade to Pro for more!`
+      : `You've used ${editCount} out of ${FREE_DAILY_EDIT_LIMIT} daily AI edits. Upgrade to Pro for ${PRO_MONTHLY_EDIT_LIMIT} edits per month!`;
+
   const maxEdits = isMonthly ? PRO_MONTHLY_EDIT_LIMIT : FREE_DAILY_EDIT_LIMIT;
-  const limitText = isMonthly
-    ? `You've used ${editCount} out of ${PRO_MONTHLY_EDIT_LIMIT} monthly AI edits. Upgrade to Pro for more!`
-    : `You've used ${editCount} out of ${FREE_DAILY_EDIT_LIMIT} daily AI edits. Upgrade to Pro for ${PRO_MONTHLY_EDIT_LIMIT} edits per month!`;
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -62,37 +76,37 @@ export function PaywallDialog({
         <DialogHeader>
           <div className="mb-2 flex items-center gap-2">
             <Lock className="h-6 w-6 text-amber-500" />
-            <DialogTitle className="text-xl">
-              {limitType} Limit Reached
-            </DialogTitle>
+            <DialogTitle className="text-xl">{title}</DialogTitle>
           </div>
           <DialogDescription className="text-base">
-            {limitText}
+            {description}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-6">
-          <div className="rounded-lg bg-neutral-50 p-4">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-sm font-medium text-neutral-700">
-                Your Usage
-              </span>
-              <Badge variant="secondary">
-                {editCount}/{maxEdits} edits used
-              </Badge>
+          {!isExportVariant && (
+            <div className="rounded-lg bg-neutral-50 p-4">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-sm font-medium text-neutral-700">
+                  Your Usage
+                </span>
+                <Badge variant="secondary">
+                  {editCount}/{maxEdits} edits used
+                </Badge>
+              </div>
+              <div className="h-2 w-full rounded-full bg-neutral-200">
+                <div
+                  className="h-2 rounded-full bg-amber-500 transition-all duration-300"
+                  style={{ width: `${(editCount / maxEdits) * 100}%` }}
+                />
+              </div>
+              <p className="mt-2 text-xs text-neutral-500">
+                {remainingEdits > 0
+                  ? `${remainingEdits} edits remaining`
+                  : 'No edits remaining'}
+              </p>
             </div>
-            <div className="h-2 w-full rounded-full bg-neutral-200">
-              <div
-                className="h-2 rounded-full bg-amber-500 transition-all duration-300"
-                style={{ width: `${(editCount / maxEdits) * 100}%` }}
-              />
-            </div>
-            <p className="mt-2 text-xs text-neutral-500">
-              {remainingEdits > 0
-                ? `${remainingEdits} edits remaining`
-                : 'No edits remaining'}
-            </p>
-          </div>
+          )}
 
           <div className="space-y-3">
             <h3 className="flex items-center gap-2 font-semibold text-neutral-900">
@@ -115,7 +129,7 @@ export function PaywallDialog({
             <Button
               onClick={handleSubscribe}
               disabled={isLoading}
-              className="w-full bg-blue-600 text-white hover:bg-blue-700"
+              className="w-full bg-gradient-to-b from-primary-light to-primary text-white hover:from-primary-light/90 hover:to-primary/90"
               size="lg"
             >
               {isLoading ? (
@@ -126,7 +140,7 @@ export function PaywallDialog({
               ) : (
                 <div className="flex items-center gap-2">
                   <CreditCard className="h-4 w-4" />
-                  {isMonthly ? 'Upgrade Plan' : 'Upgrade to Pro'}
+                  Subscribe Now
                 </div>
               )}
             </Button>
@@ -137,9 +151,9 @@ export function PaywallDialog({
           </div>
 
           <p className="text-center text-xs text-neutral-500">
-            {isMonthly
-              ? 'You can continue using the editor, but AI-powered edits require a plan upgrade.'
-              : 'You can continue using the editor, but AI-powered edits require a Pro subscription.'}
+            {isExportVariant
+              ? 'Subscribe to unlock exports and all Pro features.'
+              : 'You can continue using the editor, but this feature requires a Pro subscription.'}
           </p>
         </div>
       </DialogContent>

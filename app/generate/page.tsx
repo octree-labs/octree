@@ -40,13 +40,6 @@ export default async function GeneratePage() {
                                     Octree
                                 </span>
                             </Link>
-                            <Link
-                                href="/generate"
-                                className="ml-6 flex items-center gap-1 text-sm font-medium text-blue-600"
-                            >
-                                <Sparkles className="h-4 w-4" />
-                                Generate
-                            </Link>
                         </div>
                         <div className="flex items-center">
                             <UserProfileDropdown userName={userName} />

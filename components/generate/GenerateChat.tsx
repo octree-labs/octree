@@ -23,6 +23,7 @@ interface Artifacts {
 export function GenerateChat() {
     const [prompt, setPrompt] = useState('');
     const [isGenerating, setIsGenerating] = useState(false);
+    const [isFetchingArtifacts, setIsFetchingArtifacts] = useState(false);
     const [logs, setLogs] = useState<string[]>([]);
     const [runId, setRunId] = useState<string | null>(null);
     const [artifacts, setArtifacts] = useState<Artifacts | null>(null);
@@ -46,6 +47,7 @@ export function GenerateChat() {
         }
 
         isPollingRef.current = true;
+        setIsFetchingArtifacts(true);
         const apiUrl = process.env.NEXT_PUBLIC_RESEARCHER_API_URL || 'http://localhost:8000';
         let attempts = 0;
         const maxAttempts = 20;
@@ -73,6 +75,7 @@ export function GenerateChat() {
             }
         } finally {
             isPollingRef.current = false;
+            setIsFetchingArtifacts(false);
         }
     };
 
@@ -150,14 +153,7 @@ export function GenerateChat() {
             setIsGenerating(false);
             if (generatedRunId) {
                 pollForArtifacts(generatedRunId);
-            } else {
-                console.warn(' No generatedRunId found, skipping polling.');
             }
-        }
-    };
-    const handleFetchArtifacts = () => {
-        if (runId) {
-            pollForArtifacts(runId);
         }
     };
 
@@ -239,10 +235,11 @@ export function GenerateChat() {
                             Download BibTeX
                         </a>
                     )}
-                    {runId && !artifacts && (
-                        <Button variant="outline" size="sm" onClick={handleFetchArtifacts}>
-                            Fetch Artifacts
-                        </Button>
+                    {runId && !artifacts && isFetchingArtifacts && (
+                        <div className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-500">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Fetching artifacts...
+                        </div>
                     )}
                 </div>
             )}

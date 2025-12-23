@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Send, Loader2, FileText, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { Card, CardContent } from '@/components/ui/card';
 
 interface StreamEvent {
     type: string;
@@ -38,8 +39,6 @@ export function GenerateChat() {
     useEffect(() => {
         scrollToBottom();
     }, [logs]);
-
-
 
     const pollForArtifacts = async (id: string) => {
         if (isPollingRef.current) {
@@ -130,13 +129,11 @@ export function GenerateChat() {
                     try {
                         const event: StreamEvent = JSON.parse(line);
 
-                        // Capture run_id
                         if (event.run_id) {
                             setRunId(event.run_id);
                             generatedRunId = event.run_id;
                         }
 
-                        // Add log line
                         if (event.plain) {
                             setLogs((prev) => [...prev, event.plain!]);
                         } else if (event.raw) {
@@ -159,20 +156,19 @@ export function GenerateChat() {
 
     return (
         <div className="flex h-full flex-col">
-            {/* Logs area */}
-            <div className="flex-1 overflow-y-auto rounded-lg border border-gray-200 bg-gray-50 p-4 font-mono text-sm">
+            <div className="flex-1 overflow-y-auto rounded-lg border border-border bg-muted/30 p-4 font-mono text-sm">
                 {logs.length === 0 && !isGenerating && (
-                    <div className="flex h-full items-center justify-center text-gray-400">
+                    <div className="flex h-full items-center justify-center text-muted-foreground">
                         Enter a research prompt to get started
                     </div>
                 )}
                 {logs.map((log, index) => (
-                    <div key={index} className="whitespace-pre-wrap text-gray-700">
+                    <div key={index} className="whitespace-pre-wrap text-foreground">
                         {log}
                     </div>
                 ))}
                 {isGenerating && (
-                    <div className="flex items-center gap-2 text-blue-600">
+                    <div className="flex items-center gap-2 text-primary">
                         <Loader2 className="h-4 w-4 animate-spin" />
                         Generating...
                     </div>
@@ -180,71 +176,57 @@ export function GenerateChat() {
                 <div ref={logsEndRef} />
             </div>
 
-            {/* Error message */}
             {error && (
-                <div className="mt-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-                    {error}
-                </div>
+                <Card className="mt-2 border-destructive bg-destructive/10 py-3">
+                    <CardContent className="p-3 text-sm text-destructive">
+                        {error}
+                    </CardContent>
+                </Card>
             )}
 
-            {/* Artifacts */}
             {(artifacts || runId) && !isGenerating && (
                 <div className="mt-4 flex flex-wrap gap-2">
                     {artifacts?.pdf_url && (
-                        <a
-                            href={artifacts.pdf_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-                        >
-                            <FileText className="h-4 w-4" />
-                            View PDF
-                        </a>
+                        <Button variant="outline" size="sm" asChild>
+                            <a href={artifacts.pdf_url} target="_blank" rel="noopener noreferrer">
+                                <FileText className="h-4 w-4" />
+                                View PDF
+                            </a>
+                        </Button>
                     )}
                     {artifacts?.pdf_url && (
-                        <a
-                            href={artifacts.pdf_url}
-                            download
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-                        >
-                            <Download className="h-4 w-4" />
-                            Download PDF
-                        </a>
+                        <Button variant="outline" size="sm" asChild>
+                            <a href={artifacts.pdf_url} download target="_blank" rel="noopener noreferrer">
+                                <Download className="h-4 w-4" />
+                                Download PDF
+                            </a>
+                        </Button>
                     )}
                     {artifacts?.latex_url && (
-                        <a
-                            href={artifacts.latex_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-                        >
-                            <Download className="h-4 w-4" />
-                            Download LaTeX
-                        </a>
+                        <Button variant="outline" size="sm" asChild>
+                            <a href={artifacts.latex_url} target="_blank" rel="noopener noreferrer">
+                                <Download className="h-4 w-4" />
+                                Download LaTeX
+                            </a>
+                        </Button>
                     )}
                     {artifacts?.references_url && (
-                        <a
-                            href={artifacts.references_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-                        >
-                            <Download className="h-4 w-4" />
-                            Download BibTeX
-                        </a>
+                        <Button variant="outline" size="sm" asChild>
+                            <a href={artifacts.references_url} target="_blank" rel="noopener noreferrer">
+                                <Download className="h-4 w-4" />
+                                Download BibTeX
+                            </a>
+                        </Button>
                     )}
                     {runId && !artifacts && isFetchingArtifacts && (
-                        <div className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-500">
+                        <Button variant="outline" size="sm" disabled>
                             <Loader2 className="h-4 w-4 animate-spin" />
                             Fetching artifacts...
-                        </div>
+                        </Button>
                     )}
                 </div>
             )}
 
-            {/* Input form */}
             <form onSubmit={handleSubmit} className="mt-4">
                 <div className="flex gap-2">
                     <Textarea

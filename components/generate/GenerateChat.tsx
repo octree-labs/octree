@@ -28,6 +28,7 @@ export function GenerateChat() {
     const [artifacts, setArtifacts] = useState<Artifacts | null>(null);
     const [error, setError] = useState<string | null>(null);
     const logsEndRef = useRef<HTMLDivElement>(null);
+    const isPollingRef = useRef(false);
 
     const scrollToBottom = () => {
         logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -36,6 +37,44 @@ export function GenerateChat() {
     useEffect(() => {
         scrollToBottom();
     }, [logs]);
+
+
+
+    const pollForArtifacts = async (id: string) => {
+        if (isPollingRef.current) {
+            return;
+        }
+
+        isPollingRef.current = true;
+        const apiUrl = process.env.NEXT_PUBLIC_RESEARCHER_API_URL || 'http://localhost:8000';
+        let attempts = 0;
+        const maxAttempts = 20;
+
+        try {
+            while (attempts < maxAttempts) {
+                try {
+                    const response = await fetch(`${apiUrl}/api/artifacts/${id}`);
+
+                    if (response.ok) {
+                        const data = await response.json();
+
+                        if (data.artifacts && (data.artifacts.pdf_url || data.artifacts.latex_url)) {
+                            console.log('Found artifacts:', data.artifacts);
+                            setArtifacts(data.artifacts);
+                            return;
+                        }
+                    }
+                } catch (e) {
+                    console.error('Error polling artifacts:', e);
+                }
+
+                attempts++;
+                await new Promise(resolve => setTimeout(resolve, 2000));
+            }
+        } finally {
+            isPollingRef.current = false;
+        }
+    };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -46,6 +85,8 @@ export function GenerateChat() {
         setRunId(null);
         setArtifacts(null);
         setError(null);
+
+        let generatedRunId: string | null = null;
 
         try {
             const apiUrl = process.env.NEXT_PUBLIC_RESEARCHER_API_URL || 'http://localhost:8000';
@@ -72,6 +113,7 @@ export function GenerateChat() {
             }
 
             let buffer = '';
+
             while (true) {
                 const { done, value } = await reader.read();
                 if (done) break;
@@ -88,6 +130,7 @@ export function GenerateChat() {
                         // Capture run_id
                         if (event.run_id) {
                             setRunId(event.run_id);
+                            generatedRunId = event.run_id;
                         }
 
                         // Add log line
@@ -97,38 +140,24 @@ export function GenerateChat() {
                             setLogs((prev) => [...prev, event.raw!]);
                         }
                     } catch {
-                        // Non-JSON line, add as-is
                         setLogs((prev) => [...prev, line]);
                     }
-                }
-            }
-
-            // Fetch artifacts if we have a run_id
-            if (runId) {
-                const artifactsResponse = await fetch(`${apiUrl}/api/artifacts/${runId}`);
-                if (artifactsResponse.ok) {
-                    const data = await artifactsResponse.json();
-                    setArtifacts(data.artifacts);
                 }
             }
         } catch (err) {
             setError(err instanceof Error ? err.message : 'An error occurred');
         } finally {
             setIsGenerating(false);
+            if (generatedRunId) {
+                pollForArtifacts(generatedRunId);
+            } else {
+                console.warn(' No generatedRunId found, skipping polling.');
+            }
         }
     };
-
-    const fetchArtifacts = async () => {
-        if (!runId) return;
-        const apiUrl = process.env.NEXT_PUBLIC_RESEARCHER_API_URL || 'http://localhost:8000';
-        try {
-            const response = await fetch(`${apiUrl}/api/artifacts/${runId}`);
-            if (response.ok) {
-                const data = await response.json();
-                setArtifacts(data.artifacts);
-            }
-        } catch {
-            // Ignore errors
+    const handleFetchArtifacts = () => {
+        if (runId) {
+            pollForArtifacts(runId);
         }
     };
 
@@ -176,6 +205,18 @@ export function GenerateChat() {
                             View PDF
                         </a>
                     )}
+                    {artifacts?.pdf_url && (
+                        <a
+                            href={artifacts.pdf_url}
+                            download
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                        >
+                            <Download className="h-4 w-4" />
+                            Download PDF
+                        </a>
+                    )}
                     {artifacts?.latex_url && (
                         <a
                             href={artifacts.latex_url}
@@ -187,8 +228,19 @@ export function GenerateChat() {
                             Download LaTeX
                         </a>
                     )}
+                    {artifacts?.references_url && (
+                        <a
+                            href={artifacts.references_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                        >
+                            <Download className="h-4 w-4" />
+                            Download BibTeX
+                        </a>
+                    )}
                     {runId && !artifacts && (
-                        <Button variant="outline" size="sm" onClick={fetchArtifacts}>
+                        <Button variant="outline" size="sm" onClick={handleFetchArtifacts}>
                             Fetch Artifacts
                         </Button>
                     )}

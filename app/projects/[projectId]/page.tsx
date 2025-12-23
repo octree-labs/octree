@@ -24,6 +24,10 @@ import {
   ResizablePanel,
   ResizableHandle,
 } from '@/components/ui/resizable';
+import {
+  Sheet,
+  SheetContent,
+} from '@/components/ui/sheet';
 import { formatCompilationErrorForAI } from '@/lib/utils';
 import { FileActions, useProjectFiles, useSelectedFile } from '@/stores/file';
 import { getProject, getProjectFiles } from '@/lib/requests/project';
@@ -212,6 +216,8 @@ export default function ProjectPage() {
           }
           setChatOpen(true);
         }}
+        onToggleChat={() => setChatOpen(prev => !prev)}
+        chatOpen={chatOpen}
         compiling={compiling}
         exporting={exporting}
         isSaving={isSaving}
@@ -223,7 +229,7 @@ export default function ProjectPage() {
         direction="horizontal"
         className="flex min-h-0 flex-1"
       >
-        <ResizablePanel defaultSize={50} minSize={30}>
+        <ResizablePanel defaultSize={50} minSize={25}>
           <div className="relative h-full">
             <div className="h-full overflow-hidden">
               {isImage && selectedFile ? (
@@ -275,7 +281,7 @@ export default function ProjectPage() {
           </div>
         </ResizablePanel>
         <ResizableHandle withHandle />
-        <ResizablePanel defaultSize={50} minSize={40}>
+        <ResizablePanel defaultSize={50} minSize={30}>
           <div className="h-full overflow-hidden border-l border-slate-200">
             {compilationError && !pdfData ? (
               <div className="flex h-full items-start justify-center overflow-auto p-4">
@@ -321,21 +327,28 @@ export default function ProjectPage() {
         </ResizablePanel>
       </ResizablePanelGroup>
 
-      <Chat
-        isOpen={chatOpen}
-        setIsOpen={setChatOpen}
-        onEditSuggestion={handleSuggestionFromChat}
-        onAcceptAllEdits={handleAcceptAllEdits}
-        pendingEditCount={totalPendingCount}
-        fileContent={content}
-        textFromEditor={textFromEditor}
-        setTextFromEditor={setTextFromEditor}
-        selectionRange={selectionRange}
-        projectFiles={projectFileContext}
-        currentFilePath={selectedFile?.name ?? null}
-        autoSendMessage={autoSendMessage}
-        setAutoSendMessage={setAutoSendMessage}
-      />
+      <Sheet open={chatOpen} onOpenChange={setChatOpen}>
+        <SheetContent
+          side="right"
+          className="w-[420px] p-0 sm:max-w-[420px] [&>button]:hidden"
+        >
+          <Chat
+            isOpen={chatOpen}
+            setIsOpen={setChatOpen}
+            onEditSuggestion={handleSuggestionFromChat}
+            onAcceptAllEdits={handleAcceptAllEdits}
+            pendingEditCount={totalPendingCount}
+            fileContent={content}
+            textFromEditor={textFromEditor}
+            setTextFromEditor={setTextFromEditor}
+            selectionRange={selectionRange}
+            projectFiles={projectFileContext}
+            currentFilePath={selectedFile?.name ?? null}
+            autoSendMessage={autoSendMessage}
+            setAutoSendMessage={setAutoSendMessage}
+          />
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

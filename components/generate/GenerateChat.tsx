@@ -100,7 +100,7 @@ export function GenerateChat() {
                 },
                 body: JSON.stringify({
                     prompt: prompt.trim(),
-                    test_mode: true,
+                    test_mode: false,
                 }),
             });
 

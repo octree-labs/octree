@@ -325,7 +325,7 @@ export default function ProjectPage() {
 
       {/* Chat Sidebar - fixed to right, full viewport height */}
       <div
-        className={`fixed inset-y-0 right-0 z-20 w-[340px] border-l border-slate-200 bg-white shadow-xl transition-transform duration-300 ease-in-out ${
+        className={`fixed inset-y-0 right-0 z-20 w-[340px] border-l border-slate-200 bg-white transition-transform duration-300 ease-in-out ${
           chatOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
       >

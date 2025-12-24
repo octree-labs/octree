@@ -8,14 +8,10 @@ interface UseSuggestionQueueProps {
 }
 
 /**
- * Manages edit suggestions (no batching - shows all at once)
+ * Manages edit suggestions
  */
 export function useSuggestionQueue({ editor }: UseSuggestionQueueProps) {
   const [editSuggestions, setEditSuggestions] = useState<EditSuggestion[]>([]);
-
-  const clearContinueToast = useCallback(() => {
-    // No-op - kept for API compatibility
-  }, []);
 
   const handleEditSuggestion = useCallback(
     (suggestionInput: EditSuggestion | EditSuggestion[]) => {
@@ -45,20 +41,13 @@ export function useSuggestionQueue({ editor }: UseSuggestionQueueProps) {
     [editor]
   );
 
-  const handleNextSuggestion = useCallback(() => {
-    // No-op - kept for API compatibility
-  }, []);
-
   const totalPendingCount = editSuggestions.filter((s) => s.status === 'pending').length;
 
   return {
     editSuggestions,
     setEditSuggestions,
-    queuedSuggestions: [] as EditSuggestion[],
     totalPendingCount,
     handleEditSuggestion,
-    handleNextSuggestion,
-    clearContinueToast,
   };
 }
 

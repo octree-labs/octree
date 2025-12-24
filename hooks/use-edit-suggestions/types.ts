@@ -14,19 +14,11 @@ export interface EditSuggestionsState {
   handleAcceptEdit: (suggestionId: string) => Promise<void>;
   handleAcceptAllEdits: () => Promise<void>;
   handleRejectEdit: (suggestionId: string) => void;
-  handleNextSuggestion: () => void;
 }
 
 export interface UseEditSuggestionsProps {
   editor: Monaco.editor.IStandaloneCodeEditor | null;
   monacoInstance: typeof Monaco | null;
   showInlinePreview?: boolean; // controls inline 'after' preview decoration
-}
-
-export interface SuggestionQueueState {
-  editSuggestions: EditSuggestion[];
-  queuedSuggestions: EditSuggestion[];
-  totalPendingCount: number;
-  hasActiveBatch: boolean;
 }
 

@@ -20,15 +20,12 @@ export function useEditSuggestions({
   // Note: Quota is consumed on generation (in /api/octra-agent), not on accept
   const { canEdit } = useEditLimitCache();
 
-  // Manage suggestion queue with batching
+  // Manage suggestions
   const {
     editSuggestions,
     setEditSuggestions,
-    queuedSuggestions,
     totalPendingCount,
     handleEditSuggestion,
-    handleNextSuggestion,
-    clearContinueToast,
   } = useSuggestionQueue({ editor });
 
   // Manage editor decorations
@@ -68,13 +65,9 @@ export function useEditSuggestions({
 
   // Accept all pending edits
   const handleAcceptAllEdits = useCallback(async () => {
-    // Get ALL suggestions - both visible and queued
-    const allPendingSuggestions = [
-      ...editSuggestions.filter((s) => s.status === 'pending'),
-      ...queuedSuggestions
-    ];
+    const pendingSuggestions = editSuggestions.filter((s) => s.status === 'pending');
 
-    if (allPendingSuggestions.length === 0) return;
+    if (pendingSuggestions.length === 0) return;
 
     // Fast check using cached status
     if (!canEdit) {
@@ -90,23 +83,19 @@ export function useEditSuggestions({
     }
 
     await acceptAllEdits(
-      allPendingSuggestions,
+      pendingSuggestions,
       editor,
       monacoInstance,
       () => {
-        // Clear all suggestions and queue
         setEditSuggestions([]);
-        clearContinueToast();
       }
     );
   }, [
     editSuggestions,
-    queuedSuggestions,
     canEdit,
     editor,
     monacoInstance,
     setEditSuggestions,
-    clearContinueToast,
   ]);
 
   // Reject a single edit
@@ -126,7 +115,6 @@ export function useEditSuggestions({
     handleAcceptEdit,
     handleAcceptAllEdits,
     handleRejectEdit,
-    handleNextSuggestion,
   };
 }
 

@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { UsageIndicator, UpgradeButton } from '@/components/subscription/usage-indicator';
 import { PaywallDialog } from '@/components/subscription/paywall-dialog';
-import { Loader2, WandSparkles, ChevronDown, FileText, FolderArchive, Lock } from 'lucide-react';
+import { Loader2, WandSparkles, ChevronDown, FileText, FolderArchive, Lock, MessageSquare, PanelRightClose } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 interface SubscriptionData {
@@ -29,6 +29,8 @@ interface EditorToolbarProps {
   onExportPDF: () => void;
   onExportZIP: () => void;
   onOpenChat: () => void;
+  onToggleChat: () => void;
+  chatOpen: boolean;
   compiling: boolean;
   exporting: boolean;
   isSaving: boolean;
@@ -42,6 +44,8 @@ export function EditorToolbar({
   onExportPDF,
   onExportZIP,
   onOpenChat,
+  onToggleChat,
+  chatOpen,
   compiling,
   exporting,
   isSaving,
@@ -190,6 +194,21 @@ export function EditorToolbar({
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+
+          <Button
+            variant={chatOpen ? 'secondary' : 'ghost'}
+            size="sm"
+            onClick={onToggleChat}
+            className="gap-1.5"
+            title={chatOpen ? 'Close AI Chat' : 'Open AI Chat'}
+          >
+            {chatOpen ? (
+              <PanelRightClose className="size-4" />
+            ) : (
+              <MessageSquare className="size-4" />
+            )}
+            <span className="hidden sm:inline">{chatOpen ? 'Close' : 'Chat'}</span>
+          </Button>
         </div>
       </div>
 

@@ -59,17 +59,12 @@ export function Chat({
   const [isLoading, setIsLoading] = useState(false);
   const [conversionStatus, setConversionStatus] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
-  const [isMac, setIsMac] = useState(true);
 
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const shouldStickToBottomRef = useRef<boolean>(true);
   const currentAssistantIdRef = useRef<string | null>(null);
   const chatInputRef = useRef<ChatInputRef>(null);
   const formRef = useRef<HTMLFormElement>(null);
-
-  useEffect(() => {
-    setIsMac(navigator.platform.toUpperCase().indexOf('MAC') >= 0);
-  }, []);
 
   useEffect(() => {
     if (isOpen) {
@@ -350,38 +345,20 @@ export function Chat({
   };
 
   if (!isOpen) {
-    return (
-      <div
-        className="fixed bottom-4 right-4 z-20 flex cursor-pointer flex-col items-end space-y-2"
-        onClick={() => setIsOpen(true)}
-      >
-        <div className="mb-2 rounded-md border border-neutral-300 bg-white/80 px-3 py-1.5 text-sm text-foreground shadow-sm backdrop-blur-sm">
-          Press{' '}
-          <kbd className="rounded-sm bg-slate-100 px-1.5 py-0.5 font-mono text-xs">
-            {isMac ? '⌘' : 'Ctrl'}
-          </kbd>
-          {' + '}
-          <kbd className="rounded-sm bg-slate-100 px-1.5 py-0.5 font-mono text-xs">
-            B
-          </kbd>{' '}
-          to chat
-        </div>
-      </div>
-    );
+    return null;
   }
 
   return (
-    <div className="fixed bottom-4 right-4 z-20 h-[610px] w-96 rounded-md border border-blue-100 bg-white shadow-2xl transition-all duration-200">
-      <div className="flex items-center justify-between border-b border-blue-100/50 px-4 py-2">
+    <div className="flex h-full flex-col bg-white">
+      <div className="flex flex-shrink-0 items-center justify-between border-b border-slate-200 px-4 py-2">
         <div className="flex items-center space-x-3">
-          <OctreeLogo className="h-6 w-6" />
+          <OctreeLogo className="h-5 w-5" />
           <div>
-            <h3 className="font-semibold text-blue-800">Octra</h3>
-            <p className="text-xs text-slate-500">LaTeX Assistant</p>
+            <h3 className="text-sm font-semibold text-slate-800">Octra</h3>
           </div>
         </div>
 
-        <div className="flex gap-1">
+        <div className="flex items-center gap-1">
           {isLoading && (
             <div className="flex items-center pr-1" aria-live="polite">
               <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
@@ -392,14 +369,14 @@ export function Chat({
               size="sm"
               onClick={onAcceptAllEdits}
               disabled={isLoading}
-              className="h-8 rounded-lg bg-green-600 px-2 text-xs text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
+              className="h-7 rounded-md bg-green-600 px-2 text-xs text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
               title={
                 isLoading
                   ? 'Wait for all edits to finish generating'
                   : 'Accept all pending edits'
               }
             >
-              <CheckCheck size={14} className="mr-1" />
+              <CheckCheck size={12} className="mr-1" />
               Accept All ({pendingEditCount})
             </Button>
           )}
@@ -407,17 +384,18 @@ export function Chat({
             variant="ghost"
             size="sm"
             onClick={() => setIsOpen(false)}
-            className="h-8 w-8 rounded-lg p-0 text-blue-600 hover:bg-blue-50 hover:text-blue-800"
+            className="h-7 w-7 rounded-md p-0 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+            title="Close chat"
           >
-            <X size={16} />
+            <X size={14} />
           </Button>
         </div>
       </div>
 
-      <div className="flex flex-col" style={{ height: 'calc(100% - 56px)' }}>
+      <div className="flex min-h-0 flex-1 flex-col">
         <div
           ref={chatContainerRef}
-          className="min-h-[300px] flex-1 overflow-y-auto overflow-x-hidden p-4 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-neutral-300"
+          className="flex-1 overflow-y-auto overflow-x-hidden p-4 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-neutral-300"
         >
           {messages.length === 0 && !isLoading && !conversionStatus && (
             <EmptyState />

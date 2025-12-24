@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Loader2, X, CheckCheck } from 'lucide-react';
 import { OctreeLogo } from '@/components/icons/octree-logo';
@@ -14,7 +14,10 @@ import { EmptyState } from './empty-state';
 
 interface ChatProps {
   onEditSuggestion: (edit: EditSuggestion | EditSuggestion[]) => void;
+  onAcceptEdit: (suggestionId: string) => void;
+  onRejectEdit: (suggestionId: string) => void;
   onAcceptAllEdits?: () => void;
+  editSuggestions: EditSuggestion[];
   pendingEditCount?: number;
   fileContent: string;
   textFromEditor: string | null;
@@ -43,7 +46,10 @@ export function Chat({
   isOpen,
   setIsOpen,
   onEditSuggestion,
+  onAcceptEdit,
+  onRejectEdit,
   onAcceptAllEdits,
+  editSuggestions,
   pendingEditCount = 0,
   fileContent,
   textFromEditor,
@@ -344,6 +350,19 @@ export function Chat({
     setMessages([]);
   };
 
+  // Group suggestions by messageId
+  const suggestionsByMessage = useMemo(() => {
+    const map = new Map<string, EditSuggestion[]>();
+    for (const suggestion of editSuggestions) {
+      if (suggestion.messageId) {
+        const existing = map.get(suggestion.messageId) || [];
+        existing.push(suggestion);
+        map.set(suggestion.messageId, existing);
+      }
+    }
+    return map;
+  }, [editSuggestions]);
+
   if (!isOpen) {
     return null;
   }
@@ -407,6 +426,9 @@ export function Chat({
               isLoading={isLoading}
               proposalIndicator={proposalIndicators[message.id]}
               textFromEditor={textFromEditor}
+              suggestions={suggestionsByMessage.get(message.id) || []}
+              onAcceptEdit={onAcceptEdit}
+              onRejectEdit={onRejectEdit}
             />
           ))}
 

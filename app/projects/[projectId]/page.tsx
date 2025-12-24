@@ -13,7 +13,6 @@ import { useEditorKeyboardShortcuts } from '@/hooks/use-editor-keyboard-shortcut
 import { MonacoEditor } from '@/components/editor/monaco-editor';
 import { EditorToolbar } from '@/components/editor/toolbar';
 import { SelectionButton } from '@/components/editor/selection-button';
-import { SuggestionActions } from '@/components/editor/suggestion-actions';
 import { LoadingState } from '@/components/editor/loading-state';
 import { ErrorState } from '@/components/editor/error-state';
 import PDFViewer from '@/components/pdf-viewer';
@@ -256,11 +255,6 @@ export default function ProjectPage() {
                       position={buttonPos}
                       onCopy={() => handleCopy()}
                     />
-                    <SuggestionActions
-                      suggestions={editSuggestions}
-                      onAccept={handleAcceptEdit}
-                      onReject={handleRejectEdit}
-                    />
                   </>
                 ) : selectedFile ? (
                   <div className="flex h-full items-center justify-center bg-slate-50">
@@ -331,7 +325,7 @@ export default function ProjectPage() {
 
       {/* Chat Sidebar - fixed to right, full viewport height */}
       <div
-        className={`fixed inset-y-0 right-0 z-20 w-[340px] border-l border-slate-200 bg-white shadow-xl transition-transform duration-300 ease-in-out ${
+        className={`fixed inset-y-0 right-0 z-20 w-[340px] border-l border-slate-200 bg-white transition-transform duration-300 ease-in-out ${
           chatOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
@@ -339,7 +333,10 @@ export default function ProjectPage() {
           isOpen={chatOpen}
           setIsOpen={setChatOpen}
           onEditSuggestion={handleSuggestionFromChat}
+          onAcceptEdit={handleAcceptEdit}
+          onRejectEdit={handleRejectEdit}
           onAcceptAllEdits={handleAcceptAllEdits}
+          editSuggestions={editSuggestions}
           pendingEditCount={totalPendingCount}
           fileContent={content}
           textFromEditor={textFromEditor}

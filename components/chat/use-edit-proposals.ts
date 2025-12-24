@@ -201,6 +201,7 @@ export function useEditProposals(fileContent: string) {
         return {
           ...edit,
           id: `${Date.now()}-${editIdCounterRef.current}-${idx}`,
+          messageId,
           status: 'pending' as const,
           original: originalContent,
         };

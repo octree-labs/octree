@@ -16,6 +16,7 @@ import { AddFolderDialog } from '@/components/projects/add-folder-dialog';
 import { RenameFileDialog } from '@/components/projects/rename-file-dialog';
 import { RenameFolderDialog } from '@/components/projects/rename-folder-dialog';
 import { DeleteFileDialog } from '@/components/projects/delete-file-dialog';
+import { DeleteFolderDialog } from '@/components/projects/delete-folder-dialog';
 import { RenameProjectDialog } from '@/components/projects/rename-project-dialog';
 import { FileTree } from '@/components/projects/file-tree';
 import { useFileStore, FileActions, useProjectFiles } from '@/stores/file';
@@ -28,6 +29,7 @@ import {
   useAddFileDialogOpen,
   useAddFolderDialogOpen,
   useRenameFolderPath,
+  useDeleteFolderPath,
   useTargetFolder,
   useRenameProjectDialog,
 } from '@/stores/file-tree';
@@ -46,6 +48,7 @@ export function AppSidebar({ userName }: AppSidebarProps) {
   const addFileDialogOpen = useAddFileDialogOpen();
   const addFolderDialogOpen = useAddFolderDialogOpen();
   const renameFolderPath = useRenameFolderPath();
+  const deleteFolderPath = useDeleteFolderPath();
   const targetFolder = useTargetFolder();
   const renameProjectDialog = useRenameProjectDialog();
 
@@ -116,6 +119,16 @@ export function AppSidebar({ userName }: AppSidebarProps) {
                     open={true}
                     onOpenChange={(open) =>
                       !open && FileTreeActions.closeRenameFolderDialog()
+                    }
+                  />
+                )}
+                {deleteFolderPath && (
+                  <DeleteFolderDialog
+                    projectId={project.id}
+                    folderPath={deleteFolderPath}
+                    open={true}
+                    onOpenChange={(open) =>
+                      !open && FileTreeActions.closeDeleteFolderDialog()
                     }
                   />
                 )}

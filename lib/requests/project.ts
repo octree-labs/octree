@@ -329,3 +329,73 @@ export const renameFolder = async (
     throw new Error('Failed to rename folder');
   }
 };
+
+async function listFolderFiles(
+  supabase: any,
+  projectId: string,
+  folderPath: string
+): Promise<string[]> {
+  const basePath = `projects/${projectId}/${folderPath}`;
+  const filePaths: string[] = [];
+
+  async function listRecursive(path: string): Promise<void> {
+    const { data: items, error } = await supabase.storage
+      .from('octree')
+      .list(path);
+
+    if (error || !items) return;
+
+    for (const item of items) {
+      const itemPath = `${path}/${item.name}`;
+      if (item.id) {
+        // It's a file
+        filePaths.push(itemPath);
+      } else {
+        // It's a folder, recurse into it
+        await listRecursive(itemPath);
+      }
+    }
+  }
+
+  await listRecursive(basePath);
+  return filePaths;
+}
+
+export const deleteFolder = async (
+  projectId: string,
+  folderPath: string
+): Promise<void> => {
+  const supabase = createClient();
+
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (!session?.user) {
+    throw new Error('User not authenticated');
+  }
+
+  // Get all files in the folder recursively
+  const filePaths = await listFolderFiles(supabase, projectId, folderPath);
+
+  if (filePaths.length === 0) {
+    // Try to delete just the .gitkeep placeholder
+    const { error } = await supabase.storage
+      .from('octree')
+      .remove([`projects/${projectId}/${folderPath}/.gitkeep`]);
+
+    if (error) {
+      throw new Error('Failed to delete folder');
+    }
+    return;
+  }
+
+  // Delete all files in the folder
+  const { error: deleteError } = await supabase.storage
+    .from('octree')
+    .remove(filePaths);
+
+  if (deleteError) {
+    throw new Error('Failed to delete folder contents');
+  }
+};

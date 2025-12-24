@@ -17,6 +17,7 @@ type FileTreeStoreState = {
   addFileDialogOpen: boolean;
   addFolderDialogOpen: boolean;
   renameFolderPath: string | null;
+  deleteFolderPath: string | null;
   targetFolder: string | null;
   renameProjectDialog: DialogProject | null;
 };
@@ -28,6 +29,7 @@ const DEFAULT_STATE: FileTreeStoreState = {
   addFileDialogOpen: false,
   addFolderDialogOpen: false,
   renameFolderPath: null,
+  deleteFolderPath: null,
   targetFolder: null,
   renameProjectDialog: null,
 };
@@ -70,6 +72,12 @@ export const FileTreeActions = {
   closeRenameFolderDialog: () => {
     setState({ renameFolderPath: null });
   },
+  openDeleteFolderDialog: (folderPath: string) => {
+    setState({ deleteFolderPath: folderPath });
+  },
+  closeDeleteFolderDialog: () => {
+    setState({ deleteFolderPath: null });
+  },
   openRenameProjectDialog: (projectId: string, projectTitle: string) => {
     setState({ renameProjectDialog: { id: projectId, title: projectTitle } });
   },
@@ -92,6 +100,9 @@ export const useAddFolderDialogOpen = () =>
 
 export const useRenameFolderPath = () =>
   useFileTreeStore((state) => state.renameFolderPath);
+
+export const useDeleteFolderPath = () =>
+  useFileTreeStore((state) => state.deleteFolderPath);
 
 export const useTargetFolder = () =>
   useFileTreeStore((state) => state.targetFolder);

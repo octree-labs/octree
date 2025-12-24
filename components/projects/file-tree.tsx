@@ -170,7 +170,9 @@ function FileTreeNode({
               <DropdownMenuItem
                 className="cursor-pointer gap-2 px-1.5 py-1 text-xs"
                 variant="destructive"
-                onSelect={() => console.log('Delete folder:', node.path)}
+                onSelect={() =>
+                  FileTreeActions.openDeleteFolderDialog(node.path)
+                }
               >
                 <Trash2 className="size-3.5 text-destructive" />
                 Delete

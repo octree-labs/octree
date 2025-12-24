@@ -23,7 +23,7 @@ import {
   ResizablePanel,
   ResizableHandle,
 } from '@/components/ui/resizable';
-import { formatCompilationErrorForAI } from '@/lib/utils';
+import { cn, formatCompilationErrorForAI } from '@/lib/utils';
 import { FileActions, useProjectFiles, useSelectedFile } from '@/stores/file';
 import { getProject, getProjectFiles } from '@/lib/requests/project';
 import type { ProjectFile } from '@/hooks/use-file-editor';
@@ -34,6 +34,11 @@ import type { EditSuggestion } from '@/types/edit';
 import { isImageFile, isPDFFile, isTextFile } from '@/lib/constants/file-types';
 import { ImageViewer } from '@/components/image-viewer';
 import { SimplePDFViewer } from '@/components/simple-pdf-viewer';
+
+const CHAT_WIDTH_DEFAULT = 340;
+const CHAT_WIDTH_MIN = 280;
+const CHAT_WIDTH_MAX = 600;
+const CHAT_WIDTH_STORAGE_KEY = 'chat_sidebar_width';
 
 export default function ProjectPage() {
   const params = useParams();
@@ -110,13 +115,65 @@ export default function ProjectPage() {
   const [autoSendMessage, setAutoSendMessage] = useState<string | null>(null);
   const [hasCompiledOnMount, setHasCompiledOnMount] = useState(false);
 
+  const [chatWidth, setChatWidth] = useState(CHAT_WIDTH_DEFAULT);
+  const [isChatResizing, setIsChatResizing] = useState(false);
+  const chatStartXRef = useRef(0);
+  const chatStartWidthRef = useRef(0);
+
+  useEffect(() => {
+    const stored = localStorage.getItem(CHAT_WIDTH_STORAGE_KEY);
+    if (stored) {
+      const parsed = parseInt(stored, 10);
+      if (!isNaN(parsed) && parsed >= CHAT_WIDTH_MIN && parsed <= CHAT_WIDTH_MAX) {
+        setChatWidth(parsed);
+      }
+    }
+  }, []);
+
+  const startChatResize = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    chatStartXRef.current = e.clientX;
+    chatStartWidthRef.current = chatWidth;
+    setIsChatResizing(true);
+  }, [chatWidth]);
+
+  useEffect(() => {
+    if (!isChatResizing) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const delta = chatStartXRef.current - e.clientX;
+      const newWidth = Math.min(
+        CHAT_WIDTH_MAX,
+        Math.max(CHAT_WIDTH_MIN, chatStartWidthRef.current + delta)
+      );
+      setChatWidth(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      setIsChatResizing(false);
+      localStorage.setItem(CHAT_WIDTH_STORAGE_KEY, chatWidth.toString());
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    document.body.style.cursor = 'ew-resize';
+    document.body.style.userSelect = 'none';
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [isChatResizing, chatWidth]);
+
   const projectFileContext = useMemo(
     () =>
       projectFiles
         ? projectFiles.map((projectFile) => ({
-            path: projectFile.file.name,
-            content: projectFile.document?.content ?? '',
-          }))
+          path: projectFile.file.name,
+          content: projectFile.document?.content ?? '',
+        }))
         : [],
     [projectFiles]
   );
@@ -200,9 +257,11 @@ export default function ProjectPage() {
 
   return (
     <div
-      className={`flex h-[calc(100vh-45px)] flex-col bg-slate-100 transition-[margin] duration-300 ease-in-out ${
-        chatOpen ? 'mr-[340px]' : 'mr-0'
-      }`}
+      className={cn(
+        'flex h-[calc(100vh-45px)] flex-col bg-slate-100',
+        !isChatResizing && 'transition-[margin] duration-300 ease-in-out'
+      )}
+      style={{ marginRight: chatOpen ? `${chatWidth}px` : 0 }}
     >
       <EditorToolbar
         onTextFormat={handleTextFormat}
@@ -307,13 +366,13 @@ export default function ProjectPage() {
                   onFixWithAI={
                     compilationError
                       ? () => {
-                          const errorContext =
-                            formatCompilationErrorForAI(compilationError);
-                          setTextFromEditor(errorContext);
-                          setChatOpen(true);
-                          setAutoSendMessage('Fix this error');
-                          setCompilationError(null);
-                        }
+                        const errorContext =
+                          formatCompilationErrorForAI(compilationError);
+                        setTextFromEditor(errorContext);
+                        setChatOpen(true);
+                        setAutoSendMessage('Fix this error');
+                        setCompilationError(null);
+                      }
                       : undefined
                   }
                 />
@@ -323,12 +382,24 @@ export default function ProjectPage() {
         </ResizablePanelGroup>
       </div>
 
-      {/* Chat Sidebar - fixed to right, full viewport height */}
       <div
-        className={`fixed inset-y-0 right-0 z-20 w-[340px] border-l border-slate-200 bg-white transition-transform duration-300 ease-in-out ${
+        className={cn(
+          'fixed inset-y-0 right-0 z-20 border-l border-slate-200 bg-white',
+          !isChatResizing && 'transition-transform duration-300 ease-in-out',
           chatOpen ? 'translate-x-0' : 'translate-x-full'
-        }`}
+        )}
+        style={{ width: `${chatWidth}px` }}
       >
+        {chatOpen && (
+          <div
+            onMouseDown={startChatResize}
+            className={cn(
+              'absolute top-0 left-0 bottom-0 z-50 w-1 cursor-ew-resize',
+              'hover:bg-slate-300',
+              isChatResizing && 'bg-primary'
+            )}
+          />
+        )}
         <Chat
           isOpen={chatOpen}
           setIsOpen={setChatOpen}

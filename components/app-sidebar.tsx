@@ -55,7 +55,7 @@ export function AppSidebar({ userName }: AppSidebarProps) {
   if (!project) return null;
 
   return (
-    <Sidebar collapsible="offcanvas" className="w-64">
+    <Sidebar collapsible="offcanvas">
       <SidebarHeader className="flex-row items-center justify-between border-b border-gray-200">
         <p className="px-3 text-sm font-medium">Files</p>
         <button
@@ -93,8 +93,8 @@ export function AppSidebar({ userName }: AppSidebarProps) {
                   onOpenChange={(open) =>
                     open
                       ? FileTreeActions.openAddFileDialog(
-                          targetFolder || undefined
-                        )
+                        targetFolder || undefined
+                      )
                       : FileTreeActions.closeAddFileDialog()
                   }
                   targetFolder={targetFolder}
@@ -106,8 +106,8 @@ export function AppSidebar({ userName }: AppSidebarProps) {
                   onOpenChange={(open) =>
                     open
                       ? FileTreeActions.openAddFolderDialog(
-                          targetFolder || undefined
-                        )
+                        targetFolder || undefined
+                      )
                       : FileTreeActions.closeAddFolderDialog()
                   }
                   targetFolder={targetFolder}
@@ -181,7 +181,7 @@ export function AppSidebar({ userName }: AppSidebarProps) {
           }
           project={renameProjectDialog}
           onSuccess={() => mutate(['project', project?.id])}
-          onError={() => {}}
+          onError={() => { }}
         />
       )}
     </Sidebar>

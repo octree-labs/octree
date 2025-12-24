@@ -5,6 +5,9 @@ import { ProjectsTable } from '@/components/projects/projects-table';
 import Navbar from '@/components/navbar';
 import { getAllProjects } from '@/actions/get-projects';
 import { getUserUsage } from '@/lib/requests/user';
+import Link from 'next/link';
+import { Button } from '@/components/ui/button';
+import { Sparkles } from 'lucide-react';
 
 export default async function Dashboard() {
   const supabase = await createClient();
@@ -43,7 +46,15 @@ export default async function Dashboard() {
             </p>
           </div>
 
-          <CreateProjectDialog />
+          <div className="flex items-center gap-2">
+            <Button asChild variant="outline" size="sm">
+              <Link href="/generate">
+                <Sparkles className="mr-2 h-4 w-4" />
+                Generate
+              </Link>
+            </Button>
+            <CreateProjectDialog />
+          </div>
         </div>
 
         <ProjectsTable data={data} />

@@ -9,6 +9,11 @@ import {
   rangesOverlap,
 } from './utils';
 
+export interface AcceptEditOptions {
+  currentFilePath?: string | null;
+  onSwitchFile?: (filePath: string) => void;
+}
+
 /**
  * Accept a single edit suggestion and apply it to the editor
  */
@@ -17,10 +22,24 @@ export async function acceptSingleEdit(
   editSuggestions: EditSuggestion[],
   editor: Monaco.editor.IStandaloneCodeEditor,
   monacoInstance: typeof Monaco,
-  onUpdate: (updater: (prev: EditSuggestion[]) => EditSuggestion[]) => void
+  onUpdate: (updater: (prev: EditSuggestion[]) => EditSuggestion[]) => void,
+  options?: AcceptEditOptions
 ): Promise<void> {
   const suggestion = editSuggestions.find((s) => s.id === suggestionId);
   if (!suggestion || suggestion.status !== 'pending') return;
+
+  // Validate target file matches current file
+  const targetFile = suggestion.targetFile;
+  const currentFile = options?.currentFilePath;
+  
+  if (targetFile && currentFile && targetFile !== currentFile) {
+    // Target file doesn't match: don't auto-navigate on "Accept" (it feels like a bug).
+    // Instead, tell the user which file to open to apply this suggestion.
+    toast.info(`This edit is for "${targetFile}". Open that file to apply it.`, {
+      duration: 3000,
+    });
+    return;
+  }
 
   const model = editor.getModel();
   if (!model) {
@@ -125,7 +144,9 @@ export async function acceptAllEdits(
   allPendingSuggestions: EditSuggestion[],
   editor: Monaco.editor.IStandaloneCodeEditor,
   monacoInstance: typeof Monaco,
-  onClearAll: () => void
+  onClearAll: () => void,
+  onPartialClear?: (appliedIds: string[]) => void,
+  options?: AcceptEditOptions
 ): Promise<void> {
   if (allPendingSuggestions.length === 0) return;
 
@@ -135,10 +156,33 @@ export async function acceptAllEdits(
     return;
   }
 
+  // Filter to only edits that target the current file (or have no target)
+  const currentFile = options?.currentFilePath;
+  const applicableSuggestions = allPendingSuggestions.filter((s) => {
+    if (!s.targetFile || !currentFile) return true;
+    return s.targetFile === currentFile;
+  });
+  
+  const skippedSuggestions = allPendingSuggestions.filter((s) => {
+    if (!s.targetFile || !currentFile) return false;
+    return s.targetFile !== currentFile;
+  });
+
+  if (applicableSuggestions.length === 0) {
+    const targetFiles = [...new Set(skippedSuggestions.map((s) => s.targetFile))];
+    toast.error(`All edits are for other files: ${targetFiles.join(', ')}`, { duration: 3000 });
+    return;
+  }
+  
+  if (skippedSuggestions.length > 0) {
+    const targetFiles = [...new Set(skippedSuggestions.map((s) => s.targetFile))];
+    toast.info(`Skipped ${skippedSuggestions.length} edit(s) for other files: ${targetFiles.join(', ')}`, { duration: 3000 });
+  }
+
   try {
     // Sort suggestions from bottom to top (highest line first)
     // This prevents earlier edits from affecting the positions of later edits
-    const sortedSuggestions = [...allPendingSuggestions].sort((a, b) => {
+    const sortedSuggestions = [...applicableSuggestions].sort((a, b) => {
       const lineA = getStartLine(a);
       const lineB = getStartLine(b);
       return lineB - lineA; // Descending order
@@ -174,9 +218,15 @@ export async function acceptAllEdits(
     // Apply all edits in a single batch operation
     editor.executeEdits('accept-all-ai-suggestions', edits);
 
-    onClearAll();
+    // If we had skipped suggestions, only clear applied ones; otherwise clear all
+    if (skippedSuggestions.length > 0 && onPartialClear) {
+      const appliedIds = applicableSuggestions.map((s) => s.id);
+      onPartialClear(appliedIds);
+    } else {
+      onClearAll();
+    }
     
-    toast.success(`Applied ${allPendingSuggestions.length} edits`, { duration: 2000 });
+    toast.success(`Applied ${applicableSuggestions.length} edit(s)`, { duration: 2000 });
   } catch (error) {
     console.error('Error applying all edits:', error);
     toast.error('Failed to apply suggestions. Please try again.');

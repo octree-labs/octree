@@ -29,13 +29,55 @@ export interface ToolContext {
 export function createGetContextTool(context: ToolContext) {
   return tool(
     'get_context',
-    'Retrieve the current LaTeX file context with numbered lines and optional user selection.',
+    'Retrieve file context with numbered lines. Use filePath to fetch a specific project file, or omit to get the currently open file.',
     {
+      filePath: z.string().optional(), // Specific file to fetch (omit for current file)
       includeNumbered: z.boolean().optional().default(true),
       includeSelection: z.boolean().optional().default(true),
     },
     async (args) => {
+      const filePath = args.filePath;
+      // If a specific file is requested, find and return it
+      if (filePath && context.projectFiles?.length) {
+        const requestedFile = context.projectFiles.find(
+          f => f.path === filePath || 
+               f.path.endsWith(filePath) || 
+               f.path.endsWith(`/${filePath}`)
+        );
+        
+        if (requestedFile) {
+          const lines = requestedFile.content.split('\n');
+          const numberedContent = lines.map((line, idx) => `${idx + 1}: ${line}`).join('\n');
+          
+          context.writeEvent('tool', { name: 'get_context', file: requestedFile.path });
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify({
+                  filePath: requestedFile.path,
+                  lineCount: lines.length,
+                  numberedContent,
+                }),
+              },
+            ],
+          };
+        } else {
+          context.writeEvent('tool', { name: 'get_context', error: 'file_not_found' });
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify({ error: `File not found: ${filePath}` }),
+              },
+            ],
+          };
+        }
+      }
+      
+      // Default: return current file context
       const payload: Record<string, unknown> = {
+        currentFilePath: context.currentFilePath,
         lineCount: context.fileContent.split('\n').length,
       };
       if (args.includeNumbered !== false) {
@@ -47,16 +89,13 @@ export function createGetContextTool(context: ToolContext) {
       if (context.selectionRange) {
         payload.selectionRange = context.selectionRange;
       }
+      // List available project files (names only)
       if (context.projectFiles?.length) {
-        payload.projectFiles = context.projectFiles.map((file) => ({
+        payload.availableFiles = context.projectFiles.map((file) => ({
           path: file.path,
-          content: file.content,
           lineCount: file.content.split('\n').length,
           isCurrent: context.currentFilePath ? context.currentFilePath === file.path : false,
         }));
-      }
-      if (context.currentFilePath) {
-        payload.currentFilePath = context.currentFilePath;
       }
       context.writeEvent('tool', { name: 'get_context' });
       return {
@@ -79,7 +118,7 @@ export function createGetContextTool(context: ToolContext) {
 export function createProposeEditsTool(context: ToolContext) {
   return tool(
     'propose_edits',
-    'Propose JSON-structured line-based edits to the LaTeX document. Each edit specifies a line number and the operation to perform (insert, delete, or replace).',
+    'Propose JSON-structured line-based edits to the LaTeX document. Each edit specifies a line number and the operation to perform (insert, delete, or replace). For multi-file projects, specify targetFile to indicate which file the edit applies to.',
     {
       edits: z
         .array(
@@ -91,6 +130,7 @@ export function createProposeEditsTool(context: ToolContext) {
             }),
             originalLineCount: z.number().int().min(0).optional(), // How many lines to affect (for delete/replace)
             explanation: z.string().optional(), // Human-readable explanation of the edit
+            targetFile: z.string().optional(), // Path of the file this edit targets
           })
         )
         .min(1),
@@ -98,10 +138,16 @@ export function createProposeEditsTool(context: ToolContext) {
     async (args) => {
       const validation = validateLineEdits(args.edits, context.intent, context.fileContent);
       
-      // Add accepted edits to the collection
-      context.collectedEdits.push(...validation.acceptedEdits);
+      // Assign targetFile to each edit (use provided value or fallback to currentFilePath)
+      const editsWithTargetFile = validation.acceptedEdits.map((edit) => ({
+        ...edit,
+        targetFile: edit.targetFile || context.currentFilePath || undefined,
+      }));
       
-      const totalEdits = validation.acceptedEdits.length;
+      // Add accepted edits to the collection
+      context.collectedEdits.push(...editsWithTargetFile);
+      
+      const totalEdits = editsWithTargetFile.length;
 
       context.writeEvent('tool', {
         name: 'propose_edits',
@@ -110,7 +156,7 @@ export function createProposeEditsTool(context: ToolContext) {
       });
 
       if (totalEdits > 0) {
-        validation.acceptedEdits.forEach((edit) => {
+        editsWithTargetFile.forEach((edit) => {
           context.writeEvent('tool', {
             name: 'propose_edits',
             progress: 1,
@@ -118,14 +164,14 @@ export function createProposeEditsTool(context: ToolContext) {
         });
 
         // Emit the full batch of edits once all progress events are dispatched
-        context.writeEvent('edits', validation.acceptedEdits);
+        context.writeEvent('edits', editsWithTargetFile);
       }
       
       return {
         content: [
           {
             type: 'text',
-            text: `Accepted ${validation.acceptedEdits.length} edit(s). ${validation.violations.length ? 'Blocked ' + validation.violations.length + ' edit(s) due to intent restrictions.' : ''}`,
+            text: `Accepted ${editsWithTargetFile.length} edit(s). ${validation.violations.length ? 'Blocked ' + validation.violations.length + ' edit(s) due to intent restrictions.' : ''}`,
           },
         ],
       };

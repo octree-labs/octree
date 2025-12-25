@@ -129,6 +129,22 @@ export function useChatStream() {
         callbacks.onTextUpdate(text);
       };
 
+      const applyFullSnapshot = (raw: string) => {
+        const full = String(raw).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+        // Some backends emit occasional truncated/out-of-order "full text so far" events.
+        // Never allow the UI to regress (that looks like the message is restarting).
+        if (full.length < lastAssistantText.length) return;
+
+        if (full.startsWith(lastAssistantText)) {
+          queueChunk(full.slice(lastAssistantText.length));
+          return;
+        }
+
+        // Fallback: accept the snapshot as the new source of truth (but only if it doesn't regress).
+        forceSetText(full);
+      };
+
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
@@ -165,14 +181,7 @@ export function useChatStream() {
               .replace(/\r/g, '\n');
             queueChunk(chunk);
           } else if (eventName === 'assistant_message' && payload?.text) {
-            const full = String(payload.text)
-              .replace(/\r\n/g, '\n')
-              .replace(/\r/g, '\n');
-            if (full.startsWith(lastAssistantText)) {
-              queueChunk(full.slice(lastAssistantText.length));
-            } else {
-              forceSetText(full);
-            }
+            applyFullSnapshot(payload.text);
           } else if (eventName === 'edits' && Array.isArray(payload)) {
             callbacks.onEdits(payload);
           } else if (eventName === 'status') {
@@ -188,25 +197,11 @@ export function useChatStream() {
               : 'An error occurred';
             callbacks.onError(errorMsg);
           } else if (eventName === 'result' && payload?.text) {
-            const full = String(payload.text)
-              .replace(/\r\n/g, '\n')
-              .replace(/\r/g, '\n');
-            if (full.startsWith(lastAssistantText)) {
-              queueChunk(full.slice(lastAssistantText.length));
-            } else {
-              forceSetText(full);
-            }
+            applyFullSnapshot(payload.text);
             if (Array.isArray(payload.edits)) callbacks.onEdits(payload.edits);
           } else if (eventName === 'done') {
             if (payload?.text && typeof payload.text === 'string') {
-              const full = String(payload.text)
-                .replace(/\r\n/g, '\n')
-                .replace(/\r/g, '\n');
-              if (full.startsWith(lastAssistantText)) {
-                queueChunk(full.slice(lastAssistantText.length));
-              } else {
-                forceSetText(full);
-              }
+              applyFullSnapshot(payload.text);
             }
             if (Array.isArray(payload?.edits) && payload.edits.length > 0) {
               callbacks.onEdits(payload.edits);

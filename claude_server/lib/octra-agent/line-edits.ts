@@ -15,6 +15,7 @@ export interface LineEdit {
   };
   originalLineCount?: number; // How many lines to affect (for delete/replace)
   explanation?: string;
+  targetFile?: string; // Path of the file this edit targets (for multi-file projects)
 }
 
 export interface ValidationResult {

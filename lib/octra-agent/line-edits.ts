@@ -8,5 +8,6 @@ export interface LineEdit {
   };
   originalLineCount?: number;
   explanation?: string;
+  targetFile?: string; // Path of the file this edit targets (for multi-file projects)
 }
 

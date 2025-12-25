@@ -87,6 +87,22 @@ export default function ProjectPage() {
     editorRef,
   });
 
+  // Callback to switch to a file by path (for cross-file edit suggestions)
+  const handleSwitchFile = useCallback(
+    (filePath: string) => {
+      if (!projectFiles) return;
+      
+      const targetProjectFile = projectFiles.find(
+        (pf) => pf.file.name === filePath
+      );
+      
+      if (targetProjectFile) {
+        FileActions.setSelectedFile(targetProjectFile.file);
+      }
+    },
+    [projectFiles]
+  );
+
   const {
     editSuggestions,
     totalPendingCount,
@@ -97,6 +113,8 @@ export default function ProjectPage() {
   } = useEditSuggestions({
     editor: editorRef.current,
     monacoInstance: monacoRef.current,
+    currentFilePath: selectedFile?.name ?? null,
+    onSwitchFile: handleSwitchFile,
   });
 
   const {

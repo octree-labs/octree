@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { useEditLimitCache } from '../use-edit-limit-cache';
 import { useSuggestionQueue } from './use-suggestion-queue';
 import { useSuggestionDecorations } from './use-suggestion-decorations';
-import { acceptSingleEdit, acceptAllEdits, rejectEdit } from './suggestion-operations';
+import { acceptSingleEdit, acceptAllEdits, rejectEdit, AcceptEditOptions } from './suggestion-operations';
 import type { EditSuggestionsState, UseEditSuggestionsProps } from './types';
 
 /**
@@ -15,6 +15,8 @@ export function useEditSuggestions({
   editor,
   monacoInstance,
   showInlinePreview = true,
+  currentFilePath,
+  onSwitchFile,
 }: UseEditSuggestionsProps): EditSuggestionsState {
   // Use cached edit limit to check before requesting AI suggestions
   // Note: Quota is consumed on generation (in /api/octra-agent), not on accept
@@ -35,6 +37,12 @@ export function useEditSuggestions({
     editSuggestions,
     showInlinePreview,
   });
+
+  // Options for file validation
+  const acceptOptions: AcceptEditOptions = {
+    currentFilePath,
+    onSwitchFile,
+  };
 
   // Accept a single edit
   const handleAcceptEdit = useCallback(
@@ -57,10 +65,11 @@ export function useEditSuggestions({
         editSuggestions,
         editor,
         monacoInstance,
-        setEditSuggestions
+        setEditSuggestions,
+        acceptOptions
       );
     },
-    [canEdit, editor, monacoInstance, editSuggestions, setEditSuggestions]
+    [canEdit, editor, monacoInstance, editSuggestions, setEditSuggestions, currentFilePath, onSwitchFile]
   );
 
   // Accept all pending edits
@@ -88,7 +97,12 @@ export function useEditSuggestions({
       monacoInstance,
       () => {
         setEditSuggestions([]);
-      }
+      },
+      (appliedIds) => {
+        // Partial clear: remove only applied edits
+        setEditSuggestions((prev) => prev.filter((s) => !appliedIds.includes(s.id)));
+      },
+      acceptOptions
     );
   }, [
     editSuggestions,
@@ -96,6 +110,8 @@ export function useEditSuggestions({
     editor,
     monacoInstance,
     setEditSuggestions,
+    currentFilePath,
+    onSwitchFile,
   ]);
 
   // Reject a single edit

@@ -147,6 +147,7 @@ function InlineSuggestion({
   const [isExpanded, setIsExpanded] = useState(true);
   const { startLine, lineCount, suggestedText } = getSuggestionInfo(suggestion);
   const isPending = suggestion.status === 'pending';
+  const targetFile = suggestion.targetFile;
   
   if (!isPending) return null;
 
@@ -157,28 +158,33 @@ function InlineSuggestion({
         onClick={() => setIsExpanded(!isExpanded)}
         className="w-full flex items-center justify-between px-2 py-1.5 text-left hover:bg-slate-50 transition-colors"
       >
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 min-w-0 flex-1">
           {isExpanded ? (
-            <ChevronDown className="h-3 w-3 text-slate-500" />
+            <ChevronDown className="h-3 w-3 text-slate-500 flex-shrink-0" />
           ) : (
-            <ChevronRight className="h-3 w-3 text-slate-500" />
+            <ChevronRight className="h-3 w-3 text-slate-500 flex-shrink-0" />
           )}
-          <span className="font-medium text-blue-700">
+          {targetFile && (
+            <span className="text-[9px] font-medium text-slate-600 bg-slate-100 px-1 py-0.5 rounded truncate max-w-[100px]" title={targetFile}>
+              {targetFile}
+            </span>
+          )}
+          <span className="font-medium text-blue-700 flex-shrink-0">
             L{startLine}
             {lineCount > 1 && `-${startLine + lineCount - 1}`}
           </span>
           {suggestion.editType === 'delete' && (
-            <span className="text-[9px] font-medium text-red-600 bg-red-50 px-1 py-0.5 rounded">
+            <span className="text-[9px] font-medium text-red-600 bg-red-50 px-1 py-0.5 rounded flex-shrink-0">
               DEL
             </span>
           )}
           {suggestion.editType === 'insert' && (
-            <span className="text-[9px] font-medium text-green-600 bg-green-50 px-1 py-0.5 rounded">
+            <span className="text-[9px] font-medium text-green-600 bg-green-50 px-1 py-0.5 rounded flex-shrink-0">
               INS
             </span>
           )}
           {suggestion.editType === 'replace' && (
-            <span className="text-[9px] font-medium text-amber-600 bg-amber-50 px-1 py-0.5 rounded">
+            <span className="text-[9px] font-medium text-amber-600 bg-amber-50 px-1 py-0.5 rounded flex-shrink-0">
               REP
             </span>
           )}

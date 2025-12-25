@@ -79,7 +79,7 @@ export function createGetContextTool(context: ToolContext) {
 export function createProposeEditsTool(context: ToolContext) {
   return tool(
     'propose_edits',
-    'Propose JSON-structured line-based edits to the LaTeX document. Each edit specifies a line number and the operation to perform (insert, delete, or replace).',
+    'Propose JSON-structured line-based edits to the LaTeX document. Each edit specifies a line number and the operation to perform (insert, delete, or replace). For multi-file projects, specify targetFile to indicate which file the edit applies to.',
     {
       edits: z
         .array(
@@ -91,6 +91,7 @@ export function createProposeEditsTool(context: ToolContext) {
             }),
             originalLineCount: z.number().int().min(0).optional(), // How many lines to affect (for delete/replace)
             explanation: z.string().optional(), // Human-readable explanation of the edit
+            targetFile: z.string().optional(), // Path of the file this edit targets
           })
         )
         .min(1),
@@ -98,10 +99,16 @@ export function createProposeEditsTool(context: ToolContext) {
     async (args) => {
       const validation = validateLineEdits(args.edits, context.intent, context.fileContent);
       
-      // Add accepted edits to the collection
-      context.collectedEdits.push(...validation.acceptedEdits);
+      // Assign targetFile to each edit (use provided value or fallback to currentFilePath)
+      const editsWithTargetFile = validation.acceptedEdits.map((edit) => ({
+        ...edit,
+        targetFile: edit.targetFile || context.currentFilePath || undefined,
+      }));
       
-      const totalEdits = validation.acceptedEdits.length;
+      // Add accepted edits to the collection
+      context.collectedEdits.push(...editsWithTargetFile);
+      
+      const totalEdits = editsWithTargetFile.length;
 
       context.writeEvent('tool', {
         name: 'propose_edits',
@@ -110,7 +117,7 @@ export function createProposeEditsTool(context: ToolContext) {
       });
 
       if (totalEdits > 0) {
-        validation.acceptedEdits.forEach((edit) => {
+        editsWithTargetFile.forEach((edit) => {
           context.writeEvent('tool', {
             name: 'propose_edits',
             progress: 1,
@@ -118,14 +125,14 @@ export function createProposeEditsTool(context: ToolContext) {
         });
 
         // Emit the full batch of edits once all progress events are dispatched
-        context.writeEvent('edits', validation.acceptedEdits);
+        context.writeEvent('edits', editsWithTargetFile);
       }
       
       return {
         content: [
           {
             type: 'text',
-            text: `Accepted ${validation.acceptedEdits.length} edit(s). ${validation.violations.length ? 'Blocked ' + validation.violations.length + ' edit(s) due to intent restrictions.' : ''}`,
+            text: `Accepted ${editsWithTargetFile.length} edit(s). ${validation.violations.length ? 'Blocked ' + validation.violations.length + ' edit(s) due to intent restrictions.' : ''}`,
           },
         ],
       };

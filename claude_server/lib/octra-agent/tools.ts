@@ -29,13 +29,55 @@ export interface ToolContext {
 export function createGetContextTool(context: ToolContext) {
   return tool(
     'get_context',
-    'Retrieve the current LaTeX file context with numbered lines and optional user selection.',
+    'Retrieve file context with numbered lines. Use filePath to fetch a specific project file, or omit to get the currently open file.',
     {
+      filePath: z.string().optional(), // Specific file to fetch (omit for current file)
       includeNumbered: z.boolean().optional().default(true),
       includeSelection: z.boolean().optional().default(true),
     },
     async (args) => {
+      const filePath = args.filePath;
+      // If a specific file is requested, find and return it
+      if (filePath && context.projectFiles?.length) {
+        const requestedFile = context.projectFiles.find(
+          f => f.path === filePath || 
+               f.path.endsWith(filePath) || 
+               f.path.endsWith(`/${filePath}`)
+        );
+        
+        if (requestedFile) {
+          const lines = requestedFile.content.split('\n');
+          const numberedContent = lines.map((line, idx) => `${idx + 1}: ${line}`).join('\n');
+          
+          context.writeEvent('tool', { name: 'get_context', file: requestedFile.path });
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify({
+                  filePath: requestedFile.path,
+                  lineCount: lines.length,
+                  numberedContent,
+                }),
+              },
+            ],
+          };
+        } else {
+          context.writeEvent('tool', { name: 'get_context', error: 'file_not_found' });
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify({ error: `File not found: ${filePath}` }),
+              },
+            ],
+          };
+        }
+      }
+      
+      // Default: return current file context
       const payload: Record<string, unknown> = {
+        currentFilePath: context.currentFilePath,
         lineCount: context.fileContent.split('\n').length,
       };
       if (args.includeNumbered !== false) {
@@ -47,16 +89,13 @@ export function createGetContextTool(context: ToolContext) {
       if (context.selectionRange) {
         payload.selectionRange = context.selectionRange;
       }
+      // List available project files (names only)
       if (context.projectFiles?.length) {
-        payload.projectFiles = context.projectFiles.map((file) => ({
+        payload.availableFiles = context.projectFiles.map((file) => ({
           path: file.path,
-          content: file.content,
           lineCount: file.content.split('\n').length,
           isCurrent: context.currentFilePath ? context.currentFilePath === file.path : false,
         }));
-      }
-      if (context.currentFilePath) {
-        payload.currentFilePath = context.currentFilePath;
       }
       context.writeEvent('tool', { name: 'get_context' });
       return {

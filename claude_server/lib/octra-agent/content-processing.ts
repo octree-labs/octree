@@ -223,65 +223,27 @@ export function buildSystemPrompt(
         !!file && typeof file.path === 'string' && typeof file.content === 'string'
     ) ?? [];
 
-  // Use intelligent filtering for large projects
-  const { fullContentFiles, summaryFiles } = filterProjectFilesIntelligently(
-    validProjectFiles,
-    currentFilePath ?? null
-  );
+  // For multi-file projects, only list other files by name
+  // The agent should use get_context to fetch content of any file it needs to edit
+  const otherFiles = validProjectFiles
+    .filter(f => f.path !== currentFilePath)
+    .map(f => f.path);
 
   let projectSection = '';
   
-  // Helper to truncate file content with line numbers
-  const truncateWithLineNumbers = (content: string, maxSize: number): string => {
-    const lines = content.split('\n');
-    
-    // If file is small enough, return with line numbers
-    const fullNumbered = lines.map((line, idx) => `${idx + 1}: ${line}`).join('\n');
-    if (fullNumbered.length <= maxSize) {
-      return fullNumbered;
-    }
-    
-    // Otherwise, include beginning and end with truncation notice
-    const maxLinesPerSection = 40;
-    const startLines = lines.slice(0, maxLinesPerSection)
-      .map((line, idx) => `${idx + 1}: ${line}`)
-      .join('\n');
-    const endLines = lines.slice(-maxLinesPerSection)
-      .map((line, idx) => `${lines.length - maxLinesPerSection + idx + 1}: ${line}`)
-      .join('\n');
-    
-    return `${startLines}\n\n... [${lines.length - maxLinesPerSection * 2} lines truncated] ...\n\n${endLines}`;
-  };
-  
-  if (fullContentFiles.length > 0) {
+  if (otherFiles.length > 0) {
     projectSection = `
 
-Project files (content provided for context):
-${fullContentFiles
-  .map((file) => {
-    const header = file.path === currentFilePath ? `${file.path} (currently open)` : file.path;
-    // Add line numbers with truncation for large files
-    const numberedFileContent = truncateWithLineNumbers(file.content, MAX_FILE_SIZE);
-    return `--- ${header} ---
-${numberedFileContent}`;
-  })
-  .join('\n\n')}`;
-  }
-  
-  if (summaryFiles.length > 0) {
-    projectSection += `
-
-Other project files (not loaded - request via get_context if needed):
-${summaryFiles.map(path => `- ${path}`).join('\n')}`;
+Other project files available (use get_context tool to fetch content before editing):
+${otherFiles.map(path => `- ${path}`).join('\n')}`;
   }
 
   const hasMultipleFiles = validProjectFiles.length > 1;
   const multiFileInstructions = hasMultipleFiles ? `
 
 MULTI-FILE PROJECTS:
-- When editing files other than the currently open file, you MUST include targetFile in your edit.
 - The currently open file is: ${currentFilePath || 'unknown'}
-- For edits to the current file, targetFile is optional.
+- To edit OTHER files: First call get_context to see the file's content, then propose_edits with targetFile.
 - For edits to other files, ALWAYS specify: { ..., targetFile: 'filename.tex' }
 - Line numbers in targetFile edits refer to that file's line numbers.` : '';
 

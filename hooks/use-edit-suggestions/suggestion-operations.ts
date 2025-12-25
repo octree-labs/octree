@@ -33,15 +33,12 @@ export async function acceptSingleEdit(
   const currentFile = options?.currentFilePath;
   
   if (targetFile && currentFile && targetFile !== currentFile) {
-    // Target file doesn't match - prompt user to switch files
-    if (options?.onSwitchFile) {
-      toast.info(`This edit is for "${targetFile}". Switching file...`, { duration: 2000 });
-      options.onSwitchFile(targetFile);
-      return;
-    } else {
-      toast.error(`This edit is for "${targetFile}". Please open that file first.`, { duration: 3000 });
-      return;
-    }
+    // Target file doesn't match: don't auto-navigate on "Accept" (it feels like a bug).
+    // Instead, tell the user which file to open to apply this suggestion.
+    toast.info(`This edit is for "${targetFile}". Open that file to apply it.`, {
+      duration: 3000,
+    });
+    return;
   }
 
   const model = editor.getModel();

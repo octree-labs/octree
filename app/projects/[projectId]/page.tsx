@@ -3,6 +3,7 @@
 import useSWR from 'swr';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type * as Monaco from 'monaco-editor';
+import dynamic from 'next/dynamic';
 import { useEditorState } from '@/hooks/use-editor-state';
 import { useDocumentSave } from '@/hooks/use-document-save';
 import { useTextFormatting } from '@/hooks/use-text-formatting';
@@ -10,13 +11,11 @@ import { useEditorCompilation } from '@/hooks/use-editor-compilation';
 import { useEditSuggestions } from '@/hooks/use-edit-suggestions';
 import { useEditorInteractions } from '@/hooks/use-editor-interactions';
 import { useEditorKeyboardShortcuts } from '@/hooks/use-editor-keyboard-shortcuts';
-import { MonacoEditor } from '@/components/editor/monaco-editor';
 import { EditorToolbar } from '@/components/editor/toolbar';
 import { SelectionButton } from '@/components/editor/selection-button';
 import { LoadingState } from '@/components/editor/loading-state';
 import { ErrorState } from '@/components/editor/error-state';
 import PDFViewer from '@/components/pdf-viewer';
-import { Chat } from '@/components/chat';
 import { CompilationError } from '@/components/latex/compilation-error';
 import {
   ResizablePanelGroup,
@@ -32,8 +31,25 @@ import type { Project } from '@/types/project';
 import { ProjectActions } from '@/stores/project';
 import type { EditSuggestion } from '@/types/edit';
 import { isImageFile, isPDFFile, isTextFile } from '@/lib/constants/file-types';
-import { ImageViewer } from '@/components/image-viewer';
-import { SimplePDFViewer } from '@/components/simple-pdf-viewer';
+
+const MonacoEditor = dynamic(
+  () => import('@/components/editor/monaco-editor').then((m) => m.MonacoEditor),
+  { ssr: false }
+);
+
+const Chat = dynamic(() => import('@/components/chat').then((m) => m.Chat), {
+  ssr: false,
+});
+
+const ImageViewer = dynamic(
+  () => import('@/components/image-viewer').then((m) => m.ImageViewer),
+  { ssr: false }
+);
+
+const SimplePDFViewer = dynamic(
+  () => import('@/components/simple-pdf-viewer').then((m) => m.SimplePDFViewer),
+  { ssr: false }
+);
 
 const CHAT_WIDTH_DEFAULT = 340;
 const CHAT_WIDTH_MIN = 280;

@@ -34,21 +34,31 @@ import { isImageFile, isPDFFile, isTextFile } from '@/lib/constants/file-types';
 
 const MonacoEditor = dynamic(
   () => import('@/components/editor/monaco-editor').then((m) => m.MonacoEditor),
-  { ssr: false }
+  {
+    ssr: false,
+    loading: () => <LoadingState />,
+  }
 );
 
 const Chat = dynamic(() => import('@/components/chat').then((m) => m.Chat), {
   ssr: false,
+  loading: () => <LoadingState />,
 });
 
 const ImageViewer = dynamic(
   () => import('@/components/image-viewer').then((m) => m.ImageViewer),
-  { ssr: false }
+  {
+    ssr: false,
+    loading: () => <LoadingState />,
+  }
 );
 
 const SimplePDFViewer = dynamic(
   () => import('@/components/simple-pdf-viewer').then((m) => m.SimplePDFViewer),
-  { ssr: false }
+  {
+    ssr: false,
+    loading: () => <LoadingState />,
+  }
 );
 
 const CHAT_WIDTH_DEFAULT = 340;

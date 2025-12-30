@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { v4 as uuidv4 } from 'uuid';
 
+// Hardcoded for collaboration feature - TODO: use NEXT_PUBLIC_APP_URL when configured
+const APP_URL = 'https://octree-app-git-feat-collaboration-octree-abfd3390.vercel.app';
+
 interface ShareLink {
   token: string;
   created_at: string;
@@ -51,7 +54,7 @@ export async function POST(
       .single() as { data: ShareLink | null };
 
     if (existingLink) {
-      const shareUrl = `${process.env.NEXT_PUBLIC_APP_URL}/invite/${existingLink.token}`;
+      const shareUrl = `${APP_URL}/invite/${existingLink.token}`;
       return NextResponse.json({
         url: shareUrl,
         token: existingLink.token,
@@ -82,7 +85,7 @@ export async function POST(
       );
     }
 
-    const shareUrl = `${process.env.NEXT_PUBLIC_APP_URL}/invite/${token}`;
+    const shareUrl = `${APP_URL}/invite/${token}`;
 
     return NextResponse.json({
       url: shareUrl,
@@ -140,7 +143,7 @@ export async function GET(
       return NextResponse.json({ url: null });
     }
 
-    const shareUrl = `${process.env.NEXT_PUBLIC_APP_URL}/invite/${shareLink.token}`;
+    const shareUrl = `${APP_URL}/invite/${shareLink.token}`;
 
     return NextResponse.json({
       url: shareUrl,

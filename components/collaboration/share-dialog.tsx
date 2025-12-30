@@ -126,21 +126,7 @@ export function ShareDialog() {
         return;
       }
 
-      // Check if email was actually sent
-      if (data.emailSent) {
-        toast.success(`Invitation email sent to ${email}`);
-      } else {
-        // Email failed but invitation was created - show the link
-        toast.warning(
-          `Invitation created but email could not be sent. Share this link: ${data.inviteUrl}`,
-          { duration: 10000 }
-        );
-        // Copy link to clipboard
-        if (data.inviteUrl) {
-          navigator.clipboard.writeText(data.inviteUrl);
-          toast.info('Invite link copied to clipboard');
-        }
-      }
+      toast.success(`Invitation sent to ${email}`);
       setEmail('');
       fetchPendingInvites();
     } catch (error) {

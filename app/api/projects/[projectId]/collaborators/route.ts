@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 
 interface Project {
   id: string;
@@ -75,8 +76,25 @@ export async function GET(
       );
     }
 
+    // Fetch user details for each collaborator using admin client
+    const adminClient = createAdminClient();
+    const collaboratorsWithDetails = await Promise.all(
+      (collaborators || []).map(async (collab) => {
+        try {
+          const { data: userData } = await adminClient.auth.admin.getUserById(collab.user_id);
+          return {
+            ...collab,
+            name: userData?.user?.user_metadata?.name || null,
+            email: userData?.user?.email || null,
+          };
+        } catch {
+          return { ...collab, name: null, email: null };
+        }
+      })
+    );
+
     return NextResponse.json({
-      collaborators: collaborators || [],
+      collaborators: collaboratorsWithDetails,
       is_owner: isOwner,
       owner_id: project.user_id,
     });

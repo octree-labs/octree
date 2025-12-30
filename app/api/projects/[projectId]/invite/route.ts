@@ -102,62 +102,78 @@ export async function POST(
     const inviteUrl = `${process.env.NEXT_PUBLIC_APP_URL}/invite/${token}`;
     const inviterName = user.user_metadata?.name || user.email || 'Someone';
 
-    try {
-      await resend.emails.send({
-        from: 'Octree <noreply@octree.me>',
-        to: email,
-        subject: `${inviterName} invited you to collaborate on "${project.title}"`,
-        html: `
-          <!DOCTYPE html>
-          <html>
-            <head>
-              <meta charset="utf-8">
-              <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            </head>
-            <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-              <div style="text-align: center; margin-bottom: 30px;">
-                <h1 style="color: #2563eb; margin: 0;">Octree</h1>
-              </div>
-              
-              <h2 style="color: #1f2937;">You've been invited to collaborate!</h2>
-              
-              <p style="color: #4b5563; line-height: 1.6;">
-                <strong>${inviterName}</strong> has invited you to collaborate on the project 
-                <strong>"${project.title}"</strong> in Octree.
-              </p>
-              
-              <div style="text-align: center; margin: 30px 0;">
-                <a href="${inviteUrl}" 
-                   style="background-color: #2563eb; color: white; padding: 12px 24px; 
-                          text-decoration: none; border-radius: 6px; display: inline-block;
-                          font-weight: 500;">
-                  Accept Invitation
-                </a>
-              </div>
-              
-              <p style="color: #6b7280; font-size: 14px;">
-                This invitation will expire in 7 days.
-              </p>
-              
-              <p style="color: #6b7280; font-size: 14px;">
-                If you didn't expect this invitation, you can ignore this email.
-              </p>
-              
-              <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;">
-              
-              <p style="color: #9ca3af; font-size: 12px; text-align: center;">
-                Octree - AI-Powered LaTeX Editor
-              </p>
-            </body>
-          </html>
-        `,
-      });
-    } catch (emailError) {
-      console.error('Error sending invitation email:', emailError);
-      // Don't fail the request if email fails - invitation is still created
+    let emailSent = false;
+    let emailError: string | null = null;
+
+    if (!process.env.RESEND_API_KEY) {
+      console.error('RESEND_API_KEY is not configured');
+      emailError = 'Email service not configured';
+    } else {
+      try {
+        const emailResult = await resend.emails.send({
+          from: 'Octree <basil@useoctree.online>',
+          to: email,
+          subject: `${inviterName} invited you to collaborate on "${project.title}"`,
+          html: `
+            <!DOCTYPE html>
+            <html>
+              <head>
+                <meta charset="utf-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              </head>
+              <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+                <div style="text-align: center; margin-bottom: 30px;">
+                  <h1 style="color: #2563eb; margin: 0;">Octree</h1>
+                </div>
+                
+                <h2 style="color: #1f2937;">You've been invited to collaborate!</h2>
+                
+                <p style="color: #4b5563; line-height: 1.6;">
+                  <strong>${inviterName}</strong> has invited you to collaborate on the project 
+                  <strong>"${project.title}"</strong> in Octree.
+                </p>
+                
+                <div style="text-align: center; margin: 30px 0;">
+                  <a href="${inviteUrl}" 
+                     style="background-color: #2563eb; color: white; padding: 12px 24px; 
+                            text-decoration: none; border-radius: 6px; display: inline-block;
+                            font-weight: 500;">
+                    Accept Invitation
+                  </a>
+                </div>
+                
+                <p style="color: #6b7280; font-size: 14px;">
+                  This invitation will expire in 7 days.
+                </p>
+                
+                <p style="color: #6b7280; font-size: 14px;">
+                  If you didn't expect this invitation, you can ignore this email.
+                </p>
+                
+                <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;">
+                
+                <p style="color: #9ca3af; font-size: 12px; text-align: center;">
+                  Octree - AI-Powered LaTeX Editor
+                </p>
+              </body>
+            </html>
+          `,
+        });
+        console.log('Invitation email sent:', emailResult);
+        emailSent = true;
+      } catch (err) {
+        console.error('Error sending invitation email:', err);
+        emailError = err instanceof Error ? err.message : 'Failed to send email';
+      }
     }
 
-    return NextResponse.json({ success: true, token });
+    return NextResponse.json({ 
+      success: true, 
+      token, 
+      emailSent,
+      emailError,
+      inviteUrl 
+    });
   } catch (error) {
     console.error('Error in POST invite:', error);
     return NextResponse.json(

@@ -11,7 +11,6 @@ import { useEditSuggestions } from '@/hooks/use-edit-suggestions';
 import { useEditorInteractions } from '@/hooks/use-editor-interactions';
 import { useEditorKeyboardShortcuts } from '@/hooks/use-editor-keyboard-shortcuts';
 import { MonacoEditor } from '@/components/editor/monaco-editor';
-import { CollaborativeEditor } from '@/components/editor/collaborative-editor';
 import { EditorToolbar } from '@/components/editor/toolbar';
 import { SelectionButton } from '@/components/editor/selection-button';
 import { LoadingState } from '@/components/editor/loading-state';
@@ -322,14 +321,11 @@ export default function ProjectPage() {
                   />
                 ) : isText && selectedFile ? (
                   <>
-                    <CollaborativeEditor
-                      projectId={projectId}
-                      fileId={selectedFile.id}
+                    <MonacoEditor
                       content={content}
                       onChange={handleEditorChange}
                       onMount={handleEditorMount}
                       className="h-full"
-                      collaborationEnabled={true}
                     />
                     <SelectionButton
                       show={showButton}

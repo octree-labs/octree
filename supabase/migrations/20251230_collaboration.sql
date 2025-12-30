@@ -52,14 +52,8 @@ CREATE POLICY "Users can view collaborators for accessible projects"
       AND projects.user_id = auth.uid()
     )
     OR
-    -- User is a collaborator on the project
+    -- User is themselves a collaborator on this project (direct check, no subquery to same table)
     user_id = auth.uid()
-    OR
-    EXISTS (
-      SELECT 1 FROM project_collaborators pc2
-      WHERE pc2.project_id = project_collaborators.project_id
-      AND pc2.user_id = auth.uid()
-    )
   );
 
 -- Only project owners can add collaborators

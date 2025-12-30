@@ -1,12 +1,14 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import Editor, { loader } from '@monaco-editor/react';
 import {
   latexLanguageConfiguration,
   latexTokenProvider,
   registerLatexCompletions,
 } from '@/lib/editor-config';
+import { registerMonacoThemes } from '@/lib/monaco-themes';
+import { useEditorTheme } from '@/stores/editor-theme';
 import type * as Monaco from 'monaco-editor';
 
 interface MonacoEditorProps {
@@ -25,8 +27,12 @@ export function MonacoEditor({
   onMount,
   className = '',
 }: MonacoEditorProps) {
+  const theme = useEditorTheme((state) => state.theme);
+  const themesRegistered = useRef(false);
+
   useEffect(() => {
     loader.init().then((monaco) => {
+      // Register LaTeX language
       monaco.languages.register({ id: 'latex' });
       monaco.languages.setLanguageConfiguration(
         'latex',
@@ -34,6 +40,12 @@ export function MonacoEditor({
       );
       monaco.languages.setMonarchTokensProvider('latex', latexTokenProvider);
       registerLatexCompletions(monaco);
+
+      // Register custom themes (only once)
+      if (!themesRegistered.current) {
+        registerMonacoThemes(monaco);
+        themesRegistered.current = true;
+      }
     });
   }, []);
 
@@ -44,7 +56,7 @@ export function MonacoEditor({
         defaultLanguage="latex"
         value={content}
         onChange={(value) => onChange(value || '')}
-        theme="vs-light"
+        theme={theme}
         options={{
           scrollbar: {
             vertical: 'auto',

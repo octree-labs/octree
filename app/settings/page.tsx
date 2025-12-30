@@ -12,6 +12,7 @@ import { SubscriptionStatus } from '@/components/subscription/subscription-statu
 import { BillingSection } from '@/components/subscription/billing-section';
 import { EditProfileDialog } from '@/components/user/edit-profile-dialog';
 import { ChangePasswordDialog } from '@/components/user/change-password-dialog';
+import { EditorSettings } from '@/components/settings/editor-settings';
 import { User } from 'lucide-react';
 
 export default async function SettingsPage() {
@@ -70,6 +71,7 @@ export default async function SettingsPage() {
               </div>
             </CardContent>
           </Card>
+          <EditorSettings />
           <SubscriptionStatus />
           <BillingSection />
         </div>

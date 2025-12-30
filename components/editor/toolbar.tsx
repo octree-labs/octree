@@ -12,6 +12,8 @@ import { UsageIndicator, UpgradeButton } from '@/components/subscription/usage-i
 import { PaywallDialog } from '@/components/subscription/paywall-dialog';
 import { Loader2, WandSparkles, ChevronDown, FileText, FolderArchive, Lock, MessageSquare, PanelRightClose } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { ShareDialog } from '@/components/collaboration/share-dialog';
+import { PresenceAvatars } from '@/components/collaboration/presence-avatars';
 
 interface SubscriptionData {
   hasSubscription: boolean;
@@ -194,6 +196,9 @@ export function EditorToolbar({
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+
+          <PresenceAvatars />
+          <ShareDialog />
 
           <Button
             variant={chatOpen ? 'secondary' : 'ghost'}

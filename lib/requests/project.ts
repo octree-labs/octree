@@ -2,6 +2,14 @@ import { createClient } from '@/lib/supabase/client';
 import type { ProjectFile } from '@/hooks/use-file-editor';
 import { isBinaryFile } from '@/lib/constants/file-types';
 
+interface ProjectRow {
+  id: string;
+  title: string;
+  user_id: string;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
 export const getProject = async (projectId: string) => {
   const supabase = createClient();
 
@@ -13,15 +21,45 @@ export const getProject = async (projectId: string) => {
     throw new Error('User not authenticated');
   }
 
-  const { data, error } = await supabase
+  const userId = session.user.id;
+
+  // First check if user owns the project
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: ownedProject, error: ownedError } = await (supabase as any)
     .from('projects')
     .select('*')
     .eq('id', projectId)
-    .eq('user_id', session.user.id)
-    .single();
+    .eq('user_id', userId)
+    .single() as { data: ProjectRow | null; error: unknown };
 
-  if (error) throw error;
-  return data;
+  if (ownedProject) {
+    return { ...ownedProject, is_owner: true, role: 'owner' as const };
+  }
+
+  // Check if user is a collaborator
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: collaboration } = await (supabase as any)
+    .from('project_collaborators')
+    .select('role')
+    .eq('project_id', projectId)
+    .eq('user_id', userId)
+    .single() as { data: { role: string } | null };
+
+  if (collaboration) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: project, error } = await (supabase as any)
+      .from('projects')
+      .select('*')
+      .eq('id', projectId)
+      .single() as { data: ProjectRow | null; error: unknown };
+
+    if (error) throw error;
+    if (!project) throw new Error('Project not found');
+    return { ...project, is_owner: false, role: collaboration.role };
+  }
+
+  if (ownedError) throw ownedError;
+  throw new Error('Project not found or access denied');
 };
 
 async function listAllFiles(
@@ -71,6 +109,37 @@ export const getProjectFiles = async (
 
   if (!session?.user) {
     throw new Error('User not authenticated');
+  }
+
+  const userId = session.user.id;
+
+  // Verify user has access to this project (owner or collaborator)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: project } = await (supabase as any)
+    .from('projects')
+    .select('id, user_id')
+    .eq('id', projectId)
+    .single() as { data: { id: string; user_id: string } | null };
+
+  if (!project) {
+    throw new Error('Project not found');
+  }
+
+  const isOwner = project.user_id === userId;
+
+  if (!isOwner) {
+    // Check if user is a collaborator
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: collaboration } = await (supabase as any)
+      .from('project_collaborators')
+      .select('id')
+      .eq('project_id', projectId)
+      .eq('user_id', userId)
+      .single() as { data: { id: string } | null };
+
+    if (!collaboration) {
+      throw new Error('Access denied');
+    }
   }
 
   const storageFiles = await listAllFiles(supabase, projectId);

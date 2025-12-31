@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import * as Y from 'yjs';
 import { MonacoBinding } from 'y-monaco';
 import Editor, { loader } from '@monaco-editor/react';
@@ -43,6 +43,9 @@ export function CollaborativeEditor({
   const monacoRef = useRef<typeof Monaco | null>(null);
   const bindingRef = useRef<MonacoBinding | null>(null);
   const decorationsRef = useRef<string[]>([]);
+  const initialContentRef = useRef<string>(content);
+  const [isYjsReady, setIsYjsReady] = useState(false);
+  const boundRef = useRef(false);
 
   const { ydoc, provider, isConnected, updateCursor, updateSelection } = useCollaboration({
     projectId,
@@ -51,6 +54,13 @@ export function CollaborativeEditor({
   });
 
   const collaborators = useCollaborators();
+
+  // Store initial content when it first loads
+  useEffect(() => {
+    if (content && !initialContentRef.current) {
+      initialContentRef.current = content;
+    }
+  }, [content]);
 
   // Initialize Monaco
   useEffect(() => {
@@ -69,7 +79,12 @@ export function CollaborativeEditor({
 
   // Bind Yjs to Monaco when both are ready
   useEffect(() => {
-    if (!collaborationEnabled || !ydoc || !editorRef.current || !monacoRef.current || !isConnected) {
+    if (!collaborationEnabled || !ydoc || !editorRef.current || !monacoRef.current) {
+      return;
+    }
+
+    // Don't bind if already bound for this file
+    if (boundRef.current) {
       return;
     }
 
@@ -81,28 +96,55 @@ export function CollaborativeEditor({
     // Get or create the Yjs text type
     const yText = ydoc.getText('content');
 
-    // Initialize with current content if empty
-    if (yText.toString() === '' && content) {
-      ydoc.transact(() => {
-        yText.insert(0, content);
-      });
-    }
+    // Initialize Yjs with file content if empty (first user to open)
+    // Wait a short time for potential sync from other users
+    const initTimeout = setTimeout(() => {
+      if (yText.toString() === '') {
+        // No other users have content, use the file's content
+        const contentToUse = initialContentRef.current || content;
+        if (contentToUse) {
+          console.log('Initializing Yjs with file content, length:', contentToUse.length);
+          ydoc.transact(() => {
+            yText.insert(0, contentToUse);
+          });
+        }
+      } else {
+        console.log('Yjs already has content, length:', yText.toString().length);
+      }
 
-    // Create Monaco binding
-    const binding = new MonacoBinding(
-      yText,
-      model,
-      new Set([editor]),
-      provider?.getAwareness()
-    );
-
-    bindingRef.current = binding;
+      // Now create the Monaco binding
+      try {
+        const binding = new MonacoBinding(
+          yText,
+          model,
+          new Set([editor]),
+          provider?.getAwareness()
+        );
+        bindingRef.current = binding;
+        boundRef.current = true;
+        setIsYjsReady(true);
+        console.log('Monaco binding created successfully');
+      } catch (error) {
+        console.error('Error creating Monaco binding:', error);
+      }
+    }, isConnected ? 500 : 0); // Wait 500ms if connected for sync from others
 
     return () => {
-      binding.destroy();
-      bindingRef.current = null;
+      clearTimeout(initTimeout);
     };
-  }, [ydoc, isConnected, collaborationEnabled, provider, content]);
+  }, [ydoc, collaborationEnabled, provider, content, isConnected]);
+
+  // Cleanup binding when file changes or component unmounts
+  useEffect(() => {
+    return () => {
+      if (bindingRef.current) {
+        bindingRef.current.destroy();
+        bindingRef.current = null;
+      }
+      boundRef.current = false;
+      setIsYjsReady(false);
+    };
+  }, [fileId]);
 
   // Update cursor position for awareness
   const handleCursorChange = useCallback(() => {
@@ -201,20 +243,23 @@ export function CollaborativeEditor({
 
       // Add collaborator cursor styles
       const styleSheet = document.createElement('style');
-      styleSheet.textContent = `
-        .collaborator-cursor-line {
-          border-left: 2px solid;
-          margin-left: -1px;
-        }
-        .collaborator-selection {
-          opacity: 0.3;
-        }
-        .collaborator-selection-inline {
-          background-color: currentColor;
-          opacity: 0.2;
-        }
-      `;
-      document.head.appendChild(styleSheet);
+      styleSheet.id = 'collab-cursor-styles';
+      if (!document.getElementById('collab-cursor-styles')) {
+        styleSheet.textContent = `
+          .collaborator-cursor-line {
+            border-left: 2px solid;
+            margin-left: -1px;
+          }
+          .collaborator-selection {
+            opacity: 0.3;
+          }
+          .collaborator-selection-inline {
+            background-color: currentColor;
+            opacity: 0.2;
+          }
+        `;
+        document.head.appendChild(styleSheet);
+      }
 
       // Call parent onMount
       onMount(editor, monaco);
@@ -225,18 +270,25 @@ export function CollaborativeEditor({
   const handleChange = useCallback(
     (value: string | undefined) => {
       // When collaborating, changes are synced via Yjs
-      // We still call onChange for local state updates
-      onChange(value || '');
+      // We still call onChange for local state updates (saving, etc.)
+      if (value !== undefined) {
+        onChange(value);
+      }
     },
     [onChange]
   );
+
+  // Determine what value to show in Monaco
+  // - If Yjs is ready, let it control the content (value = undefined)
+  // - If not ready yet, show the file content
+  const editorValue = isYjsReady ? undefined : content;
 
   return (
     <div className={className}>
       <Editor
         height="100%"
         defaultLanguage="latex"
-        value={collaborationEnabled && isConnected ? undefined : content}
+        value={editorValue}
         onChange={handleChange}
         theme={theme}
         options={{
@@ -271,4 +323,3 @@ export function CollaborativeEditor({
     </div>
   );
 }
-

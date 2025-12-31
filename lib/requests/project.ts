@@ -23,20 +23,27 @@ export const getProject = async (projectId: string) => {
 
   const userId = session.user.id;
 
-  // First check if user owns the project
+  // Query project by ID only - RLS handles access control
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: ownedProject, error: ownedError } = await (supabase as any)
+  const { data: project, error } = await (supabase as any)
     .from('projects')
     .select('*')
     .eq('id', projectId)
-    .eq('user_id', userId)
     .single() as { data: ProjectRow | null; error: unknown };
 
-  if (ownedProject) {
-    return { ...ownedProject, is_owner: true, role: 'owner' as const };
+  if (error || !project) {
+    throw new Error('Project not found or access denied');
   }
 
-  // Check if user is a collaborator
+  // Check if user is the owner
+  const isOwner = project.user_id === userId;
+
+  if (isOwner) {
+    return { ...project, is_owner: true, role: 'owner' as const };
+  }
+
+  // User is a collaborator (RLS allowed access, but user is not owner)
+  // Get their role from project_collaborators
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: collaboration } = await (supabase as any)
     .from('project_collaborators')
@@ -45,22 +52,11 @@ export const getProject = async (projectId: string) => {
     .eq('user_id', userId)
     .single() as { data: { role: string } | null };
 
-  if (collaboration) {
-    // User is a collaborator - fetch project without ownership check
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: project, error } = await (supabase as any)
-      .from('projects')
-      .select('*')
-      .eq('id', projectId)
-      .single() as { data: ProjectRow | null; error: unknown };
-
-    if (error) throw error;
-    if (!project) throw new Error('Project not found');
-    return { ...project, is_owner: false, role: collaboration.role };
-  }
-
-  if (ownedError) throw ownedError;
-  throw new Error('Project not found or access denied');
+  return { 
+    ...project, 
+    is_owner: false, 
+    role: collaboration?.role || 'editor' 
+  };
 };
 
 async function listAllFiles(

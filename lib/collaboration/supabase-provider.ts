@@ -11,6 +11,21 @@ export interface SupabaseProviderOptions {
   userColor: string;
 }
 
+export interface AwarenessState {
+  user: {
+    id: string;
+    name: string;
+    color: string;
+  };
+  cursor: { lineNumber: number; column: number } | null;
+  selection: {
+    startLineNumber: number;
+    startColumn: number;
+    endLineNumber: number;
+    endColumn: number;
+  } | null;
+}
+
 /**
  * Supabase Realtime provider for Yjs
  * Handles document sync and presence using Supabase Realtime channels
@@ -23,6 +38,7 @@ export class SupabaseProvider {
   private options: SupabaseProviderOptions;
   private connected = false;
   private pendingUpdates: Uint8Array[] = [];
+  private remoteStates: Map<string, AwarenessState> = new Map();
 
   constructor(doc: Y.Doc, options: SupabaseProviderOptions) {
     this.doc = doc;
@@ -102,10 +118,10 @@ export class SupabaseProvider {
     this.channel.on('broadcast', { event: 'awareness' }, ({ payload }) => {
       if (payload.userId !== this.options.userId && payload.state) {
         try {
-          // Update awareness for this user
-          const states = new Map();
-          states.set(parseInt(payload.clientId) || 0, payload.state);
-          // We'll handle this differently - store in a separate map
+          // Store remote awareness state
+          this.remoteStates.set(payload.userId, payload.state as AwarenessState);
+          // Notify listeners
+          this.onAwarenessChange?.(this.getRemoteStates());
         } catch (error) {
           console.error('Error handling awareness:', error);
         }
@@ -124,6 +140,15 @@ export class SupabaseProvider {
     });
 
     this.channel.on('presence', { event: 'leave' }, ({ leftPresences }) => {
+      // Clean up awareness states for users who left
+      for (const presence of leftPresences as { userId?: string }[]) {
+        if (presence.userId) {
+          this.remoteStates.delete(presence.userId);
+        }
+      }
+      if (leftPresences.length > 0) {
+        this.onAwarenessChange?.(this.getRemoteStates());
+      }
       this.onPresenceLeave?.(leftPresences);
     });
 
@@ -215,6 +240,16 @@ export class SupabaseProvider {
   onPresenceChange?: (state: Record<string, unknown[]>) => void;
   onPresenceJoin?: (presences: unknown[]) => void;
   onPresenceLeave?: (presences: unknown[]) => void;
+  onAwarenessChange?: (states: Map<string, AwarenessState>) => void;
+
+  getRemoteStates(): Map<string, AwarenessState> {
+    return new Map(this.remoteStates);
+  }
+
+  removeRemoteState(userId: string): void {
+    this.remoteStates.delete(userId);
+    this.onAwarenessChange?.(this.getRemoteStates());
+  }
 
   updateCursor(cursor: { lineNumber: number; column: number } | null) {
     this.awareness.setLocalStateField('cursor', cursor);

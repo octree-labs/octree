@@ -123,7 +123,7 @@ export function CollaborativeEditor({
       } catch (error) {
         console.error('Error creating Monaco binding:', error);
       }
-    }, isConnected ? 500 : 0); // Wait 500ms if connected for sync from others
+    }, isConnected ? 100 : 0); // Brief wait for sync, content reconciled by Yjs CRDT
 
     return () => {
       clearTimeout(initTimeout);

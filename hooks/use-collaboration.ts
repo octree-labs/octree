@@ -127,6 +127,14 @@ export function useCollaboration({
         });
       };
 
+      // Handle awareness changes (cursor/selection updates)
+      provider.onAwarenessChange = (states) => {
+        states.forEach((state, odId) => {
+          CollaborationActions.updateCollaboratorCursor(odId, state.cursor);
+          CollaborationActions.updateCollaboratorSelection(odId, state.selection);
+        });
+      };
+
       try {
         await provider.connect();
         if (mounted) {

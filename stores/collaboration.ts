@@ -67,6 +67,19 @@ export const CollaborationActions = {
     useCollaborationStore.getState().removeCollaborator(userId),
   updateCollaborator: (userId: string, updates: Partial<CollaboratorPresence>) =>
     useCollaborationStore.getState().updateCollaborator(userId, updates),
+  updateCollaboratorCursor: (
+    userId: string,
+    cursor: { lineNumber: number; column: number } | null
+  ) => useCollaborationStore.getState().updateCollaborator(userId, { cursor: cursor ?? undefined }),
+  updateCollaboratorSelection: (
+    userId: string,
+    selection: {
+      startLineNumber: number;
+      startColumn: number;
+      endLineNumber: number;
+      endColumn: number;
+    } | null
+  ) => useCollaborationStore.getState().updateCollaborator(userId, { selection: selection ?? undefined }),
   reset: () => useCollaborationStore.getState().reset(),
 };
 

@@ -30,11 +30,15 @@ export async function getAllProjects(): Promise<ProjectWithAccess[] | null> {
 
   // Get projects user collaborates on
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: collaborations } = await (supabase as any)
+  const { data: collaborations, error: collabError } = await (supabase as any)
     .from('project_collaborators')
     .select('project_id, role')
     .eq('user_id', user.id)
-    .neq('role', 'owner') as { data: { project_id: string; role: string }[] | null };
+    .neq('role', 'owner') as { data: { project_id: string; role: string }[] | null; error: unknown };
+
+  console.log('getAllProjects - user:', user.id);
+  console.log('getAllProjects - collaborations:', collaborations);
+  console.log('getAllProjects - collabError:', collabError);
 
   const sharedProjectIds = collaborations?.map((c) => c.project_id) ?? [];
   

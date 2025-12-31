@@ -126,7 +126,21 @@ export function ShareDialog() {
         return;
       }
 
-      toast.success(`Invitation sent to ${email}`);
+      // Check if email was actually sent
+      if (data.emailSent) {
+        toast.success(`Invitation email sent to ${email}`);
+      } else {
+        // Email failed but invitation was created - show the link
+        toast.warning(
+          `Invitation created but email could not be sent: ${data.emailError || 'Unknown error'}`,
+          { duration: 8000 }
+        );
+        // Copy invite link to clipboard
+        if (data.inviteUrl) {
+          await navigator.clipboard.writeText(data.inviteUrl);
+          toast.info('Invite link copied to clipboard - share it manually', { duration: 5000 });
+        }
+      }
       setEmail('');
       fetchPendingInvites();
     } catch (error) {

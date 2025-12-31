@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 
 interface Invitation {
   id: string;
@@ -97,9 +98,10 @@ export async function POST(
       );
     }
 
-    // Add user as collaborator
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error: collabError } = await (supabase as any)
+    // Add user as collaborator - use admin client to bypass RLS
+    const supabaseAdmin = createAdminClient();
+    
+    const { error: collabError } = await supabaseAdmin
       .from('project_collaborators')
       .insert({
         project_id: invitation.project_id,
@@ -116,12 +118,17 @@ export async function POST(
       );
     }
 
-    // Mark invitation as accepted
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (supabase as any)
+    // Mark invitation as accepted - also use admin client
+    await supabaseAdmin
       .from('project_invitations')
       .update({ accepted_at: new Date().toISOString() })
       .eq('id', invitation.id);
+    
+    console.log('Collaborator added successfully:', {
+      project_id: invitation.project_id,
+      user_id: user.id,
+      role: invitation.role,
+    });
 
     return NextResponse.json({
       success: true,

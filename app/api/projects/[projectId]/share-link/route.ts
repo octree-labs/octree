@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server';
 import { v4 as uuidv4 } from 'uuid';
 
 // Hardcoded for collaboration feature - TODO: use NEXT_PUBLIC_APP_URL when configured
-const APP_URL = 'https://octree-app-git-feat-collaboration-octree-abfd3390.vercel.app';
+const APP_URL = 'http://localhost:3000';
 
 interface ShareLink {
   token: string;

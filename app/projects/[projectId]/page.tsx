@@ -1,6 +1,7 @@
 'use client';
 
 import useSWR from 'swr';
+import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type * as Monaco from 'monaco-editor';
 import { useEditorState } from '@/hooks/use-editor-state';
@@ -34,6 +35,14 @@ import type { EditSuggestion } from '@/types/edit';
 import { isImageFile, isPDFFile, isTextFile } from '@/lib/constants/file-types';
 import { ImageViewer } from '@/components/image-viewer';
 import { SimplePDFViewer } from '@/components/simple-pdf-viewer';
+import { PresenceAvatars } from '@/components/collaboration/presence-avatars';
+import { ShareDialog } from '@/components/collaboration/share-dialog';
+
+// Dynamic import to avoid SSR issues with y-monaco
+const CollaborativeEditor = dynamic(
+  () => import('@/components/editor/collaborative-editor').then(mod => ({ default: mod.CollaborativeEditor })),
+  { ssr: false, loading: () => <div className="flex h-full items-center justify-center">Loading editor...</div> }
+);
 
 const CHAT_WIDTH_DEFAULT = 340;
 const CHAT_WIDTH_MIN = 280;
@@ -321,6 +330,7 @@ export default function ProjectPage() {
                   />
                 ) : isText && selectedFile ? (
                   <>
+                    {/* TODO: Re-enable CollaborativeEditor once Yjs sync is fixed */}
                     <MonacoEditor
                       content={content}
                       onChange={handleEditorChange}

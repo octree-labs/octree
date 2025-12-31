@@ -113,10 +113,6 @@ export async function POST(
       emailError = 'Email service not configured';
     } else {
       try {
-        console.log('Sending invite email to:', email);
-        console.log('From:', 'Octree <basil@useoctree.online>');
-        console.log('Invite URL:', inviteUrl);
-        
         const emailResult = await resend.emails.send({
           from: 'Octree <basil@useoctree.online>',
           to: email,
@@ -166,8 +162,6 @@ export async function POST(
             </html>
           `,
         });
-        
-        console.log('Email result:', emailResult);
         emailSent = true;
       } catch (err) {
         console.error('Error sending invitation email:', err);

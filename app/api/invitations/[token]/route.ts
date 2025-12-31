@@ -30,7 +30,6 @@ export async function GET(
     const invitation = invitationData as InvitationWithProject | null;
 
     if (error || !invitation) {
-      console.log('Get invitation - not found:', error);
       return NextResponse.json(
         { error: 'Invitation not found or already used' },
         { status: 404 }

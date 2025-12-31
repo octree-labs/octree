@@ -46,6 +46,7 @@ export const getProject = async (projectId: string) => {
     .single() as { data: { role: string } | null };
 
   if (collaboration) {
+    // User is a collaborator - fetch project without ownership check
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: project, error } = await (supabase as any)
       .from('projects')

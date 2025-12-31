@@ -144,6 +144,30 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- ============================================================================
+-- Update projects table RLS to allow collaborator access
+-- ============================================================================
+
+-- Drop existing select policy if it exists (to avoid conflicts)
+DROP POLICY IF EXISTS "Users can view their own projects" ON projects;
+DROP POLICY IF EXISTS "Users can view projects they collaborate on" ON projects;
+
+-- Create new policy that allows owners AND collaborators to view projects
+CREATE POLICY "Users can view projects they have access to"
+  ON projects
+  FOR SELECT
+  USING (
+    -- User owns the project
+    user_id = auth.uid()
+    OR
+    -- User is a collaborator on the project
+    EXISTS (
+      SELECT 1 FROM project_collaborators
+      WHERE project_collaborators.project_id = projects.id
+      AND project_collaborators.user_id = auth.uid()
+    )
+  );
+
+-- ============================================================================
 -- Migrate existing projects: Add owners to collaborators table
 -- ============================================================================
 

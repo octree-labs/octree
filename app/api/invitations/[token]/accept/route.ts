@@ -34,8 +34,6 @@ export async function POST(
       );
     }
 
-    console.log('Accept invitation - user:', user.id, 'token:', token);
-
     // Get the invitation - use admin client to bypass RLS
     const { data: invitationData, error: inviteError } = await supabaseAdmin
       .from('project_invitations')
@@ -43,13 +41,10 @@ export async function POST(
       .eq('token', token)
       .is('accepted_at', null)
       .single();
-    
-    console.log('Accept invitation - found invitation:', invitationData, 'error:', inviteError);
 
     const invitation = invitationData as Invitation | null;
 
     if (inviteError || !invitation) {
-      console.log('Accept invitation - invitation not found or already used');
       return NextResponse.json(
         { error: 'Invitation not found or already used' },
         { status: 404 }
@@ -58,7 +53,6 @@ export async function POST(
 
     // Check if invitation is expired
     if (new Date(invitation.expires_at) < new Date()) {
-      console.log('Accept invitation - invitation expired');
       return NextResponse.json(
         { error: 'This invitation has expired' },
         { status: 410 }
@@ -74,7 +68,6 @@ export async function POST(
       .single();
 
     if (existingCollab) {
-      console.log('Accept invitation - user already a collaborator');
       // Mark invitation as accepted anyway
       await supabaseAdmin
         .from('project_invitations')
@@ -120,17 +113,11 @@ export async function POST(
       );
     }
 
-    // Mark invitation as accepted - also use admin client
+    // Mark invitation as accepted
     await supabaseAdmin
       .from('project_invitations')
       .update({ accepted_at: new Date().toISOString() })
       .eq('id', invitation.id);
-    
-    console.log('Collaborator added successfully:', {
-      project_id: invitation.project_id,
-      user_id: user.id,
-      role: invitation.role,
-    });
 
     return NextResponse.json({
       success: true,

@@ -28,35 +28,25 @@ export async function getAllProjects(): Promise<ProjectWithAccess[] | null> {
 
   const ownedProjects: Tables<'projects'>[] = ownedProjectsData ?? [];
 
-  // Get projects user collaborates on - use raw query to bypass any RLS issues for debugging
+  // Get projects user collaborates on
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: collaborations, error: collabError } = await (supabase as any)
+  const { data: collaborations } = await (supabase as any)
     .from('project_collaborators')
-    .select('project_id, role, user_id')
-    .eq('user_id', user.id) as { data: { project_id: string; role: string; user_id: string }[] | null; error: unknown };
-
-  console.log('=== getAllProjects DEBUG ===');
-  console.log('Current user ID:', user.id);
-  console.log('Collaborations found:', JSON.stringify(collaborations, null, 2));
-  console.log('Collaboration error:', collabError);
-  console.log('Owned projects count:', ownedProjects.length);
-  console.log('============================');
+    .select('project_id, role')
+    .eq('user_id', user.id) as { data: { project_id: string; role: string }[] | null };
 
   // Filter out owner collaborations - only get shared projects where user is NOT the owner
   const ownedProjectIds = new Set(ownedProjects.map(p => p.id));
   const sharedCollaborations = collaborations?.filter(c => !ownedProjectIds.has(c.project_id)) ?? [];
   const sharedProjectIds = sharedCollaborations.map((c) => c.project_id);
   
-  console.log('Shared project IDs (excluding owned):', sharedProjectIds);
-  
   let sharedProjects: Tables<'projects'>[] = [];
   if (sharedProjectIds.length > 0) {
-    const { data, error: sharedError } = await supabase
+    const { data } = await supabase
       .from('projects')
       .select('*')
       .in('id', sharedProjectIds)
       .order('updated_at', { ascending: false });
-    console.log('Shared projects fetched:', data?.length, 'error:', sharedError);
     sharedProjects = data ?? [];
   }
 

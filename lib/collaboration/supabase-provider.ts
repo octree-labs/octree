@@ -165,14 +165,16 @@ export class SupabaseProvider {
           joinedAt: Date.now(),
         });
 
-        // Request initial sync from others after a short delay
-        setTimeout(() => {
+        // Request sync immediately - only if others are present
+        const presenceState = this.channel?.presenceState() || {};
+        const otherUsers = Object.keys(presenceState).filter(k => k !== this.options.userId);
+        if (otherUsers.length > 0) {
           this.channel?.send({
             type: 'broadcast',
             event: 'sync-request',
             payload: { userId: this.options.userId },
           });
-        }, 100);
+        }
 
         // Flush any pending updates
         this.flushPendingUpdates();

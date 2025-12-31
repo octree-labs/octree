@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 
 interface InvitationWithProject {
   id: string;
@@ -17,20 +17,20 @@ export async function GET(
 ) {
   try {
     const { token } = await params;
-    const supabase = await createClient();
+    const supabaseAdmin = createAdminClient();
 
-    // Get invitation with project details
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: invitationData, error } = await (supabase as any)
+    // Get invitation with project details - use admin to bypass RLS
+    const { data: invitationData, error } = await supabaseAdmin
       .from('project_invitations')
       .select('*, projects(title, user_id)')
       .eq('token', token)
       .is('accepted_at', null)
-      .single() as { data: InvitationWithProject | null; error: unknown };
+      .single();
 
-    const invitation = invitationData;
+    const invitation = invitationData as InvitationWithProject | null;
 
     if (error || !invitation) {
+      console.log('Get invitation - not found:', error);
       return NextResponse.json(
         { error: 'Invitation not found or already used' },
         { status: 404 }
@@ -46,7 +46,7 @@ export async function GET(
     }
 
     // Get inviter details
-    const { data: inviterData } = await supabase.auth.admin.getUserById(
+    const { data: inviterData } = await supabaseAdmin.auth.admin.getUserById(
       invitation.invited_by
     );
 

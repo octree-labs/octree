@@ -21,6 +21,7 @@ export async function POST(
   try {
     const { token } = await params;
     const supabase = await createClient();
+    const supabaseAdmin = createAdminClient();
 
     const {
       data: { user },
@@ -33,18 +34,22 @@ export async function POST(
       );
     }
 
-    // Get the invitation
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: invitationData, error: inviteError } = await (supabase as any)
+    console.log('Accept invitation - user:', user.id, 'token:', token);
+
+    // Get the invitation - use admin client to bypass RLS
+    const { data: invitationData, error: inviteError } = await supabaseAdmin
       .from('project_invitations')
       .select('*')
       .eq('token', token)
       .is('accepted_at', null)
-      .single() as { data: Invitation | null; error: unknown };
+      .single();
+    
+    console.log('Accept invitation - found invitation:', invitationData, 'error:', inviteError);
 
-    const invitation = invitationData;
+    const invitation = invitationData as Invitation | null;
 
     if (inviteError || !invitation) {
+      console.log('Accept invitation - invitation not found or already used');
       return NextResponse.json(
         { error: 'Invitation not found or already used' },
         { status: 404 }
@@ -53,25 +58,25 @@ export async function POST(
 
     // Check if invitation is expired
     if (new Date(invitation.expires_at) < new Date()) {
+      console.log('Accept invitation - invitation expired');
       return NextResponse.json(
         { error: 'This invitation has expired' },
         { status: 410 }
       );
     }
 
-    // Check if user is already a collaborator
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: existingCollab } = await (supabase as any)
+    // Check if user is already a collaborator - use admin to bypass RLS
+    const { data: existingCollab } = await supabaseAdmin
       .from('project_collaborators')
       .select('id')
       .eq('project_id', invitation.project_id)
       .eq('user_id', user.id)
-      .single() as { data: { id: string } | null };
+      .single();
 
     if (existingCollab) {
+      console.log('Accept invitation - user already a collaborator');
       // Mark invitation as accepted anyway
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (supabase as any)
+      await supabaseAdmin
         .from('project_invitations')
         .update({ accepted_at: new Date().toISOString() })
         .eq('id', invitation.id);
@@ -83,13 +88,12 @@ export async function POST(
       });
     }
 
-    // Check if user is the project owner
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: project } = await (supabase as any)
+    // Check if user is the project owner - use admin to bypass RLS
+    const { data: project } = await supabaseAdmin
       .from('projects')
       .select('user_id')
       .eq('id', invitation.project_id)
-      .single() as { data: { user_id: string } | null };
+      .single();
 
     if (project?.user_id === user.id) {
       return NextResponse.json(
@@ -98,9 +102,7 @@ export async function POST(
       );
     }
 
-    // Add user as collaborator - use admin client to bypass RLS
-    const supabaseAdmin = createAdminClient();
-    
+    // Add user as collaborator
     const { error: collabError } = await supabaseAdmin
       .from('project_collaborators')
       .insert({

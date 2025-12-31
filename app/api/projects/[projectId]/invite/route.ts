@@ -5,8 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-// Hardcoded for collaboration feature - TODO: use NEXT_PUBLIC_APP_URL when configured
-const APP_URL = 'http://localhost:3000';
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
 interface Project {
   title: string;

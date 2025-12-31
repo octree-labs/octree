@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { v4 as uuidv4 } from 'uuid';
 
-// Hardcoded for collaboration feature - TODO: use NEXT_PUBLIC_APP_URL when configured
-const APP_URL = 'http://localhost:3000';
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
 interface ShareLink {
   token: string;

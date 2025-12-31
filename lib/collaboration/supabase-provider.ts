@@ -60,21 +60,26 @@ export class SupabaseProvider {
 
     // Handle document sync messages
     this.channel.on('broadcast', { event: 'sync' }, ({ payload }) => {
+      console.log('[Collab] Received sync update from:', payload.userId);
       if (payload.userId !== this.options.userId && payload.update) {
         try {
           const update = new Uint8Array(payload.update);
           Y.applyUpdate(this.doc, update, 'remote');
+          console.log('[Collab] Applied remote update, doc length:', this.doc.getText('content').toString().length);
         } catch (error) {
-          console.error('Error applying remote update:', error);
+          console.error('[Collab] Error applying remote update:', error);
         }
       }
     });
 
     // Handle initial state sync request
     this.channel.on('broadcast', { event: 'sync-request' }, ({ payload }) => {
+      console.log('[Collab] Received sync request from:', payload.userId);
       if (payload.userId !== this.options.userId) {
         // Send full state to new joiner
         const state = Y.encodeStateAsUpdate(this.doc);
+        const docContent = this.doc.getText('content').toString();
+        console.log('[Collab] Sending sync response, doc length:', docContent.length);
         this.channel?.send({
           type: 'broadcast',
           event: 'sync-response',
@@ -89,12 +94,14 @@ export class SupabaseProvider {
 
     // Handle initial state sync response
     this.channel.on('broadcast', { event: 'sync-response' }, ({ payload }) => {
+      console.log('[Collab] Received sync response for:', payload.targetUserId, 'from:', payload.userId);
       if (payload.targetUserId === this.options.userId && payload.state) {
         try {
           const state = new Uint8Array(payload.state);
           Y.applyUpdate(this.doc, state, 'remote');
+          console.log('[Collab] Applied sync response, doc length:', this.doc.getText('content').toString().length);
         } catch (error) {
-          console.error('Error applying sync response:', error);
+          console.error('[Collab] Error applying sync response:', error);
         }
       }
     });
@@ -130,8 +137,10 @@ export class SupabaseProvider {
 
     // Subscribe to channel
     await this.channel.subscribe(async (status) => {
+      console.log('[Collab] Channel status:', status);
       if (status === 'SUBSCRIBED') {
         this.connected = true;
+        console.log('[Collab] Connected to channel:', channelName);
 
         // Track presence
         await this.channel?.track({
@@ -141,12 +150,16 @@ export class SupabaseProvider {
           joinedAt: Date.now(),
         });
 
-        // Request initial sync from others
-        this.channel?.send({
-          type: 'broadcast',
-          event: 'sync-request',
-          payload: { userId: this.options.userId },
-        });
+        // Request initial sync from others after a short delay
+        // This gives time for the initial content to be loaded
+        setTimeout(() => {
+          console.log('[Collab] Sending sync request');
+          this.channel?.send({
+            type: 'broadcast',
+            event: 'sync-request',
+            payload: { userId: this.options.userId },
+          });
+        }, 100);
 
         // Flush any pending updates
         this.flushPendingUpdates();
@@ -174,6 +187,7 @@ export class SupabaseProvider {
   };
 
   private broadcastUpdate(update: Uint8Array) {
+    console.log('[Collab] Broadcasting update, size:', update.length);
     this.channel?.send({
       type: 'broadcast',
       event: 'sync',

@@ -330,12 +330,14 @@ export default function ProjectPage() {
                   />
                 ) : isText && selectedFile ? (
                   <>
-                    {/* TODO: Re-enable CollaborativeEditor once Yjs sync is fixed */}
-                    <MonacoEditor
+                    <CollaborativeEditor
+                      projectId={projectId}
+                      fileId={selectedFile.id}
                       content={content}
                       onChange={handleEditorChange}
                       onMount={handleEditorMount}
                       className="h-full"
+                      collaborationEnabled={true}
                     />
                     <SelectionButton
                       show={showButton}

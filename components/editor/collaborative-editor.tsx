@@ -103,13 +103,10 @@ export function CollaborativeEditor({
         // No other users have content, use the file's content
         const contentToUse = initialContentRef.current || content;
         if (contentToUse) {
-          console.log('Initializing Yjs with file content, length:', contentToUse.length);
           ydoc.transact(() => {
             yText.insert(0, contentToUse);
           });
         }
-      } else {
-        console.log('Yjs already has content, length:', yText.toString().length);
       }
 
       // Now create the Monaco binding
@@ -123,7 +120,6 @@ export function CollaborativeEditor({
         bindingRef.current = binding;
         boundRef.current = true;
         setIsYjsReady(true);
-        console.log('Monaco binding created successfully');
       } catch (error) {
         console.error('Error creating Monaco binding:', error);
       }

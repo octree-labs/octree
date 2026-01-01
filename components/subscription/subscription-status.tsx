@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { CreditCard, AlertCircle, CheckCircle, Zap } from 'lucide-react';
 import { PRO_MONTHLY_EDIT_LIMIT } from '@/data/constants';
+import { CancelSubscriptionDialog } from '@/components/subscription/cancel-subscription-dialog';
 
 const STRIPE_CHECKOUT_URL = 'https://buy.stripe.com/6oUdR9fyd8Sd6Cifd46oo00';
 
@@ -52,6 +53,7 @@ export function SubscriptionStatus() {
   const [subscriptionData, setSubscriptionData] =
     useState<SubscriptionData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [showCancelDialog, setShowCancelDialog] = useState(false);
 
   useEffect(() => {
     fetchSubscriptionStatus();
@@ -68,6 +70,14 @@ export function SubscriptionStatus() {
       console.error('Error fetching subscription status:', error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleCancelDialogChange = (open: boolean) => {
+    setShowCancelDialog(open);
+    // Refresh subscription data when dialog closes
+    if (!open) {
+      fetchSubscriptionStatus();
     }
   };
 
@@ -287,7 +297,21 @@ export function SubscriptionStatus() {
                 Manage Plan
               </a>
             </Button>
+            {isActive && !isCancelling && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowCancelDialog(true)}
+              >
+                Cancel Subscription
+              </Button>
+            )}
           </div>
+
+          <CancelSubscriptionDialog
+            open={showCancelDialog}
+            onOpenChange={handleCancelDialogChange}
+          />
         </CardContent>
       </Card>
     );

@@ -48,8 +48,7 @@ export function useChatStream() {
       fileContent: string,
       textFromEditor: string | null,
       selectionRange: SelectionRange | null | undefined,
-      projectContext: ProjectContextPayload,
-      callbacks: StreamCallbacks
+      projectContext: ProjectContextPayload
     ) => {
       // Cancel existing stream
       if (abortControllerRef.current) {

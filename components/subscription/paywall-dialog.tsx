@@ -11,7 +11,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { CreditCard, Lock, CheckCircle } from 'lucide-react';
-import { FREE_DAILY_EDIT_LIMIT, PRO_MONTHLY_EDIT_LIMIT } from '@/data/constants';
+import { FREE_DAILY_EDIT_LIMIT, PRO_MONTHLY_EDIT_LIMIT, STRIPE_CHECKOUT_URL } from '@/data/constants';
 
 type PaywallVariant = 'edit-limit' | 'export';
 
@@ -37,7 +37,7 @@ export function PaywallDialog({
   const handleSubscribe = async () => {
     setIsLoading(true);
     try {
-      window.open('https://buy.stripe.com/6oUdR9fyd8Sd6Cifd46oo00', '_blank');
+      window.open(STRIPE_CHECKOUT_URL, '_blank');
       onClose();
     } catch (error) {
       console.error('Error redirecting to checkout:', error);

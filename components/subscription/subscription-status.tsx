@@ -11,9 +11,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { CreditCard, AlertCircle, CheckCircle, Zap } from 'lucide-react';
-import { PRO_MONTHLY_EDIT_LIMIT } from '@/data/constants';
-
-const STRIPE_CHECKOUT_URL = 'https://buy.stripe.com/6oUdR9fyd8Sd6Cifd46oo00';
+import { PRO_MONTHLY_EDIT_LIMIT, STRIPE_CHECKOUT_URL } from '@/data/constants';
 
 interface SubscriptionData {
   hasSubscription: boolean;

@@ -5,9 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { CreditCard, Info } from 'lucide-react';
-import { FREE_DAILY_EDIT_LIMIT, PRO_MONTHLY_EDIT_LIMIT } from '@/data/constants';
-
-const STRIPE_CHECKOUT_URL = 'https://buy.stripe.com/6oUdR9fyd8Sd6Cifd46oo00';
+import { FREE_DAILY_EDIT_LIMIT, PRO_MONTHLY_EDIT_LIMIT, STRIPE_CHECKOUT_URL } from '@/data/constants';
 
 interface UsageIndicatorProps {
   className?: string;

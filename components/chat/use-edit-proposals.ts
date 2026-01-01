@@ -289,7 +289,7 @@ export function useEditProposals(fileContent: string, currentFilePath?: string |
 
       return mapped;
     },
-    [fileContent, incrementProgress]
+    [fileContent, currentFilePath, incrementProgress]
   );
 
   return {

@@ -63,7 +63,7 @@ export async function acceptSingleEdit(
   
   // If target file doesn't match current file, apply directly to file store
   if (targetFile && currentFile && targetFile !== currentFile) {
-    acceptEditDirect(suggestionId, editSuggestions, onUpdate, currentFile);
+    acceptEditDirect(suggestionId, editSuggestions, onUpdate, targetFile);
     return;
   }
 

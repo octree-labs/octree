@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { useEditLimitCache } from '../use-edit-limit-cache';
 import { useSuggestionQueue } from './use-suggestion-queue';
 import { useSuggestionDecorations } from './use-suggestion-decorations';
-import { acceptSingleEdit, acceptAllEdits, rejectEdit, AcceptEditOptions } from './suggestion-operations';
+import { acceptSingleEdit, acceptAllEdits, rejectEdit, acceptEditDirect, AcceptEditOptions } from './suggestion-operations';
 import type { EditSuggestionsState, UseEditSuggestionsProps } from './types';
 
 /**
@@ -36,6 +36,7 @@ export function useEditSuggestions({
     monacoInstance,
     editSuggestions,
     showInlinePreview,
+    currentFilePath,
   });
 
   // Options for file validation
@@ -55,19 +56,25 @@ export function useEditSuggestions({
         return;
       }
 
-      if (!editor || !monacoInstance) {
-        console.error('Editor or Monaco instance not available.');
-        return;
+      // If editor is available, use Monaco-based editing (better for undo/redo)
+      if (editor && monacoInstance) {
+        await acceptSingleEdit(
+          suggestionId,
+          editSuggestions,
+          editor,
+          monacoInstance,
+          setEditSuggestions,
+          acceptOptions
+        );
+      } else {
+        // No editor available - apply edit directly to file store
+        acceptEditDirect(
+          suggestionId,
+          editSuggestions,
+          setEditSuggestions,
+          currentFilePath
+        );
       }
-
-      await acceptSingleEdit(
-        suggestionId,
-        editSuggestions,
-        editor,
-        monacoInstance,
-        setEditSuggestions,
-        acceptOptions
-      );
     },
     [canEdit, editor, monacoInstance, editSuggestions, setEditSuggestions, currentFilePath, onSwitchFile]
   );
@@ -86,24 +93,44 @@ export function useEditSuggestions({
       return;
     }
 
-    if (!editor || !monacoInstance) {
-      console.error('Editor or Monaco instance not available.');
-      return;
-    }
+    if (editor && monacoInstance) {
+      // Use Monaco-based editing when available
+      await acceptAllEdits(
+        pendingSuggestions,
+        editor,
+        monacoInstance,
+        () => {
+          setEditSuggestions([]);
+        },
+        (appliedIds) => {
+          setEditSuggestions((prev) => prev.filter((s) => !appliedIds.includes(s.id)));
+        },
+        acceptOptions
+      );
+    } else {
+      // No editor - apply each edit directly to file store
+      // Sort from bottom to top to avoid line shifting issues
+      const sorted = [...pendingSuggestions].sort((a, b) => {
+        const lineA = a.position?.line || 1;
+        const lineB = b.position?.line || 1;
+        return lineB - lineA;
+      });
 
-    await acceptAllEdits(
-      pendingSuggestions,
-      editor,
-      monacoInstance,
-      () => {
-        setEditSuggestions([]);
-      },
-      (appliedIds) => {
-        // Partial clear: remove only applied edits
-        setEditSuggestions((prev) => prev.filter((s) => !appliedIds.includes(s.id)));
-      },
-      acceptOptions
-    );
+      let appliedCount = 0;
+      for (const suggestion of sorted) {
+        const success = acceptEditDirect(
+          suggestion.id,
+          editSuggestions,
+          setEditSuggestions,
+          currentFilePath
+        );
+        if (success) appliedCount++;
+      }
+
+      if (appliedCount > 0) {
+        toast.success(`Applied ${appliedCount} edit(s)`, { duration: 2000 });
+      }
+    }
   }, [
     editSuggestions,
     canEdit,

@@ -153,10 +153,12 @@ function InlineSuggestion({
 
   return (
     <div className="rounded-md border border-blue-200 bg-white overflow-hidden text-[11px]">
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
         onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full flex items-center justify-between px-2 py-1.5 text-left hover:bg-slate-50 transition-colors"
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIsExpanded(!isExpanded); } }}
+        className="w-full flex items-center justify-between px-2 py-1.5 text-left hover:bg-slate-50 transition-colors cursor-pointer"
       >
         <div className="flex items-center gap-1.5 min-w-0 flex-1">
           {isExpanded ? (
@@ -213,7 +215,7 @@ function InlineSuggestion({
             Reject
           </button>
         </div>
-      </button>
+      </div>
       
       {isExpanded && (
         <div className="px-2 pb-2">

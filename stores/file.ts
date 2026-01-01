@@ -58,6 +58,35 @@ export const FileActions = {
     setState({ projectFiles: updatedFiles });
   },
 
+  /** Update content for a file by its path (file name) */
+  setContentByPath: (filePath: string, content: string) => {
+    const { projectFiles } = getState();
+
+    if (!projectFiles) {
+      return;
+    }
+
+    const updatedFiles = projectFiles.map((projectFile) => {
+      if (projectFile.file.name === filePath && projectFile.document) {
+        return {
+          ...projectFile,
+          document: { ...projectFile.document, content },
+        };
+      }
+      return projectFile;
+    });
+
+    setState({ projectFiles: updatedFiles });
+  },
+
+  /** Get file content by path */
+  getContentByPath: (filePath: string): string | null => {
+    const { projectFiles } = getState();
+    if (!projectFiles) return null;
+    const file = projectFiles.find((f) => f.file.name === filePath);
+    return file?.document?.content ?? null;
+  },
+
   reset: () => {
     setState(DEFAULT_STATE);
   },

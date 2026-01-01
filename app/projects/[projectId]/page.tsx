@@ -188,10 +188,12 @@ export default function ProjectPage() {
   const projectFileContext = useMemo(
     () =>
       projectFiles
-        ? projectFiles.map((projectFile) => ({
-          path: projectFile.file.name,
-          content: projectFile.document?.content ?? '',
-        }))
+        ? projectFiles
+            .filter((projectFile) => isTextFile(projectFile.file.name)) // Filter out binary files (PDFs, images, etc.)
+            .map((projectFile) => ({
+              path: projectFile.file.name,
+              content: projectFile.document?.content ?? '',
+            }))
         : [],
     [projectFiles]
   );
@@ -427,7 +429,7 @@ export default function ProjectPage() {
           onAcceptAllEdits={handleAcceptAllEdits}
           editSuggestions={editSuggestions}
           pendingEditCount={totalPendingCount}
-          fileContent={content}
+          fileContent={selectedFile && isTextFile(selectedFile.name) ? content : ''}
           textFromEditor={textFromEditor}
           setTextFromEditor={setTextFromEditor}
           selectionRange={selectionRange}

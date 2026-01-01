@@ -12,7 +12,7 @@ import type { ProjectFileContext } from './lib/octra-agent';
 
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '10mb' }));
 
 app.post('/agent', async (req: any, res: any) => {
   try {
@@ -35,6 +35,9 @@ app.post('/agent', async (req: any, res: any) => {
     const intent = await inferIntent(userText);
     const collectedEdits: unknown[] = [];
 
+    // Binary file extensions to exclude (PDFs, images, etc.)
+    const binaryExtensions = ['.pdf', '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.svg', '.eps', '.ps', '.dvi', '.aux', '.log', '.out', '.toc', '.lof', '.lot', '.bbl', '.blg', '.synctex', '.fls', '.fdb_latexmk', '.gz'];
+    
     const projectFiles: ProjectFileContext[] = Array.isArray(projectFilesPayload)
       ? projectFilesPayload
           .filter(
@@ -43,6 +46,11 @@ app.post('/agent', async (req: any, res: any) => {
               typeof (file as { path?: unknown }).path === 'string' &&
               typeof (file as { content?: unknown }).content === 'string'
           )
+          .filter((file) => {
+            // Filter out binary files by extension
+            const ext = file.path.toLowerCase().substring(file.path.lastIndexOf('.'));
+            return !binaryExtensions.includes(ext);
+          })
           .map((file) => ({
             path: file.path,
             content: file.content,

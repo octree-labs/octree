@@ -8,6 +8,7 @@ interface UseSuggestionDecorationsProps {
   monacoInstance: typeof Monaco | null;
   editSuggestions: EditSuggestion[];
   showInlinePreview?: boolean;
+  currentFilePath?: string | null;
 }
 
 /**
@@ -18,6 +19,7 @@ export function useSuggestionDecorations({
   monacoInstance,
   editSuggestions,
   showInlinePreview = true,
+  currentFilePath,
 }: UseSuggestionDecorationsProps) {
   const [decorationIds, setDecorationIds] = useState<string[]>([]);
 
@@ -35,9 +37,16 @@ export function useSuggestionDecorations({
     const oldDecorationIds = decorationIds;
     const newDecorations: Monaco.editor.IModelDeltaDecoration[] = [];
 
-    const pendingSuggestions = editSuggestions.filter(
-      (s) => s.status === 'pending'
-    );
+    // Only show decorations for pending suggestions that target the current file
+    const pendingSuggestions = editSuggestions.filter((s) => {
+      if (s.status !== 'pending') return false;
+      // If suggestion has no target file, show it
+      if (!s.targetFile) return true;
+      // If we don't know current file, show all
+      if (!currentFilePath) return true;
+      // Only show if target matches current file
+      return s.targetFile === currentFilePath;
+    });
 
     pendingSuggestions.forEach((suggestion) => {
       const startLineNumber = getStartLine(suggestion);
@@ -147,7 +156,7 @@ export function useSuggestionDecorations({
       newDecorations
     );
     setDecorationIds(newDecorationIds);
-  }, [editSuggestions, editor, monacoInstance, showInlinePreview]);
+  }, [editSuggestions, editor, monacoInstance, showInlinePreview, currentFilePath]);
 
   // Cleanup on unmount
   useEffect(() => {

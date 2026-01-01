@@ -371,4 +371,3 @@ export function acceptEditDirect(
     return false;
   }
 }
-

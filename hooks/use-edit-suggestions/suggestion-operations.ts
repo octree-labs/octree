@@ -24,9 +24,8 @@ function applyEditToContent(content: string, suggestion: EditSuggestion): string
   const originalLineCount = getOriginalLineCount(suggestion);
   const suggestedText = getSuggestedText(suggestion);
   
-  // Convert to 0-based index
-  const startIndex = startLine - 1;
-  const endIndex = originalLineCount > 0 ? startIndex + originalLineCount : startIndex;
+  // Convert to 0-based index, clamped to valid range
+  const startIndex = Math.max(0, Math.min(startLine - 1, lines.length));
   
   // Split suggested text into lines
   const newLines = suggestedText.split('\n');
@@ -36,8 +35,9 @@ function applyEditToContent(content: string, suggestion: EditSuggestion): string
     // Insert: add new lines at the position
     lines.splice(startIndex, 0, ...newLines);
   } else {
-    // Replace or delete
-    lines.splice(startIndex, originalLineCount, ...newLines);
+    // Replace or delete - clamp line count to available lines
+    const linesToRemove = Math.min(originalLineCount, lines.length - startIndex);
+    lines.splice(startIndex, linesToRemove, ...newLines);
   }
   
   return lines.join('\n');
@@ -194,20 +194,36 @@ export async function acceptAllEdits(
     return s.targetFile !== currentFile;
   });
 
-  // Apply edits to other files directly
+  // Apply edits to other files directly (group by file and sort bottom-to-top)
+  const otherFilesByPath = new Map<string, EditSuggestion[]>();
   for (const suggestion of otherFileEdits) {
-    acceptEditDirect(suggestion.id, allPendingSuggestions, onPartialClear ? 
-      (updater) => {
-        const result = updater(allPendingSuggestions);
-        if (onPartialClear) {
-          const removedIds = allPendingSuggestions.filter(s => !result.find(r => r.id === s.id)).map(s => s.id);
-          if (removedIds.length > 0) onPartialClear(removedIds);
-        }
-      } : onClearAll as any, currentFile);
+    const file = suggestion.targetFile!;
+    if (!otherFilesByPath.has(file)) {
+      otherFilesByPath.set(file, []);
+    }
+    otherFilesByPath.get(file)!.push(suggestion);
   }
 
-  // If no current file edits, we're done
+  // Process each file's edits
+  for (const [filePath, edits] of otherFilesByPath) {
+    // Sort bottom-to-top to avoid line shifting issues
+    const sorted = [...edits].sort((a, b) => getStartLine(b) - getStartLine(a));
+    
+    for (const suggestion of sorted) {
+      const content = FileActions.getContentByPath(filePath);
+      if (content !== null) {
+        const newContent = applyEditToContent(content, suggestion);
+        FileActions.setContentByPath(filePath, newContent);
+      }
+    }
+  }
+
+  // If no current file edits, clear and return
   if (currentFileEdits.length === 0) {
+    onClearAll();
+    if (otherFileEdits.length > 0) {
+      toast.success(`Applied ${otherFileEdits.length} edit(s)`, { duration: 2000 });
+    }
     return;
   }
 

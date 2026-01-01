@@ -108,24 +108,53 @@ export function useEditSuggestions({
         acceptOptions
       );
     } else {
-      // No editor - apply each edit directly to file store
-      // Sort from bottom to top to avoid line shifting issues
-      const sorted = [...pendingSuggestions].sort((a, b) => {
-        const lineA = a.position?.line || 1;
-        const lineB = b.position?.line || 1;
-        return lineB - lineA;
-      });
+      // No editor - apply edits directly to file store
+      // Group by target file and sort bottom-to-top within each file
+      const { FileActions } = await import('@/stores/file');
+      const { getStartLine, getSuggestedText, getOriginalLineCount } = await import('./utils');
+      
+      const fileEditsMap = new Map<string, typeof pendingSuggestions>();
+      for (const s of pendingSuggestions) {
+        const targetFile = s.targetFile || currentFilePath || '';
+        if (!targetFile) continue;
+        if (!fileEditsMap.has(targetFile)) {
+          fileEditsMap.set(targetFile, []);
+        }
+        fileEditsMap.get(targetFile)!.push(s);
+      }
 
       let appliedCount = 0;
-      for (const suggestion of sorted) {
-        const success = acceptEditDirect(
-          suggestion.id,
-          editSuggestions,
-          setEditSuggestions,
-          currentFilePath
-        );
-        if (success) appliedCount++;
+      for (const [filePath, edits] of fileEditsMap) {
+        // Sort bottom-to-top to avoid line shifting
+        const sorted = [...edits].sort((a, b) => getStartLine(b) - getStartLine(a));
+        
+        const initialContent = FileActions.getContentByPath(filePath);
+        if (initialContent === null) continue;
+
+        // Apply all edits for this file
+        let currentContent: string = initialContent;
+        for (const suggestion of sorted) {
+          const lines: string[] = currentContent.split('\n');
+          const startLine = getStartLine(suggestion);
+          const originalLineCount = getOriginalLineCount(suggestion);
+          const suggestedText = getSuggestedText(suggestion);
+          const startIndex = startLine - 1;
+          const newLines = suggestedText.split('\n');
+          
+          if (originalLineCount === 0) {
+            lines.splice(startIndex, 0, ...newLines);
+          } else {
+            lines.splice(startIndex, originalLineCount, ...newLines);
+          }
+          currentContent = lines.join('\n');
+          appliedCount++;
+        }
+
+        FileActions.setContentByPath(filePath, currentContent);
       }
+
+      // Clear all suggestions
+      setEditSuggestions([]);
 
       if (appliedCount > 0) {
         toast.success(`Applied ${appliedCount} edit(s)`, { duration: 2000 });

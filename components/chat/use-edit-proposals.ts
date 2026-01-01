@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from 'react';
 import { LineEdit } from '@/lib/octra-agent/line-edits';
 import { EditSuggestion } from '@/types/edit';
+import { FileActions } from '@/stores/file';
 
 export type ProposalState = 'pending' | 'success' | 'error';
 export type ProposalStepState = 'queued' | 'pending' | 'success';
@@ -29,7 +30,7 @@ function buildStepStates(total: number, progress: number): ProposalStepState[] {
   });
 }
 
-export function useEditProposals(fileContent: string) {
+export function useEditProposals(fileContent: string, currentFilePath?: string | null) {
   const [proposalIndicators, setProposalIndicators] = useState<
     Record<string, ProposalIndicator>
   >({});
@@ -185,13 +186,20 @@ export function useEditProposals(fileContent: string) {
       const mapped: EditSuggestion[] = edits.map((edit, idx) => {
         let originalContent = '';
         if (
-          edit.editType === 'delete' &&
+          (edit.editType === 'delete' || edit.editType === 'replace') &&
           edit.position?.line &&
           edit.originalLineCount
         ) {
+          // Get content from the correct file (cross-file support)
+          const targetFile = edit.targetFile || currentFilePath;
+          let targetContent = fileContent;
+          if (targetFile && targetFile !== currentFilePath) {
+            targetContent = FileActions.getContentByPath(targetFile) ?? '';
+          }
+          
           const startLine = edit.position.line;
           const lineCount = edit.originalLineCount;
-          const lines = fileContent.split('\n');
+          const lines = targetContent.split('\n');
           const endLine = Math.min(startLine + lineCount - 1, lines.length);
           originalContent = lines.slice(startLine - 1, endLine).join('\n');
         }

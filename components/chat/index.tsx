@@ -103,7 +103,7 @@ export function Chat({
     incrementProgress,
     setError: setProposalError,
     convertEditsToSuggestions,
-  } = useEditProposals(fileContent);
+  } = useEditProposals(fileContent, currentFilePath);
   const {
     attachments,
     addFiles,
@@ -184,7 +184,7 @@ export function Chat({
         { ...userMsg, content: userContentForClaude }, // User message with enhanced content
       ];
 
-      const { response, controller } = await startStream(
+      const { response } = await startStream(
         messagesForClaude,
         fileContent,
         textFromEditor,
@@ -192,42 +192,6 @@ export function Chat({
         {
           currentFilePath,
           projectFiles,
-        },
-        {
-          onTextUpdate: (text) => {
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.id === assistantId ? { ...m, content: text } : m
-              )
-            );
-            if (shouldStickToBottomRef.current) scrollToBottom();
-          },
-          onEdits: (edits) => {
-            const suggestions = convertEditsToSuggestions(edits, assistantId);
-            if (suggestions.length > 0) {
-              onEditSuggestion(suggestions);
-            }
-          },
-          onToolCall: (name, count, violations, progressIncrement) => {
-            if (name === 'propose_edits') {
-              const violationCount = Array.isArray(violations)
-                ? violations.length
-                : undefined;
-              if (typeof count === 'number') {
-                setPending(assistantId, count, violationCount);
-              }
-              if (typeof progressIncrement === 'number') {
-                incrementProgress(assistantId, progressIncrement, true);
-              }
-            }
-          },
-          onError: (errorMsg) => {
-            setError(new Error(errorMsg));
-            setProposalError(assistantId, errorMsg);
-          },
-          onStatus: (state) => {
-            if (state === 'started') setIsLoading(true);
-          },
         }
       );
 

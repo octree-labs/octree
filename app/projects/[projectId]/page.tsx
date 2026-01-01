@@ -46,6 +46,8 @@ export default function ProjectPage() {
 
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<typeof Monaco | null>(null);
+  // State to trigger re-render when editor mounts
+  const [editorReady, setEditorReady] = useState(false);
 
   const { content, setContent } = useEditorState();
 
@@ -239,7 +241,19 @@ export default function ProjectPage() {
     editorRef.current = editor;
     monacoRef.current = monaco;
     setupEditorListeners(editor);
+    // Trigger re-render so hooks get the editor/monaco instances
+    setEditorReady(true);
   };
+
+  // Reset editor refs when switching to non-text file (Monaco unmounts)
+  const isCurrentFileText = selectedFile ? isTextFile(selectedFile.name) : false;
+  useEffect(() => {
+    if (!isCurrentFileText) {
+      editorRef.current = null;
+      monacoRef.current = null;
+      setEditorReady(false);
+    }
+  }, [isCurrentFileText]);
 
   const handleSuggestionFromChat = useCallback(
     (suggestions: EditSuggestion | EditSuggestion[]) => {

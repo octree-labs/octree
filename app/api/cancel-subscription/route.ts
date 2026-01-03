@@ -6,7 +6,7 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2025-02-24.acacia',
 });
 
-export async function POST(request: Request) {
+export async function POST() {
   try {
     const supabase = await createClient();
 
@@ -16,22 +16,19 @@ export async function POST(request: Request) {
     } = await supabase.auth.getUser();
 
     if (userError || !user) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     // Try multiple methods to find the customer
     let customer = null;
-    
+
     // Method 1: Try to find by email
     try {
       const customersByEmail = await stripe.customers.list({
         email: user.email,
         limit: 1,
       });
-      
+
       if (customersByEmail.data.length > 0) {
         customer = customersByEmail.data[0];
         console.log('Found customer by email:', customer.id);
@@ -46,12 +43,13 @@ export async function POST(request: Request) {
         const customersByMetadata = await stripe.customers.list({
           limit: 100, // We'll need to search through customers
         });
-        
-        customer = customersByMetadata.data.find(c => 
-          c.metadata?.user_id === user.id || 
-          c.metadata?.supabase_user_id === user.id
+
+        customer = customersByMetadata.data.find(
+          (c) =>
+            c.metadata?.user_id === user.id ||
+            c.metadata?.supabase_user_id === user.id
         );
-        
+
         if (customer) {
           console.log('Found customer by metadata:', customer.id);
         }
@@ -108,4 +106,4 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
-} 
+}

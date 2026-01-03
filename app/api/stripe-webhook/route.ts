@@ -36,65 +36,7 @@ export async function POST(request: Request) {
       case 'customer.subscription.created':
       case 'customer.subscription.updated':
       case 'customer.subscription.deleted':
-        const subscription = event.data.object as Stripe.Subscription;
-
-        if (subscription.customer) {
-          const customer = await stripe.customers.retrieve(
-            subscription.customer as string
-          );
-
-          if (customer && !customer.deleted) {
-            const customerData = customer as Stripe.Customer;
-
-            let user = null;
-
-            if (customerData.email) {
-              console.log('Finding user by email:', customerData.email);
-              const { data: userData } = await supabase.auth.admin.listUsers();
-              console.log('User data:', userData);
-              user = userData.users.find((u) => u.email === customerData.email);
-              console.log('User:', user);
-            }
-
-            if (!user && customerData.metadata?.user_id) {
-              const { data: userData } = await supabase.auth.admin.getUserById(
-                customerData.metadata.user_id
-              );
-              user = userData.user;
-            }
-
-            if (!user && customerData.metadata?.supabase_user_id) {
-              const { data: userData } = await supabase.auth.admin.getUserById(
-                customerData.metadata.supabase_user_id
-              );
-              user = userData.user;
-            }
-
-            console.log('User:', user);
-
-            if (user) {
-              const rpcArgs = {
-                p_user_id: user.id,
-                p_stripe_customer_id: customerData.id,
-                p_stripe_subscription_id: subscription.id,
-                p_subscription_status: subscription.status,
-                p_current_period_start: new Date(
-                  subscription.current_period_start * 1000
-                ).toISOString(),
-                p_current_period_end: new Date(
-                  subscription.current_period_end * 1000
-                ).toISOString(),
-                p_cancel_at_period_end: subscription.cancel_at_period_end,
-              } as const;
-
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              await supabase.rpc(
-                'update_user_subscription_status',
-                rpcArgs as any
-              );
-            }
-          }
-        }
+        console.log('Stripe Webhook Event:', event);
         break;
     }
 

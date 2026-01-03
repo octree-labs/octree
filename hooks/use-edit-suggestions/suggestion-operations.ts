@@ -1,6 +1,7 @@
 import { EditSuggestion } from '@/types/edit';
 import type * as Monaco from 'monaco-editor';
 import { toast } from 'sonner';
+import { FileActions } from '@/stores/file';
 import {
   getStartLine,
   getOriginalLineCount,
@@ -12,6 +13,34 @@ import {
 export interface AcceptEditOptions {
   currentFilePath?: string | null;
   onSwitchFile?: (filePath: string) => void;
+}
+
+/**
+ * Apply an edit directly to file content (without requiring Monaco editor)
+ */
+function applyEditToContent(content: string, suggestion: EditSuggestion): string {
+  const lines = content.split('\n');
+  const startLine = getStartLine(suggestion);
+  const originalLineCount = getOriginalLineCount(suggestion);
+  const suggestedText = getSuggestedText(suggestion);
+  
+  // Convert to 0-based index
+  const startIndex = startLine - 1;
+  const endIndex = originalLineCount > 0 ? startIndex + originalLineCount : startIndex;
+  
+  // Split suggested text into lines
+  const newLines = suggestedText.split('\n');
+  
+  // Replace the lines
+  if (originalLineCount === 0) {
+    // Insert: add new lines at the position
+    lines.splice(startIndex, 0, ...newLines);
+  } else {
+    // Replace or delete
+    lines.splice(startIndex, originalLineCount, ...newLines);
+  }
+  
+  return lines.join('\n');
 }
 
 /**
@@ -28,16 +57,13 @@ export async function acceptSingleEdit(
   const suggestion = editSuggestions.find((s) => s.id === suggestionId);
   if (!suggestion || suggestion.status !== 'pending') return;
 
-  // Validate target file matches current file
+  // Check if target file matches current file
   const targetFile = suggestion.targetFile;
   const currentFile = options?.currentFilePath;
   
+  // If target file doesn't match current file, apply directly to file store
   if (targetFile && currentFile && targetFile !== currentFile) {
-    // Target file doesn't match: don't auto-navigate on "Accept" (it feels like a bug).
-    // Instead, tell the user which file to open to apply this suggestion.
-    toast.info(`This edit is for "${targetFile}". Open that file to apply it.`, {
-      duration: 3000,
-    });
+    acceptEditDirect(suggestionId, editSuggestions, onUpdate, currentFile);
     return;
   }
 
@@ -156,33 +182,39 @@ export async function acceptAllEdits(
     return;
   }
 
-  // Filter to only edits that target the current file (or have no target)
+  // Separate edits: current file (use Monaco) vs other files (use direct)
   const currentFile = options?.currentFilePath;
-  const applicableSuggestions = allPendingSuggestions.filter((s) => {
+  const currentFileEdits = allPendingSuggestions.filter((s) => {
     if (!s.targetFile || !currentFile) return true;
     return s.targetFile === currentFile;
   });
   
-  const skippedSuggestions = allPendingSuggestions.filter((s) => {
+  const otherFileEdits = allPendingSuggestions.filter((s) => {
     if (!s.targetFile || !currentFile) return false;
     return s.targetFile !== currentFile;
   });
 
-  if (applicableSuggestions.length === 0) {
-    const targetFiles = [...new Set(skippedSuggestions.map((s) => s.targetFile))];
-    toast.error(`All edits are for other files: ${targetFiles.join(', ')}`, { duration: 3000 });
-    return;
+  // Apply edits to other files directly
+  for (const suggestion of otherFileEdits) {
+    acceptEditDirect(suggestion.id, allPendingSuggestions, onPartialClear ? 
+      (updater) => {
+        const result = updater(allPendingSuggestions);
+        if (onPartialClear) {
+          const removedIds = allPendingSuggestions.filter(s => !result.find(r => r.id === s.id)).map(s => s.id);
+          if (removedIds.length > 0) onPartialClear(removedIds);
+        }
+      } : onClearAll as any, currentFile);
   }
-  
-  if (skippedSuggestions.length > 0) {
-    const targetFiles = [...new Set(skippedSuggestions.map((s) => s.targetFile))];
-    toast.info(`Skipped ${skippedSuggestions.length} edit(s) for other files: ${targetFiles.join(', ')}`, { duration: 3000 });
+
+  // If no current file edits, we're done
+  if (currentFileEdits.length === 0) {
+    return;
   }
 
   try {
     // Sort suggestions from bottom to top (highest line first)
     // This prevents earlier edits from affecting the positions of later edits
-    const sortedSuggestions = [...applicableSuggestions].sort((a, b) => {
+    const sortedSuggestions = [...currentFileEdits].sort((a, b) => {
       const lineA = getStartLine(a);
       const lineB = getStartLine(b);
       return lineB - lineA; // Descending order
@@ -218,15 +250,11 @@ export async function acceptAllEdits(
     // Apply all edits in a single batch operation
     editor.executeEdits('accept-all-ai-suggestions', edits);
 
-    // If we had skipped suggestions, only clear applied ones; otherwise clear all
-    if (skippedSuggestions.length > 0 && onPartialClear) {
-      const appliedIds = applicableSuggestions.map((s) => s.id);
-      onPartialClear(appliedIds);
-    } else {
-      onClearAll();
-    }
+    // Clear all suggestions (including those applied to other files)
+    onClearAll();
     
-    toast.success(`Applied ${applicableSuggestions.length} edit(s)`, { duration: 2000 });
+    const totalApplied = currentFileEdits.length + otherFileEdits.length;
+    toast.success(`Applied ${totalApplied} edit(s)`, { duration: 2000 });
   } catch (error) {
     console.error('Error applying all edits:', error);
     toast.error('Failed to apply suggestions. Please try again.');
@@ -241,5 +269,90 @@ export function rejectEdit(
   onUpdate: (updater: (prev: EditSuggestion[]) => EditSuggestion[]) => void
 ): void {
   onUpdate((prev) => prev.filter((s) => s.id !== suggestionId));
+}
+
+/**
+ * Accept a single edit by directly modifying the file store (no Monaco required)
+ */
+export function acceptEditDirect(
+  suggestionId: string,
+  editSuggestions: EditSuggestion[],
+  onUpdate: (updater: (prev: EditSuggestion[]) => EditSuggestion[]) => void,
+  currentFilePath?: string | null
+): boolean {
+  const suggestion = editSuggestions.find((s) => s.id === suggestionId);
+  if (!suggestion || suggestion.status !== 'pending') return false;
+
+  // Determine target file
+  const targetFile = suggestion.targetFile || currentFilePath;
+  if (!targetFile) {
+    toast.error('Cannot determine which file to edit.');
+    return false;
+  }
+
+  // Get current content from file store
+  const content = FileActions.getContentByPath(targetFile);
+  if (content === null) {
+    toast.error(`File "${targetFile}" not found or has no content.`);
+    return false;
+  }
+
+  try {
+    // Apply the edit to the content
+    const newContent = applyEditToContent(content, suggestion);
+    
+    // Update the file store
+    FileActions.setContentByPath(targetFile, newContent);
+
+    // Rebase remaining suggestions
+    const startLine = getStartLine(suggestion);
+    const originalLineCount = getOriginalLineCount(suggestion);
+    const suggestedText = getSuggestedText(suggestion);
+    const deltaLines = computeDeltaLines(suggestedText, originalLineCount);
+    const acceptedEnd = originalLineCount > 0 ? startLine + originalLineCount - 1 : startLine;
+
+    onUpdate((prev) => {
+      const remaining = prev.filter((s) => s.id !== suggestionId);
+      const adjusted: EditSuggestion[] = [];
+      
+      for (const s of remaining) {
+        // Only rebase suggestions for the same file
+        if (s.targetFile !== targetFile && s.targetFile) {
+          adjusted.push(s);
+          continue;
+        }
+
+        const sStart = getStartLine(s);
+        const sOriginalLineCount = getOriginalLineCount(s);
+        const sEnd = sOriginalLineCount > 0 ? sStart + sOriginalLineCount - 1 : sStart;
+
+        // Skip if overlaps
+        if (rangesOverlap(sStart, sEnd, startLine, acceptedEnd)) {
+          continue;
+        }
+
+        // Shift if after the accepted region
+        if (sStart > acceptedEnd && deltaLines !== 0) {
+          adjusted.push({
+            ...s,
+            position: { 
+              ...s.position, 
+              line: (s.position?.line || 1) + deltaLines 
+            },
+          });
+        } else {
+          adjusted.push(s);
+        }
+      }
+      return adjusted;
+    });
+    
+    toast.success('Edit applied', { duration: 1000 });
+    return true;
+  } catch (error) {
+    console.error('Error applying edit:', error);
+    toast.error('Failed to apply this suggestion.');
+    return false;
+  }
 }
 

@@ -135,6 +135,7 @@ export function Chat({
     const trimmed = input.trim();
     if (!trimmed || isLoading) return;
 
+
     setError(null);
 
     // Store user input for display

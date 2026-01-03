@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { CreditCard, AlertCircle, CheckCircle, Zap } from 'lucide-react';
 import { PRO_MONTHLY_EDIT_LIMIT } from '@/data/constants';
+import { CancelSubscriptionDialog } from '@/components/subscription/cancel-subscription-dialog';
 
 interface SubscriptionData {
   hasSubscription: boolean;
@@ -52,6 +53,7 @@ export function SubscriptionStatus() {
   console.log('subscriptionData', subscriptionData);
   const [isLoading, setIsLoading] = useState(true);
   const [isCheckoutLoading, setIsCheckoutLoading] = useState(false);
+  const [showCancelDialog, setShowCancelDialog] = useState(false);
 
   useEffect(() => {
     fetchSubscriptionStatus();
@@ -87,6 +89,14 @@ export function SubscriptionStatus() {
       console.error('Error creating checkout session:', error);
     } finally {
       setIsCheckoutLoading(false);
+    }
+  };
+
+  const handleCancelDialogChange = (open: boolean) => {
+    setShowCancelDialog(open);
+    // Refresh subscription data when dialog closes
+    if (!open) {
+      fetchSubscriptionStatus();
     }
   };
 
@@ -303,10 +313,24 @@ export function SubscriptionStatus() {
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                Change Plan
+                Manage Plan
               </a>
             </Button>
+            {isActive && !isCancelling && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowCancelDialog(true)}
+              >
+                Cancel Subscription
+              </Button>
+            )}
           </div>
+
+          <CancelSubscriptionDialog
+            open={showCancelDialog}
+            onOpenChange={handleCancelDialogChange}
+          />
         </CardContent>
       </Card>
     );

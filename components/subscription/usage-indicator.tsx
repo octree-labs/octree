@@ -3,9 +3,17 @@
 import { useState, useEffect } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { CreditCard, Info } from 'lucide-react';
-import { FREE_DAILY_EDIT_LIMIT, PRO_MONTHLY_EDIT_LIMIT, STRIPE_CHECKOUT_URL } from '@/data/constants';
+import {
+  FREE_DAILY_EDIT_LIMIT,
+  PRO_MONTHLY_EDIT_LIMIT,
+  STRIPE_CHECKOUT_URL,
+} from '@/data/constants';
 
 interface UsageIndicatorProps {
   className?: string;
@@ -55,11 +63,7 @@ export function UpgradeButton() {
       size="sm"
       className="h-8 gap-1.5 bg-gradient-to-b from-primary-light to-primary px-3 text-white hover:from-primary-light/90 hover:to-primary/90"
     >
-      <a
-        href={STRIPE_CHECKOUT_URL}
-        target="_blank"
-        rel="noopener noreferrer"
-      >
+      <a href={STRIPE_CHECKOUT_URL} target="_blank" rel="noopener noreferrer">
         <CreditCard className="h-3.5 w-3.5" />
         <span className="font-medium">Subscribe</span>
       </a>
@@ -139,14 +143,12 @@ export function UsageIndicator({ className }: UsageIndicatorProps) {
           ? `${monthlyEditCount}/${PRO_MONTHLY_EDIT_LIMIT}`
           : `${editCount}/${FREE_DAILY_EDIT_LIMIT}`}
       </Badge>
-      {(limitReached || monthlyLimitReached) ? (
+      {limitReached || monthlyLimitReached ? (
         <Tooltip>
           <TooltipTrigger asChild>
             <Info className="h-4 w-4 cursor-help text-neutral-500" />
           </TooltipTrigger>
-          <TooltipContent>
-            Please Subscribe to continue using AI
-          </TooltipContent>
+          <TooltipContent>Please Subscribe to continue using AI</TooltipContent>
         </Tooltip>
       ) : (
         <Info className="h-4 w-4 text-neutral-500" />

@@ -55,6 +55,8 @@ export function EditorToolbar({
   const [isMac, setIsMac] = useState(true);
   const [showPaywall, setShowPaywall] = useState(false);
   const [subscriptionData, setSubscriptionData] = useState<SubscriptionData | null>(null);
+  console.log('subscriptionData', subscriptionData);
+  
 
   useEffect(() => {
     setIsMac(navigator.platform.toUpperCase().indexOf('MAC') >= 0);

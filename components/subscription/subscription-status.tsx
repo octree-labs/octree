@@ -11,7 +11,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { CreditCard, AlertCircle, CheckCircle, Zap } from 'lucide-react';
-import { PRO_MONTHLY_EDIT_LIMIT, STRIPE_CHECKOUT_URL } from '@/data/constants';
+import { PRO_MONTHLY_EDIT_LIMIT } from '@/data/constants';
 
 interface SubscriptionData {
   hasSubscription: boolean;
@@ -49,7 +49,9 @@ interface SubscriptionData {
 export function SubscriptionStatus() {
   const [subscriptionData, setSubscriptionData] =
     useState<SubscriptionData | null>(null);
+  console.log('subscriptionData', subscriptionData);
   const [isLoading, setIsLoading] = useState(true);
+  const [isCheckoutLoading, setIsCheckoutLoading] = useState(false);
 
   useEffect(() => {
     fetchSubscriptionStatus();
@@ -66,6 +68,25 @@ export function SubscriptionStatus() {
       console.error('Error fetching subscription status:', error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleCheckout = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsCheckoutLoading(true);
+
+    try {
+      const response = await fetch('/api/checkout-session', {
+        method: 'POST',
+      });
+
+      if (response.ok) {
+        window.location.href = await response.text();
+      }
+    } catch (error) {
+      console.error('Error creating checkout session:', error);
+    } finally {
+      setIsCheckoutLoading(false);
     }
   };
 
@@ -294,72 +315,71 @@ export function SubscriptionStatus() {
   // No subscription - show usage and upgrade options
   return (
     <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <CreditCard className="h-5 w-5" />
-            Subscription Status
-          </CardTitle>
-          <CardDescription>
-            You don't have an active subscription
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {/* Usage Summary */}
-          <div className="rounded-lg bg-neutral-50 p-4">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-sm font-medium text-neutral-700">
-                Your Usage
-              </span>
-              <Badge variant={usage.limitReached ? 'destructive' : 'secondary'}>
-                {usage.editCount}/5 edits used
-              </Badge>
-            </div>
-            <div className="h-2 w-full rounded-full bg-neutral-200">
-              <div
-                className="h-2 rounded-full bg-amber-500 transition-all duration-300"
-                style={{ width: `${(usage.editCount / 5) * 100}%` }}
-              />
-            </div>
-            <p className="mt-2 text-xs text-neutral-500">
-              {usage.remainingEdits && usage.remainingEdits > 0
-                ? `${usage.remainingEdits} edits remaining`
-                : 'No edits remaining'}
-            </p>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <CreditCard className="h-5 w-5" />
+          Subscription Status
+        </CardTitle>
+        <CardDescription>You don't have an active subscription</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Usage Summary */}
+        <div className="rounded-lg bg-neutral-50 p-4">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-sm font-medium text-neutral-700">
+              Your Usage
+            </span>
+            <Badge variant={usage.limitReached ? 'destructive' : 'secondary'}>
+              {usage.editCount}/5 edits used
+            </Badge>
           </div>
-
-          <div className="text-sm text-neutral-600">
-            {usage.limitReached ? (
-              <>
-                You have reached your free edit limit. Upgrade to Pro for{' '}
-                <span className="font-bold">{PRO_MONTHLY_EDIT_LIMIT}</span>{' '}
-                edits per month!
-              </>
-            ) : (
-              <>
-                Upgrade to unlock{' '}
-                <span className="font-bold">{PRO_MONTHLY_EDIT_LIMIT}</span>{' '}
-                edits per month and remove daily limitations.
-              </>
-            )}
+          <div className="h-2 w-full rounded-full bg-neutral-200">
+            <div
+              className="h-2 rounded-full bg-amber-500 transition-all duration-300"
+              style={{ width: `${(usage.editCount / 5) * 100}%` }}
+            />
           </div>
+          <p className="mt-2 text-xs text-neutral-500">
+            {usage.remainingEdits && usage.remainingEdits > 0
+              ? `${usage.remainingEdits} edits remaining`
+              : 'No edits remaining'}
+          </p>
+        </div>
 
-          <div className="flex gap-2">
+        <div className="text-sm text-neutral-600">
+          {usage.limitReached ? (
+            <>
+              You have reached your free edit limit. Upgrade to Pro for{' '}
+              <span className="font-bold">{PRO_MONTHLY_EDIT_LIMIT}</span> edits
+              per month!
+            </>
+          ) : (
+            <>
+              Upgrade to unlock{' '}
+              <span className="font-bold">{PRO_MONTHLY_EDIT_LIMIT}</span> edits
+              per month and remove daily limitations.
+            </>
+          )}
+        </div>
+
+        <div className="flex gap-2">
+          <form onSubmit={handleCheckout}>
             <Button
-              asChild
+              type="submit"
               size="sm"
+              disabled={isCheckoutLoading}
               className="bg-gradient-to-b from-primary-light to-primary hover:bg-gradient-to-b hover:from-primary-light/90 hover:to-primary/90"
             >
-              <a
-                href={STRIPE_CHECKOUT_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <CreditCard className="mr-2 h-4 w-4" />
-                {usage.limitReached ? 'Upgrade Now' : 'Subscribe Now'}
-              </a>
+              <CreditCard className="mr-2 h-4 w-4" />
+              {isCheckoutLoading
+                ? 'Loading...'
+                : usage.limitReached
+                  ? 'Upgrade Now'
+                  : 'Subscribe Now'}
             </Button>
-          </div>
-        </CardContent>
+          </form>
+        </div>
+      </CardContent>
     </Card>
   );
 }

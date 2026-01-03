@@ -1,0 +1,51 @@
+import { NextResponse } from 'next/server';
+import { headers } from 'next/headers';
+
+import { stripe } from '@/lib/stripe';
+import { createClient } from '@/lib/supabase/server';
+
+export async function POST() {
+  try {
+    const headersList = await headers();
+    const origin = headersList.get('origin');
+
+    const supabase = await createClient();
+
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const session = await stripe.checkout.sessions.create({
+      line_items: [
+        {
+          price: 'price_1SlcAwGiQyLSHGp20kQ1Maq3',
+          quantity: 1,
+        },
+      ],
+      mode: 'subscription',
+      success_url: `${origin}/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${origin}/settings?canceled=true`,
+      automatic_tax: { enabled: true },
+      customer_email: user.email,
+      metadata: {
+        user_id: user.id,
+      },
+    });
+
+    if (!session.url) {
+      throw new Error('No session URL');
+    }
+
+    return new NextResponse(session.url, { status: 200 });
+  } catch (err: any) {
+    return NextResponse.json(
+      { error: err?.message || 'An error occurred' },
+      { status: err?.statusCode || 500 }
+    );
+  }
+}

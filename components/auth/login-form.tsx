@@ -13,7 +13,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import GoogleLogo from '@/components/icons/google-logo';
 
@@ -31,6 +31,7 @@ export function LoginForm({
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -126,7 +127,12 @@ export function LoginForm({
 
           <form onSubmit={handleSocialLogin}>
             <div className="mt-2">
-              <Button type="submit" variant="outline" className="w-full" disabled={isLoading}>
+              <Button
+                type="submit"
+                variant="outline"
+                className="w-full"
+                disabled={isLoading}
+              >
                 <GoogleLogo />
                 Continue with Google
               </Button>
@@ -136,7 +142,10 @@ export function LoginForm({
 
           <div className="text-center text-sm">
             Don&apos;t have an account?{' '}
-            <Link href="/auth/sign-up" className="underline underline-offset-4">
+            <Link
+              href={`/auth/sign-up${searchParams.toString() ? `?${searchParams.toString()}` : ''}`}
+              className="underline underline-offset-4"
+            >
               Sign up
             </Link>
           </div>

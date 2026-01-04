@@ -8,9 +8,21 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { UsageIndicator, UpgradeButton } from '@/components/subscription/usage-indicator';
+import {
+  UsageIndicator,
+  UpgradeButton,
+} from '@/components/subscription/usage-indicator';
 import { PaywallDialog } from '@/components/subscription/paywall-dialog';
-import { Loader2, WandSparkles, ChevronDown, FileText, FolderArchive, Lock, MessageSquare, PanelRightClose } from 'lucide-react';
+import {
+  Loader2,
+  WandSparkles,
+  ChevronDown,
+  FileText,
+  FolderArchive,
+  Lock,
+  MessageSquare,
+  PanelRightClose,
+} from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 interface SubscriptionData {
@@ -54,23 +66,23 @@ export function EditorToolbar({
 }: EditorToolbarProps) {
   const [isMac, setIsMac] = useState(true);
   const [showPaywall, setShowPaywall] = useState(false);
-  const [subscriptionData, setSubscriptionData] = useState<SubscriptionData | null>(null);
-  console.log('subscriptionData', subscriptionData);
-  
+  const [subscriptionData, setSubscriptionData] =
+    useState<SubscriptionData | null>(null);
 
   useEffect(() => {
     setIsMac(navigator.platform.toUpperCase().indexOf('MAC') >= 0);
-    
+
     // Fetch subscription status
     fetch('/api/subscription-status')
-      .then(res => res.ok ? res.json() : null)
-      .then(data => setSubscriptionData(data))
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => setSubscriptionData(data))
       .catch(() => {});
   }, []);
 
-  const isPro = subscriptionData?.hasSubscription || 
-                subscriptionData?.usage?.isPro || 
-                subscriptionData?.usage?.hasUnlimitedEdits;
+  const isPro =
+    subscriptionData?.hasSubscription ||
+    subscriptionData?.usage?.isPro ||
+    subscriptionData?.usage?.hasUnlimitedEdits;
 
   const handleExportPDF = () => {
     if (!isPro) {
@@ -186,10 +198,7 @@ export function EditorToolbar({
                 Export as PDF
                 {!isPro && <Lock className="ml-auto size-3 text-amber-500" />}
               </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={handleExportZIP}
-                className="gap-2"
-              >
+              <DropdownMenuItem onClick={handleExportZIP} className="gap-2">
                 <FolderArchive className="size-4" />
                 Export as ZIP
                 {!isPro && <Lock className="ml-auto size-3 text-amber-500" />}
@@ -209,7 +218,9 @@ export function EditorToolbar({
             ) : (
               <MessageSquare className="size-4" />
             )}
-            <span className="hidden sm:inline">{chatOpen ? 'Close' : 'Chat'}</span>
+            <span className="hidden sm:inline">
+              {chatOpen ? 'Close' : 'Chat'}
+            </span>
           </Button>
         </div>
       </div>

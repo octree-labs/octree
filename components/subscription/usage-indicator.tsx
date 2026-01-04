@@ -12,7 +12,6 @@ import { CreditCard, Info } from 'lucide-react';
 import {
   FREE_DAILY_EDIT_LIMIT,
   PRO_MONTHLY_EDIT_LIMIT,
-  STRIPE_CHECKOUT_URL,
 } from '@/data/constants';
 
 interface UsageIndicatorProps {
@@ -33,6 +32,7 @@ interface UsageData {
 
 export function UpgradeButton() {
   const [usageData, setUsageData] = useState<UsageData | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     const fetchUsageData = async () => {
@@ -53,20 +53,41 @@ export function UpgradeButton() {
     return () => window.removeEventListener('usage-update', handleUsageUpdate);
   }, []);
 
+  const handleSubscribe = async () => {
+    setIsLoading(true);
+    try {
+      const response = await fetch('/api/checkout-session', {
+        method: 'POST',
+      });
+
+      if (response.ok) {
+        const checkoutUrl = await response.text();
+        window.location.href = checkoutUrl;
+      } else {
+        console.error('Failed to create checkout session');
+      }
+    } catch (error) {
+      console.error('Error creating checkout session:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   if (!usageData) return null;
   if (usageData.hasUnlimitedEdits) return null;
   if (usageData.isPro) return null;
 
   return (
     <Button
-      asChild
       size="sm"
+      onClick={handleSubscribe}
+      disabled={isLoading}
       className="h-8 gap-1.5 bg-gradient-to-b from-primary-light to-primary px-3 text-white hover:from-primary-light/90 hover:to-primary/90"
     >
-      <a href={STRIPE_CHECKOUT_URL} target="_blank" rel="noopener noreferrer">
-        <CreditCard className="h-3.5 w-3.5" />
-        <span className="font-medium">Subscribe</span>
-      </a>
+      <CreditCard className="h-3.5 w-3.5" />
+      <span className="font-medium">
+        {isLoading ? 'Loading...' : 'Subscribe'}
+      </span>
     </Button>
   );
 }

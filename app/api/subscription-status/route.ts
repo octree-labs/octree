@@ -255,6 +255,7 @@ export async function GET() {
     }
 
     const subscription = await findActiveSubscription(customer.id);
+
     if (!subscription) {
       return NextResponse.json({
         hasSubscription: false,

@@ -50,9 +50,9 @@ interface SubscriptionData {
 export function SubscriptionStatus() {
   const [subscriptionData, setSubscriptionData] =
     useState<SubscriptionData | null>(null);
-  console.log('subscriptionData', subscriptionData);
   const [isLoading, setIsLoading] = useState(true);
   const [isCheckoutLoading, setIsCheckoutLoading] = useState(false);
+  const [isManageLoading, setIsManageLoading] = useState(false);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
 
   useEffect(() => {
@@ -89,6 +89,26 @@ export function SubscriptionStatus() {
       console.error('Error creating checkout session:', error);
     } finally {
       setIsCheckoutLoading(false);
+    }
+  };
+
+  const handleManageSubscription = async () => {
+    setIsManageLoading(true);
+    try {
+      const response = await fetch('/api/billing-portal', {
+        method: 'POST',
+      });
+
+      if (response.ok) {
+        const { url } = await response.json();
+        window.location.href = url;
+      } else {
+        console.error('Failed to create billing portal session');
+      }
+    } catch (error) {
+      console.error('Error opening billing portal:', error);
+    } finally {
+      setIsManageLoading(false);
     }
   };
 
@@ -307,14 +327,12 @@ export function SubscriptionStatus() {
             ))}
 
           <div className="flex gap-2">
-            <Button asChild size="sm">
-              <a
-                href="https://buy.stripe.com/6oUdR9fyd8Sd6Cifd46oo00"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Manage Plan
-              </a>
+            <Button 
+              size="sm"
+              onClick={handleManageSubscription}
+              disabled={isManageLoading}
+            >
+              {isManageLoading ? 'Loading...' : 'Manage Plan'}
             </Button>
             {isActive && !isCancelling && (
               <Button

@@ -1,9 +1,7 @@
 import { NextResponse } from 'next/server';
 import { headers } from 'next/headers';
-
 import { stripe } from '@/lib/stripe';
 import { createClient } from '@/lib/supabase/server';
-import { STRIPE_PRICE_IDS } from '@/lib/stripe-config';
 
 export async function POST() {
   try {
@@ -21,29 +19,28 @@ export async function POST() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const session = await stripe.checkout.sessions.create({
-      line_items: [
-        {
-          price: STRIPE_PRICE_IDS.pro,
-          quantity: 1,
-        },
-      ],
-      mode: 'subscription',
-      success_url: `${origin}/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${origin}/settings?canceled=true`,
-      automatic_tax: { enabled: true },
-      customer_email: user.email,
-      metadata: {
-        user_id: user.id,
-      },
+    const customers = await stripe.customers.list({
+      email: user.email,
+      limit: 1,
     });
 
-    if (!session.url) {
-      throw new Error('No session URL');
+    if (customers.data.length === 0) {
+      return NextResponse.json(
+        { error: 'No Stripe customer found' },
+        { status: 404 }
+      );
     }
 
-    return new NextResponse(session.url, { status: 200 });
+    const customer = customers.data[0];
+
+    const session = await stripe.billingPortal.sessions.create({
+      customer: customer.id,
+      return_url: `${origin}/settings`,
+    });
+
+    return NextResponse.json({ url: session.url });
   } catch (err: any) {
+    console.error('Error creating billing portal session:', err);
     return NextResponse.json(
       { error: err?.message || 'An error occurred' },
       { status: err?.statusCode || 500 }

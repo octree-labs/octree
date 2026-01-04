@@ -11,7 +11,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { CreditCard, Lock, CheckCircle } from 'lucide-react';
-import { FREE_DAILY_EDIT_LIMIT, PRO_MONTHLY_EDIT_LIMIT, STRIPE_CHECKOUT_URL } from '@/data/constants';
+import { FREE_DAILY_EDIT_LIMIT, PRO_MONTHLY_EDIT_LIMIT } from '@/data/constants';
 
 type PaywallVariant = 'edit-limit' | 'export';
 
@@ -37,10 +37,18 @@ export function PaywallDialog({
   const handleSubscribe = async () => {
     setIsLoading(true);
     try {
-      window.open(STRIPE_CHECKOUT_URL, '_blank');
-      onClose();
+      const response = await fetch('/api/checkout-session', {
+        method: 'POST',
+      });
+
+      if (response.ok) {
+        const checkoutUrl = await response.text();
+        window.location.href = checkoutUrl;
+      } else {
+        console.error('Failed to create checkout session');
+      }
     } catch (error) {
-      console.error('Error redirecting to checkout:', error);
+      console.error('Error creating checkout session:', error);
     } finally {
       setIsLoading(false);
     }

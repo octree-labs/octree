@@ -5,7 +5,7 @@ import { stripe } from '@/lib/stripe';
 import { createClient } from '@/lib/supabase/server';
 import { STRIPE_PRICE_IDS } from '@/lib/stripe-config';
 
-export async function POST() {
+export async function POST(request: Request) {
   try {
     const headersList = await headers();
     const origin = headersList.get('origin');
@@ -21,10 +21,17 @@ export async function POST() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    const body = await request.json();
+    const isAnnual = body.annual === true;
+
+    const priceId = isAnnual
+      ? STRIPE_PRICE_IDS.proAnnual
+      : STRIPE_PRICE_IDS.pro;
+
     const session = await stripe.checkout.sessions.create({
       line_items: [
         {
-          price: STRIPE_PRICE_IDS.pro,
+          price: priceId,
           quantity: 1,
         },
       ],

@@ -1,17 +1,25 @@
 'use client';
 
 import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 
 export default function BuyPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const isAnnual = searchParams.get('annual') === 'true';
 
   useEffect(() => {
     const handleCheckout = async () => {
       try {
         const response = await fetch('/api/checkout-session', {
           method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            annual: isAnnual,
+          }),
         });
 
         if (!response.ok) {
@@ -27,7 +35,7 @@ export default function BuyPage() {
     };
 
     handleCheckout();
-  }, [router]);
+  }, []);
 
   return (
     <div className="flex min-h-screen items-center justify-center">

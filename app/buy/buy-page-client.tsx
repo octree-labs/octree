@@ -37,7 +37,7 @@ export function BuyPageClient({ isAnnual }: BuyPageClientProps) {
     };
 
     handleCheckout();
-  }, [router, isAnnual]);
+  }, []);
 
   return (
     <div className="flex min-h-screen items-center justify-center">

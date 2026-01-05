@@ -13,17 +13,18 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import { CheckCircle2 } from 'lucide-react';
 
 interface SignUpFormProps extends React.ComponentPropsWithoutRef<'div'> {
   onboardingRedirect?: string;
+  nextPath?: string | null;
 }
 
 export function SignUpForm({
   className,
   onboardingRedirect = '/onboarding',
+  nextPath,
   ...props
 }: SignUpFormProps) {
   const [email, setEmail] = useState('');
@@ -32,7 +33,6 @@ export function SignUpForm({
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [signupSuccess, setSignupSuccess] = useState(false);
-  const searchParams = useSearchParams();
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -47,8 +47,6 @@ export function SignUpForm({
     }
 
     try {
-      const nextPath = searchParams.get('next');
-
       const signUpOptions: {
         emailRedirectTo?: string;
       } = {};
@@ -147,7 +145,7 @@ export function SignUpForm({
             <div className="mt-4 text-center text-sm">
               Already have an account?{' '}
               <Link
-                href={`/auth/login${searchParams.toString() ? `?${searchParams.toString()}` : ''}`}
+                href={`/auth/login${nextPath ? `?next=${encodeURIComponent(nextPath)}` : ''}`}
                 className="underline underline-offset-4"
               >
                 Login

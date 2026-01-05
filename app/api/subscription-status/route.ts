@@ -1,16 +1,13 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import Stripe from 'stripe';
+import type Stripe from 'stripe';
+import { stripe } from '@/lib/stripe';
 import { hasUnlimitedEdits } from '@/lib/paywall';
 import type { Tables } from '@/database.types';
 import {
   FREE_DAILY_EDIT_LIMIT,
   PRO_MONTHLY_EDIT_LIMIT,
 } from '@/data/constants';
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2025-02-24.acacia',
-});
 
 function getResetDate(): string {
   return new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
@@ -255,7 +252,6 @@ export async function GET() {
     }
 
     const subscription = await findActiveSubscription(customer.id);
-
     if (!subscription) {
       return NextResponse.json({
         hasSubscription: false,

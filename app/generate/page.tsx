@@ -13,11 +13,11 @@ export default async function GeneratePage() {
     const userName = user?.user_metadata?.name ?? user?.email ?? null;
 
     return (
-        <div className="relative h-screen w-screen overflow-hidden">
-            <div className="fixed inset-x-0 top-0 z-50">
+        <div className="flex h-screen w-screen flex-col overflow-hidden">
+            <div className="h-14 shrink-0">
                 <Navbar userName={userName} />
             </div>
-            <main className="absolute inset-x-0 bottom-0 top-14 overflow-hidden">
+            <main className="min-h-0 flex-1">
                 <GeneratePageContent />
             </main>
         </div>

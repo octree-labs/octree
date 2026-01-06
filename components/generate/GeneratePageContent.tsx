@@ -389,7 +389,10 @@ export function GeneratePageContent() {
                     sidebarOpen ? 'w-64' : 'w-12'
                 )}
             >
-                <div className="flex h-12 shrink-0 items-center border-b px-3">
+                <div className={cn(
+                    'flex h-12 shrink-0 items-center border-b',
+                    sidebarOpen ? 'px-3' : 'justify-center'
+                )}>
                     {sidebarOpen && (
                         <span className="mr-auto text-sm font-medium">History</span>
                     )}
@@ -397,7 +400,7 @@ export function GeneratePageContent() {
                         variant="ghost"
                         size="icon"
                         onClick={() => setSidebarOpen(!sidebarOpen)}
-                        className={cn('h-8 w-8', !sidebarOpen && 'mx-auto')}
+                        className="h-8 w-8"
                     >
                         {sidebarOpen ? (
                             <PanelLeftClose className="h-4 w-4" />

@@ -148,6 +148,41 @@ export type Database = {
         }
         Relationships: []
       }
+      generated_papers: {
+        Row: {
+          artifacts: Json
+          created_at: string
+          id: string
+          run_id: string
+          title: string
+          user_id: string
+        }
+        Insert: {
+          artifacts: Json
+          created_at?: string
+          id?: string
+          run_id: string
+          title: string
+          user_id: string
+        }
+        Update: {
+          artifacts?: Json
+          created_at?: string
+          id?: string
+          run_id?: string
+          title?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "generated_papers_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       files: {
         Row: {
           id: string

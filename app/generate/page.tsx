@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import { getCurrentUser } from '@/lib/requests/user';
-import { GenerateChat } from '@/components/generate/GenerateChat';
+import { GeneratePageContent } from '@/components/generate/GeneratePageContent';
 import Navbar from '@/components/navbar';
 
 export default async function GeneratePage() {
@@ -13,24 +13,14 @@ export default async function GeneratePage() {
     const userName = user?.user_metadata?.name ?? user?.email ?? null;
 
     return (
-        <>
-            <Navbar userName={userName} />
-
-            <main className="mx-auto w-full max-w-4xl px-6 py-8">
-                <div className="mb-6">
-                    <h1 className="text-lg font-semibold text-neutral-900">
-                        AI Research Generator
-                    </h1>
-                    <p className="text-sm text-neutral-500">
-                        Enter a research topic and let AI generate a complete paper with experiments
-                    </p>
-                </div>
-
-                <div className="h-[calc(100vh-220px)]">
-                    <GenerateChat />
-                </div>
+        <div className="relative h-screen w-screen overflow-hidden">
+            <div className="fixed inset-x-0 top-0 z-50">
+                <Navbar userName={userName} />
+            </div>
+            <main className="absolute inset-x-0 bottom-0 top-14 overflow-hidden">
+                <GeneratePageContent />
             </main>
-        </>
+        </div>
     );
 }
 

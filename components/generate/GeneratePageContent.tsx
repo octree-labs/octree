@@ -357,6 +357,7 @@ export function GeneratePageContent() {
             setError(err instanceof Error ? err.message : 'An error occurred');
         } finally {
             setIsGenerating(false);
+            fetchPapers().then(setPapers);
             if (generatedRunId) {
                 pollForArtifacts(generatedRunId);
             }

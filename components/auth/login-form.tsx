@@ -119,7 +119,12 @@ export function LoginForm({
                   onChange={(e) => setPassword(e.target.value)}
                 />
               </div>
-              <Button type="submit" className="w-full" disabled={isLoading}>
+              <Button
+                type="submit"
+                className="w-full"
+                variant="gradient"
+                disabled={isLoading}
+              >
                 Login
               </Button>
             </div>
@@ -129,7 +134,7 @@ export function LoginForm({
             <div className="mt-2">
               <Button
                 type="submit"
-                variant="outline"
+                variant="outline-gradient"
                 className="w-full"
                 disabled={isLoading}
               >

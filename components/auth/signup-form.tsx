@@ -137,7 +137,7 @@ export function SignUpForm({
               )}
               {error && <p className="text-sm text-red-500">{error}</p>}
               {!signupSuccess && (
-                <Button type="submit" className="w-full" disabled={isLoading}>
+                <Button type="submit" className="w-full" variant="gradient" disabled={isLoading}>
                   {isLoading ? 'Creating an account...' : 'Sign up'}
                 </Button>
               )}

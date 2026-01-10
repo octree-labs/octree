@@ -137,12 +137,17 @@ export function SignUpForm({
               )}
               {error && <p className="text-sm text-red-500">{error}</p>}
               {!signupSuccess && (
-                <Button type="submit" className="w-full" variant="gradient" disabled={isLoading}>
+                <Button
+                  type="submit"
+                  className="w-full"
+                  variant="gradient"
+                  disabled={isLoading}
+                >
                   {isLoading ? 'Creating an account...' : 'Sign up'}
                 </Button>
               )}
             </div>
-            <div className="mt-4 text-center text-sm">
+            <div className="pt-1 text-center text-sm">
               Already have an account?{' '}
               <Link
                 href={`/auth/login${nextPath ? `?next=${encodeURIComponent(nextPath)}` : ''}`}

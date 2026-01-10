@@ -327,7 +327,7 @@ export function SubscriptionStatus() {
             ))}
 
           <div className="flex gap-2">
-            <Button 
+            <Button
               size="sm"
               onClick={handleManageSubscription}
               disabled={isManageLoading}

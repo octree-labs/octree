@@ -145,7 +145,7 @@ export function LoginForm({
           </form>
           {error && <p className="text-sm text-red-500">{error}</p>}
 
-          <div className="text-center text-sm">
+          <div className="pt-1 text-center text-sm">
             Don&apos;t have an account?{' '}
             <Link
               href={`/auth/sign-up${searchParams.toString() ? `?${searchParams.toString()}` : ''}`}

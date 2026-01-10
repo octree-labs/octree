@@ -23,7 +23,7 @@ export function AuthMarketingSection() {
           </p>
 
           <div className="flex items-center justify-center gap-4">
-            <div className="space-y-1 pl-4 text-left">
+            <div className="space-y-1 text-left">
               <cite className="font-semibold not-italic">Emerson Alves</cite>
               <span className="block text-sm text-muted-foreground">
                 Research Student
@@ -34,7 +34,7 @@ export function AuthMarketingSection() {
       </div>
 
       <div className="relative z-10 pb-16">
-        <p className="mb-2 text-center text-sm text-muted-foreground">
+        <p className="mb-2 text-center text-muted-foreground">
           Trusted by researchers at
         </p>
         <LogoCloud />

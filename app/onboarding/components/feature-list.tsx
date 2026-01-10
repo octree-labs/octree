@@ -2,10 +2,9 @@ import { Check } from 'lucide-react';
 
 const FEATURES = [
   'AI-powered LaTeX editing and suggestions',
-  'Real-time PDF preview and compilation',
+  'Fast PDF preview and compilation',
   'Unlimited projects and files',
-  'Version control and collaboration',
-  'Smart chat assistance for LaTeX',
+  'AI-assisted error detection and fixes',
   'Cloud sync across all your devices',
 ];
 

@@ -108,33 +108,22 @@ export default function OnboardingPage() {
           return;
         }
 
-        const { data: updatedRows } = await supabase
+        const { error: upsertError } = await supabase
           .from('user_usage')
           // @ts-ignore - Supabase type generation issue
-          .update({
-            referral_source: referralSource,
-            role: role,
-            use_case: useCase,
-            onboarding_completed: false, // Don't mark as completed until payment
-          })
-          .eq('user_id', user.id)
-          .select('user_id');
-
-        if (!updatedRows || updatedRows.length === 0) {
-          const { error: insertError } = await supabase
-            .from('user_usage')
-            // @ts-ignore - Supabase type generation issue
-            .insert({
+          .upsert(
+            {
               user_id: user.id,
               referral_source: referralSource,
-              role: role,
-              use_case: useCase,
-              onboarding_completed: false, // Don't mark as completed until payment
-            });
+              onboarding_completed: false,
+            },
+            {
+              onConflict: 'user_id',
+            }
+          );
 
-          if (insertError) {
-            throw insertError;
-          }
+        if (upsertError) {
+          throw upsertError;
         }
 
         setIsSubmitting(false);

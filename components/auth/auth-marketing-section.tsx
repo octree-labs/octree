@@ -16,20 +16,17 @@ export function AuthMarketingSection() {
       <div className="relative z-10 flex flex-1 items-center justify-center pt-32">
         <blockquote className="text-center">
           <p className="mb-8 text-2xl font-medium leading-tight md:text-3xl">
-            "Write LaTeX like never before... I'm in love."
+            "The AI helps a lot when there's an error in the file.
+            <br />
+            Thank you for making this tool available, I'm enjoying studying with
+            it."
           </p>
 
           <div className="flex items-center justify-center gap-4">
-            <Avatar className="h-12 w-12">
-              <AvatarFallback className="bg-primary/10 font-semibold text-primary">
-                SC
-              </AvatarFallback>
-            </Avatar>
-
-            <div className="space-y-1 border-l pl-4 text-left">
-              <cite className="font-semibold not-italic">Dr. Sarah Chen</cite>
+            <div className="space-y-1 pl-4 text-left">
+              <cite className="font-semibold not-italic">Emerson Alves</cite>
               <span className="block text-sm text-muted-foreground">
-                Research Scientist • MIT
+                Research Student
               </span>
             </div>
           </div>
@@ -45,4 +42,3 @@ export function AuthMarketingSection() {
     </div>
   );
 }
-

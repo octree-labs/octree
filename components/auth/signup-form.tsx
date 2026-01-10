@@ -147,7 +147,7 @@ export function SignUpForm({
                 </Button>
               )}
             </div>
-            <div className="pt-1 text-center text-sm">
+            <div className="mt-4 text-center text-sm">
               Already have an account?{' '}
               <Link
                 href={`/auth/login${nextPath ? `?next=${encodeURIComponent(nextPath)}` : ''}`}

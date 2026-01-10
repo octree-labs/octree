@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { headers } from 'next/headers';
+import Stripe from 'stripe';
 
 import { stripe } from '@/lib/stripe';
 import { createClient } from '@/lib/supabase/server';
@@ -52,20 +53,14 @@ export async function POST(request: Request) {
       },
     };
 
-    // Only add trial period if explicitly requested
+    sessionConfig.subscription_data = {
+      metadata: {
+        user_id: user.id,
+      },
+    };
+
     if (withTrial) {
-      sessionConfig.subscription_data = {
-        trial_period_days: 3,
-        metadata: {
-          user_id: user.id,
-        },
-      };
-    } else {
-      sessionConfig.subscription_data = {
-        metadata: {
-          user_id: user.id,
-        },
-      };
+      sessionConfig.subscription_data.trial_period_days = 3;
     }
 
     const session = await stripe.checkout.sessions.create(sessionConfig);

@@ -1,13 +1,10 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
-import { CreateProjectDialog } from '@/components/projects/create-project-dialog';
 import { ProjectsTable } from '@/components/projects/projects-table';
 import Navbar from '@/components/navbar';
 import { getAllProjects } from '@/actions/get-projects';
 import { getUserUsage } from '@/lib/requests/user';
-import Link from 'next/link';
-import { Button } from '@/components/ui/button';
-import { Sparkles } from 'lucide-react';
+import { DashboardActions } from '@/components/dashboard/dashboard-actions';
 
 export default async function Dashboard() {
   const supabase = await createClient();
@@ -38,23 +35,17 @@ export default async function Dashboard() {
       <Navbar userName={userName} />
 
       <main className="container mx-auto px-4 py-8">
-        <div className="mb-8 flex items-center justify-between">
-          <div>
-            <h1 className="text-lg font-semibold text-neutral-900">Projects</h1>
-            <p className="text-sm text-neutral-500">
-              Manage and edit your projects
-            </p>
-          </div>
+        <div className="mb-8">
+          <h1 className="text-lg font-semibold text-neutral-900">
+            Projects
+          </h1>
+          <p className="text-sm text-neutral-500">
+            Manage and edit your projects
+          </p>
+        </div>
 
-          <div className="flex items-center gap-2">
-            <Button asChild variant="outline" size="sm">
-              <Link href="/generate">
-                <Sparkles className="mr-2 h-4 w-4" />
-                Generate
-              </Link>
-            </Button>
-            <CreateProjectDialog />
-          </div>
+        <div className="mb-8">
+          <DashboardActions />
         </div>
 
         <ProjectsTable data={data} />
@@ -62,3 +53,4 @@ export default async function Dashboard() {
     </>
   );
 }
+

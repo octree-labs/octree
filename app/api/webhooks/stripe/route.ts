@@ -80,27 +80,30 @@ export async function POST(request: Request) {
             subscription.status === 'trialing'
           ) {
             // @ts-ignore
-          if (
-            subscription.status === 'active' ||
-            subscription.status === 'trialing'
-          ) {
-            // @ts-ignore
-            const { error: upsertError } = await supabase
-              .from('user_usage')
-              .upsert(
-                {
-                  user_id: userId,
-                  onboarding_completed: true,
-                },
-                {
-                  onConflict: 'user_id',
-                }
-              );
+            if (
+              subscription.status === 'active' ||
+              subscription.status === 'trialing'
+            ) {
+              // @ts-ignore
+              const { error: upsertError } = await supabase
+                .from('user_usage')
+                .upsert(
+                  {
+                    user_id: userId,
+                    onboarding_completed: true,
+                  },
+                  {
+                    onConflict: 'user_id',
+                  }
+                );
 
-            if (upsertError) {
-              console.error('Failed to update onboarding_completed:', upsertError);
+              if (upsertError) {
+                console.error(
+                  'Failed to update onboarding_completed:',
+                  upsertError
+                );
+              }
             }
-          }
           }
         } catch (error) {
           console.error('Error updating subscription in database:', error);

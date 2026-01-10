@@ -12,31 +12,6 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "12.2.3 (519615d)"
   }
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
   public: {
     Tables: {
       document_versions: {
@@ -186,6 +161,85 @@ export type Database = {
           },
         ]
       }
+      project_collaborators: {
+        Row: {
+          created_at: string | null
+          id: string
+          invited_by: string | null
+          project_id: string
+          role: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          invited_by?: string | null
+          project_id: string
+          role: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          invited_by?: string | null
+          project_id?: string
+          role?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_collaborators_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_invitations: {
+        Row: {
+          accepted_at: string | null
+          created_at: string | null
+          email: string | null
+          expires_at: string | null
+          id: string
+          invited_by: string
+          project_id: string
+          role: string
+          token: string
+        }
+        Insert: {
+          accepted_at?: string | null
+          created_at?: string | null
+          email?: string | null
+          expires_at?: string | null
+          id?: string
+          invited_by: string
+          project_id: string
+          role?: string
+          token: string
+        }
+        Update: {
+          accepted_at?: string | null
+          created_at?: string | null
+          email?: string | null
+          expires_at?: string | null
+          id?: string
+          invited_by?: string
+          project_id?: string
+          role?: string
+          token?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_invitations_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       projects: {
         Row: {
           created_at: string | null
@@ -224,10 +278,12 @@ export type Database = {
           monthly_reset_date: string
           onboarding_completed: boolean | null
           referral_source: string | null
+          role: string | null
           stripe_customer_id: string | null
           stripe_subscription_id: string | null
           subscription_status: string | null
           updated_at: string | null
+          use_case: string | null
           user_id: string
         }
         Insert: {
@@ -243,10 +299,12 @@ export type Database = {
           monthly_reset_date?: string
           onboarding_completed?: boolean | null
           referral_source?: string | null
+          role?: string | null
           stripe_customer_id?: string | null
           stripe_subscription_id?: string | null
           subscription_status?: string | null
           updated_at?: string | null
+          use_case?: string | null
           user_id: string
         }
         Update: {
@@ -262,10 +320,12 @@ export type Database = {
           monthly_reset_date?: string
           onboarding_completed?: boolean | null
           referral_source?: string | null
+          role?: string | null
           stripe_customer_id?: string | null
           stripe_subscription_id?: string | null
           subscription_status?: string | null
           updated_at?: string | null
+          use_case?: string | null
           user_id?: string
         }
         Relationships: []
@@ -275,6 +335,20 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      admin_daily_signups: {
+        Args: never
+        Returns: {
+          new_signups: number
+          signup_date: string
+        }[]
+      }
+      admin_weekly_signups: {
+        Args: never
+        Returns: {
+          new_signups: number
+          signup_week: string
+        }[]
+      }
       get_document_with_collaborators: {
         Args: { doc_id: string }
         Returns: {
@@ -288,7 +362,13 @@ export type Database = {
           title: string
         }[]
       }
+      get_user_collab_project_ids: { Args: never; Returns: string[] }
+      has_project_access: {
+        Args: { p_project_id: string; p_user_id: string }
+        Returns: boolean
+      }
       increment_edit_count: { Args: { p_user_id: string }; Returns: boolean }
+      is_project_owner: { Args: { p_project_id: string }; Returns: boolean }
       update_user_subscription_status: {
         Args: {
           p_cancel_at_period_end: boolean
@@ -429,9 +509,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {},
   },

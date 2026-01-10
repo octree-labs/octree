@@ -12,7 +12,6 @@ import {
   UsageIndicator,
   UpgradeButton,
 } from '@/components/subscription/usage-indicator';
-import { PaywallDialog } from '@/components/subscription/paywall-dialog';
 import {
   Loader2,
   WandSparkles,
@@ -65,7 +64,6 @@ export function EditorToolbar({
   hasPdfData = false,
 }: EditorToolbarProps) {
   const [isMac, setIsMac] = useState(true);
-  const [showPaywall, setShowPaywall] = useState(false);
   const [subscriptionData, setSubscriptionData] =
     useState<SubscriptionData | null>(null);
 
@@ -86,7 +84,6 @@ export function EditorToolbar({
 
   const handleExportPDF = () => {
     if (!isPro) {
-      setShowPaywall(true);
       return;
     }
     onExportPDF();
@@ -94,7 +91,6 @@ export function EditorToolbar({
 
   const handleExportZIP = () => {
     if (!isPro) {
-      setShowPaywall(true);
       return;
     }
     onExportZIP();
@@ -134,7 +130,6 @@ export function EditorToolbar({
             <WandSparkles className="h-3.5 w-3.5" />
             <span className="font-medium">Edit with AI</span>
           </Button>
-          <UpgradeButton />
         </div>
 
         <div className="flex items-center gap-2">
@@ -224,12 +219,6 @@ export function EditorToolbar({
           </Button>
         </div>
       </div>
-
-      <PaywallDialog
-        isOpen={showPaywall}
-        onClose={() => setShowPaywall(false)}
-        variant="export"
-      />
     </div>
   );
 }

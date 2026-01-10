@@ -14,7 +14,7 @@ export function ErrorState({ error }: ErrorStateProps) {
     <main className="container mx-auto px-4 py-8">
       <div className="text-center">
         <p className="mb-4 text-neutral-600">{error}</p>
-        <Button variant="outline" onClick={() => router.push('/projects')}>
+        <Button variant="outline" onClick={() => router.push('/')}>
           Back to Projects
         </Button>
       </div>

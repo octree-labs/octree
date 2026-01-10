@@ -105,7 +105,7 @@ export async function deleteProject(projectId: string) {
       throw new Error('Failed to delete project');
     }
 
-    revalidatePath('/projects');
+    revalidatePath('/');
 
     return {
       projectId: validatedProjectId,

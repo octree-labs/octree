@@ -9,10 +9,7 @@ import { z } from 'zod';
 
 const RenameProject = z.object({
   projectId: z.string().uuid('Invalid project ID'),
-  title: z
-    .string()
-    .min(1, 'Title is required')
-    .max(200, 'Title is too long'),
+  title: z.string().min(1, 'Title is required').max(200, 'Title is too long'),
 });
 
 export type RenameState = {
@@ -73,8 +70,7 @@ export async function renameProject(
       throw new Error('Failed to rename project');
     }
 
-    // Revalidate the projects dashboard
-    revalidatePath('/projects');
+    revalidatePath('/');
 
     return {
       projectId,
@@ -87,10 +83,9 @@ export async function renameProject(
     return {
       projectId: null,
       title: null,
-      message: error instanceof Error ? error.message : 'Failed to rename project',
+      message:
+        error instanceof Error ? error.message : 'Failed to rename project',
       success: false,
     } satisfies RenameState;
   }
 }
-
-

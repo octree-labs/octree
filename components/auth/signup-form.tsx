@@ -74,17 +74,18 @@ export function SignUpForm({
   return (
     <div className={cn('flex flex-col gap-6', className)} {...props}>
       {signupSuccess && (
-        <div className="flex items-start gap-3 rounded-lg border border-green-200 bg-green-50 p-4">
-          <CheckCircle2 className="mt-0.5 h-5 w-5 flex-shrink-0 text-green-600" />
-          <div className="space-y-1">
-            <p className="text-sm font-medium text-green-900">
+        <div className="flex flex-col items-start gap-1 rounded-lg border border-green-200 bg-green-50 p-4 shadow-sm">
+          <div className="flex gap-2">
+            <CheckCircle2 className="mt-0.5 h-5 w-5 flex-shrink-0 text-green-900" />
+            <p className="font-medium text-green-900">
               Account created successfully!
             </p>
-            <p className="text-sm text-green-700">
-              Please check your email ({email}) to verify your account before
-              signing in.
-            </p>
           </div>
+
+          <p className="text-sm text-green-700">
+            Please check your email ({email}) to verify your account before
+            signing in.
+          </p>
         </div>
       )}
       <Card>
@@ -137,7 +138,12 @@ export function SignUpForm({
               )}
               {error && <p className="text-sm text-red-500">{error}</p>}
               {!signupSuccess && (
-                <Button type="submit" className="w-full" disabled={isLoading}>
+                <Button
+                  type="submit"
+                  className="w-full"
+                  variant="gradient"
+                  disabled={isLoading}
+                >
                   {isLoading ? 'Creating an account...' : 'Sign up'}
                 </Button>
               )}

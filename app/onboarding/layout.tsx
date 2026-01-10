@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 
-import { createClient } from '@/lib/supabase/server';
+import { getCurrentUser, getUserUsage } from '@/actions/get-user';
 
 interface OnboardingLayoutProps {
   children: React.ReactNode;
@@ -9,26 +9,15 @@ interface OnboardingLayoutProps {
 export default async function OnboardingLayout({
   children,
 }: OnboardingLayoutProps) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
 
   if (!user) {
     redirect('/auth/login');
   }
 
-  type UsageRecord = {
-    onboarding_completed: boolean | null;
-  };
+  const usage = await getUserUsage(user.id);
 
-  const { data: usage, error } = await supabase
-    .from('user_usage')
-    .select('onboarding_completed')
-    .eq('user_id', user.id)
-    .maybeSingle<UsageRecord>();
-
-  if (!error && usage?.onboarding_completed) {
+  if (usage?.onboarding_completed) {
     redirect('/');
   }
 

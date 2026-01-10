@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { headers } from 'next/headers';
+import Stripe from 'stripe';
 
 import { stripe } from '@/lib/stripe';
 import { createClient } from '@/lib/supabase/server';
@@ -29,12 +30,13 @@ export async function POST(request: Request) {
     }
 
     const isAnnual = body.annual === true;
+    const withTrial = body.withTrial === true;
 
     const priceId = isAnnual
       ? STRIPE_PRICE_IDS.proAnnual
       : STRIPE_PRICE_IDS.pro;
 
-    const session = await stripe.checkout.sessions.create({
+    const sessionConfig: Stripe.Checkout.SessionCreateParams = {
       line_items: [
         {
           price: priceId,
@@ -43,13 +45,25 @@ export async function POST(request: Request) {
       ],
       mode: 'subscription',
       success_url: `${origin}/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${origin}/settings?canceled=true`,
+      cancel_url: `${origin}/onboarding?canceled=true`,
       automatic_tax: { enabled: true },
       customer_email: user.email,
       metadata: {
         user_id: user.id,
       },
-    });
+    };
+
+    sessionConfig.subscription_data = {
+      metadata: {
+        user_id: user.id,
+      },
+    };
+
+    if (withTrial) {
+      sessionConfig.subscription_data.trial_period_days = 3;
+    }
+
+    const session = await stripe.checkout.sessions.create(sessionConfig);
 
     if (!session.url) {
       throw new Error('No session URL');

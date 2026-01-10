@@ -35,7 +35,7 @@ export async function POST(request: Request) {
       ? STRIPE_PRICE_IDS.proAnnual
       : STRIPE_PRICE_IDS.pro;
 
-    const sessionConfig: any = {
+    const sessionConfig: Stripe.Checkout.SessionCreateParams = {
       line_items: [
         {
           price: priceId,

@@ -1,10 +1,11 @@
 'use client';
 
 import { useState, useRef, useEffect, FormEvent } from 'react';
-import { Send, Loader2, FileText, Download, FileCode, BookOpen, PanelLeftClose, PanelLeft } from 'lucide-react';
+import { Send, Loader2, FileText, Download, FileCode, BookOpen, PanelLeftClose, PanelLeft, FlaskConical } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Card } from '@/components/ui/card';
+import { Switch } from '@/components/ui/switch';
 import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
 
@@ -211,6 +212,7 @@ export function GeneratePageContent() {
     const [error, setError] = useState<string | null>(null);
     const [papers, setPapers] = useState<GeneratedPaper[]>([]);
     const [sidebarOpen, setSidebarOpen] = useState(true);
+    const [experimentsEnabled, setExperimentsEnabled] = useState(true);
 
     const messagesContainerRef = useRef<HTMLDivElement>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -293,6 +295,7 @@ export function GeneratePageContent() {
                 body: JSON.stringify({
                     prompt: userMessage.content,
                     test_mode: true,
+                    experiments_enabled: experimentsEnabled,
                 }),
             });
 
@@ -482,7 +485,7 @@ export function GeneratePageContent() {
 
                 <div className="shrink-0 border-t bg-background p-4">
                     <form onSubmit={handleSubmit} className="mx-auto max-w-3xl">
-                        <Card className="flex gap-2 p-2">
+                        <Card className="flex flex-col gap-2 p-2">
                             <Textarea
                                 ref={textareaRef}
                                 value={prompt}
@@ -492,18 +495,38 @@ export function GeneratePageContent() {
                                 className="min-h-[60px] flex-1 resize-none border-0 bg-transparent p-2 shadow-none focus-visible:ring-0"
                                 disabled={isGenerating}
                             />
-                            <Button
-                                type="submit"
-                                size="icon"
-                                disabled={!prompt.trim() || isGenerating}
-                                className="h-8 w-8 shrink-0 self-end rounded-full"
-                            >
-                                {isGenerating ? (
-                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : (
-                                    <Send className="h-4 w-4" />
-                                )}
-                            </Button>
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    <Switch
+                                        id="experiments-toggle"
+                                        checked={experimentsEnabled}
+                                        onCheckedChange={setExperimentsEnabled}
+                                        disabled={isGenerating}
+                                    />
+                                    <label
+                                        htmlFor="experiments-toggle"
+                                        className={cn(
+                                            'flex cursor-pointer items-center gap-1.5 text-xs',
+                                            experimentsEnabled ? 'text-foreground' : 'text-muted-foreground'
+                                        )}
+                                    >
+                                        <FlaskConical className="h-3.5 w-3.5" />
+                                        {experimentsEnabled ? 'GPU Experiments' : 'Literature Only'}
+                                    </label>
+                                </div>
+                                <Button
+                                    type="submit"
+                                    size="icon"
+                                    disabled={!prompt.trim() || isGenerating}
+                                    className="h-8 w-8 shrink-0 rounded-full"
+                                >
+                                    {isGenerating ? (
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                        <Send className="h-4 w-4" />
+                                    )}
+                                </Button>
+                            </div>
                         </Card>
                     </form>
                 </div>

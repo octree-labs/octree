@@ -234,7 +234,10 @@ export function SubscriptionStatus() {
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium text-neutral-700">Status</span>
             <Badge variant={isActive ? 'default' : 'secondary'}>
-              {isActive ? 'Active' : subscription.status}
+              {isActive
+                ? 'Active'
+                : subscription.status.charAt(0).toUpperCase() +
+                  subscription.status.slice(1).toLowerCase()}
             </Badge>
           </div>
 

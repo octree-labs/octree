@@ -33,6 +33,7 @@ import {
 } from './constants';
 import { OctreeLogo } from '@/components/icons/octree-logo';
 import { createCheckoutSession } from '@/lib/requests/subscription';
+import { getUserUsageStatus, upsertUserUsage } from '@/lib/requests/user';
 import { AuthMarketingSection } from '@/components/auth/auth-marketing-section';
 
 export default function OnboardingPage() {
@@ -56,13 +57,8 @@ export default function OnboardingPage() {
         setUserEmail(user.email);
 
         // Check if user is already pro or has completed onboarding
-        const { data: usageData } = await supabase
-          .from('user_usage')
-          .select('is_pro, onboarding_completed')
-          .eq('user_id', user.id)
-          .maybeSingle();
+        const usageData = await getUserUsageStatus(user.id);
 
-        // @ts-ignore - Supabase type generation issue
         if (usageData?.is_pro && usageData?.onboarding_completed) {
           // User is already a pro subscriber, redirect to dashboard
           router.push('/');
@@ -108,23 +104,10 @@ export default function OnboardingPage() {
           return;
         }
 
-        const { error: upsertError } = await supabase
-          .from('user_usage')
-          // @ts-ignore - Supabase type generation issue
-          .upsert(
-            {
-              user_id: user.id,
-              referral_source: referralSource,
-              onboarding_completed: false,
-            },
-            {
-              onConflict: 'user_id',
-            }
-          );
-
-        if (upsertError) {
-          throw upsertError;
-        }
+        await upsertUserUsage(user.id, {
+          referral_source: referralSource,
+          onboarding_completed: false,
+        });
 
         setIsSubmitting(false);
         setCurrentStep(currentStep + 1);
@@ -156,67 +139,12 @@ export default function OnboardingPage() {
 
     if (currentStep < TOTAL_STEPS - 1) {
       setCurrentStep(currentStep + 1);
-    } else {
-      handleSubmit();
     }
   };
 
   const handleBack = () => {
     if (currentStep > 0) {
       setCurrentStep(currentStep - 1);
-    }
-  };
-
-  const handleSubmit = async () => {
-    setIsSubmitting(true);
-    try {
-      const supabase = createClient();
-      const {
-        data: { user },
-        error: userError,
-      } = await supabase.auth.getUser();
-
-      if (userError || !user) {
-        toast.error('Session expired. Please log in again.');
-        router.push('/auth/login');
-        return;
-      }
-
-      const { data: updatedRows } = await supabase
-        .from('user_usage')
-        // @ts-ignore - Supabase type generation issue
-        .update({
-          referral_source: referralSource,
-          role: role,
-          use_case: useCase,
-          onboarding_completed: true,
-        })
-        .eq('user_id', user.id)
-        .select('user_id');
-
-      if (!updatedRows || updatedRows.length === 0) {
-        const { error: insertError } = await supabase
-          .from('user_usage')
-          // @ts-ignore - Supabase type generation issue
-          .insert({
-            user_id: user.id,
-            referral_source: referralSource,
-            role: role,
-            use_case: useCase,
-            onboarding_completed: true,
-          });
-
-        if (insertError) {
-          throw insertError;
-        }
-      }
-
-      toast.success('Thanks for the info!');
-      router.push('/');
-    } catch (error) {
-      console.error('Onboarding submission failed', error);
-      toast.error('Failed to save your response. Please try again.');
-      setIsSubmitting(false);
     }
   };
 

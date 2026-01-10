@@ -1,30 +1,40 @@
-import { createClient } from '@/lib/supabase/server';
-import type { User } from '@supabase/supabase-js';
+import { createClient } from '@/lib/supabase/client';
 
-type UsageRecord = {
+type UsageStatus = {
+  is_pro: boolean | null;
   onboarding_completed: boolean | null;
 };
 
-export const getCurrentUser = async (): Promise<User | null> => {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  return user;
-};
-
-export const getUserUsage = async (
-  supabase: Awaited<
-    ReturnType<typeof import('@/lib/supabase/server').createClient>
-  >,
+export const getUserUsageStatus = async (
   userId: string
-): Promise<UsageRecord | null> => {
+): Promise<UsageStatus | null> => {
+  const supabase = createClient();
   const { data } = await supabase
     .from('user_usage')
-    .select('onboarding_completed')
+    .select('is_pro, onboarding_completed')
     .eq('user_id', userId)
-    .maybeSingle<UsageRecord>();
+    .maybeSingle<UsageStatus>();
 
   return data;
+};
+
+export const upsertUserUsage = async (
+  userId: string,
+  data: {
+    referral_source?: string;
+    role?: string;
+    use_case?: string;
+    onboarding_completed?: boolean;
+  }
+): Promise<void> => {
+  const supabase = createClient();
+
+  const { error } = await (supabase.from('user_usage') as any).upsert(
+    { user_id: userId, ...data },
+    { onConflict: 'user_id' }
+  );
+
+  if (error) {
+    throw new Error('Failed to save user data');
+  }
 };

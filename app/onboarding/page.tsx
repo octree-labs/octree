@@ -107,11 +107,10 @@ export default function OnboardingPage() {
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="space-y-2">
-              <Label htmlFor="referral-source">How did you hear about us?</Label>
-              <Select
-                value={referralSource}
-                onValueChange={setReferralSource}
-              >
+              <Label htmlFor="referral-source">
+                How did you hear about us?
+              </Label>
+              <Select value={referralSource} onValueChange={setReferralSource}>
                 <SelectTrigger id="referral-source">
                   <SelectValue placeholder="Select an option" />
                 </SelectTrigger>
@@ -138,4 +137,3 @@ export default function OnboardingPage() {
     </div>
   );
 }
-

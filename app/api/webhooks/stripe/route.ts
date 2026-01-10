@@ -56,7 +56,10 @@ export async function POST(request: Request) {
 
         if (!userId) {
           console.error('No user_id in subscription metadata');
-          break;
+          return NextResponse.json(
+            { error: 'Missing user_id in subscription metadata' },
+            { status: 400 }
+          );
         }
 
         try {

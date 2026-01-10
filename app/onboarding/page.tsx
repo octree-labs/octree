@@ -60,7 +60,7 @@ export default function OnboardingPage() {
           .from('user_usage')
           .select('is_pro, onboarding_completed')
           .eq('user_id', user.id)
-          .single();
+          .maybeSingle();
 
         // @ts-ignore - Supabase type generation issue
         if (usageData?.is_pro && usageData?.onboarding_completed) {

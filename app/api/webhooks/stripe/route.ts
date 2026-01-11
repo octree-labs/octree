@@ -63,18 +63,22 @@ export async function POST(request: Request) {
         }
 
         try {
+          // Convert Unix timestamps to ISO strings, handling null/undefined values
+          const currentPeriodStart = subscription.current_period_start
+            ? new Date(subscription.current_period_start * 1000).toISOString()
+            : null;
+          const currentPeriodEnd = subscription.current_period_end
+            ? new Date(subscription.current_period_end * 1000).toISOString()
+            : null;
+
           // @ts-ignore
           await supabase.rpc('update_user_subscription_status', {
             p_user_id: userId,
             p_stripe_customer_id: customerId,
             p_stripe_subscription_id: subscription.id,
             p_subscription_status: subscription.status,
-            p_current_period_start: new Date(
-              subscription.current_period_start * 1000
-            ).toISOString(),
-            p_current_period_end: new Date(
-              subscription.current_period_end * 1000
-            ).toISOString(),
+            p_current_period_start: currentPeriodStart,
+            p_current_period_end: currentPeriodEnd,
             p_cancel_at_period_end: subscription.cancel_at_period_end,
           });
 

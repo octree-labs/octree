@@ -8,7 +8,8 @@ import { AppSidebar } from '@/components/app-sidebar';
 import { BackButton } from '@/components/projects/back-button';
 import { ProjectBreadcrumbs } from '@/components/projects/project-breadcrumbs';
 import { getProjectById } from '@/actions/get-projects';
-import { getCurrentUser } from '@/actions/get-user';
+import { getCurrentUser, getUserUsageStatus } from '@/actions/get-user';
+import { PaywallDialog } from '@/components/subscription/paywall-dialog';
 
 export default async function ProjectLayout({
   children,
@@ -22,8 +23,14 @@ export default async function ProjectLayout({
   const userName = user?.user_metadata?.name ?? user?.email ?? null;
   const project = await getProjectById(projectId);
 
+  // Check if user needs to see paywall
+  const usage = user ? await getUserUsageStatus(user.id) : null;
+  const showPaywall = usage?.onboarding_completed && !usage?.is_pro;
+
   return (
     <SidebarProvider defaultOpen={true}>
+      {showPaywall && user?.email && <PaywallDialog userEmail={user.email} />}
+
       <AppSidebar userName={userName} />
       <SidebarInset className="flex h-screen flex-col overflow-hidden">
         <header className="relative flex flex-shrink-0 items-center justify-between border-b px-4 py-3">

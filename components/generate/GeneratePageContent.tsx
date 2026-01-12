@@ -294,7 +294,7 @@ export function GeneratePageContent() {
                 headers,
                 body: JSON.stringify({
                     prompt: userMessage.content,
-                    test_mode: true,
+                    test_mode: false,
                     experiments_enabled: experimentsEnabled,
                 }),
             });

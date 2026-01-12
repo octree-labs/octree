@@ -20,8 +20,31 @@ export async function GET(request: NextRequest) {
 
   if (!user) {
     const loginUrl = new URL('/auth/login', url.origin);
-    loginUrl.searchParams.set('next', `/import?draft=${encodeURIComponent(draftId)}`);
+    loginUrl.searchParams.set(
+      'next',
+      `/import?draft=${encodeURIComponent(draftId)}`
+    );
     return NextResponse.redirect(loginUrl);
+  }
+
+  // Check if user has completed onboarding
+  type UsageRecord = {
+    onboarding_completed: boolean | null;
+  };
+
+  const { data: usageData } = await supabase
+    .from('user_usage')
+    .select('onboarding_completed')
+    .eq('user_id', user.id)
+    .maybeSingle<UsageRecord>();
+
+  if (!usageData?.onboarding_completed) {
+    const onboardingUrl = new URL('/onboarding', url.origin);
+    onboardingUrl.searchParams.set(
+      'next',
+      `/import?draft=${encodeURIComponent(draftId)}`
+    );
+    return NextResponse.redirect(onboardingUrl);
   }
 
   // Fetch draft
@@ -92,11 +115,16 @@ export async function GET(request: NextRequest) {
 
   if (fileError) {
     console.error('Error creating file record:', fileError);
-    return NextResponse.redirect(new URL(`/projects/${project.id}`, url.origin));
+    return NextResponse.redirect(
+      new URL(`/projects/${project.id}`, url.origin)
+    );
   }
 
   // Delete draft (best effort)
-  await (supabase.from('drafts' as any).delete().eq('id', draftId) as any);
+  await (supabase
+    .from('drafts' as any)
+    .delete()
+    .eq('id', draftId) as any);
 
   return NextResponse.redirect(new URL(`/projects/${project.id}`, url.origin));
-} 
+}

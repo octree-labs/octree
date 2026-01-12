@@ -1,10 +1,13 @@
 import { redirect } from 'next/navigation';
-import { getCurrentUser } from '@/lib/requests/user';
+import { createClient } from '@/lib/supabase/server';
 import { GeneratePageContent } from '@/components/generate/GeneratePageContent';
 import Navbar from '@/components/navbar';
 
 export default async function GeneratePage() {
-    const user = await getCurrentUser();
+    const supabase = await createClient();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
 
     if (!user) {
         redirect('/auth/login');

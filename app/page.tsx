@@ -3,7 +3,8 @@ import { createClient } from '@/lib/supabase/server';
 import { ProjectsTable } from '@/components/projects/projects-table';
 import Navbar from '@/components/navbar';
 import { getAllProjects } from '@/actions/get-projects';
-import { getUserUsage } from '@/lib/requests/user';
+import { getUserUsageStatus } from '@/actions/get-user';
+import { PaywallDialog } from '@/components/subscription/paywall-dialog';
 import { DashboardActions } from '@/components/dashboard/dashboard-actions';
 
 export default async function Dashboard() {
@@ -16,11 +17,14 @@ export default async function Dashboard() {
     redirect('/auth/login');
   }
 
-  const usage = await getUserUsage(supabase, user.id);
+  const usage = await getUserUsageStatus(user.id);
 
   if (!usage?.onboarding_completed) {
     redirect('/onboarding');
   }
+
+  // Show paywall if user has completed onboarding but is not pro
+  const showPaywall = usage.onboarding_completed && !usage.is_pro;
 
   const userName = user?.user_metadata?.name ?? user?.email ?? null;
 
@@ -32,6 +36,8 @@ export default async function Dashboard() {
 
   return (
     <>
+      {showPaywall && <PaywallDialog userEmail={user.email!} />}
+
       <Navbar userName={userName} />
 
       <main className="container mx-auto px-4 py-8">

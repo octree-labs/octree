@@ -1,5 +1,20 @@
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import LogoCloud from '@/components/ui/logo-cloud';
+import { TestimonialCarousel } from './testimonial-carousel';
+
+const testimonials = [
+  {
+    quote:
+      'Octree removes much of the tedium of resume formatting and journal typesetting, allowing me to spend that saved time focusing on the actual content and not just the presentation.',
+    author: 'Jason Nguyen',
+    role: 'Software Engineer at DoorDash',
+  },
+  {
+    quote:
+      "The AI helps a lot when there's an error... I'm enjoying studying with it.",
+    author: 'Emerson Alves',
+    role: 'Research Student',
+  },
+];
 
 export function AuthMarketingSection() {
   return (
@@ -14,26 +29,12 @@ export function AuthMarketingSection() {
       />
 
       <div className="relative z-10 flex flex-1 items-center justify-center pt-32">
-        <blockquote className="text-center">
-          <p className="mb-8 text-2xl font-medium leading-tight md:text-3xl">
-            "The AI helps a lot when there's an error... I'm enjoying studying
-            with it."
-          </p>
-
-          <div className="flex items-center justify-center gap-4">
-            <div className="space-y-1 text-left">
-              <cite className="font-semibold not-italic">Emerson Alves</cite>
-              <span className="block text-sm text-muted-foreground">
-                Research Student
-              </span>
-            </div>
-          </div>
-        </blockquote>
+        <TestimonialCarousel testimonials={testimonials} />
       </div>
 
       <div className="relative z-10 pb-16">
         <p className="mb-2 text-center text-muted-foreground">
-          Trusted by researchers at
+          Used by researchers at
         </p>
         <LogoCloud />
       </div>

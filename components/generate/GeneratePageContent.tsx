@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, FormEvent } from 'react';
-import { Send, Loader2, FileText, Download, FileCode, BookOpen, PanelLeftClose, PanelLeft, FlaskConical } from 'lucide-react';
+import { Send, Loader2, FileText, Download, FileCode, BookOpen, PanelLeftClose, PanelLeft, FlaskConical, Plus, MessageSquare } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Card } from '@/components/ui/card';
@@ -39,6 +39,15 @@ interface Message {
     content: string;
 }
 
+interface Session {
+    id: string;
+    title: string;
+    messages: Message[];
+    artifacts: PaperArtifacts | null;
+    createdAt: string;
+    runId: string;
+}
+
 const API_URL = process.env.NEXT_PUBLIC_RESEARCHER_API_URL || 'http://localhost:8000';
 
 async function getAuthHeaders(): Promise<HeadersInit> {
@@ -62,6 +71,28 @@ async function fetchPapers(): Promise<GeneratedPaper[]> {
     } catch {
         return [];
     }
+}
+
+function papersToSessions(papers: GeneratedPaper[]): Session[] {
+    return papers.map(paper => ({
+        id: paper.id,
+        title: paper.title || 'Untitled',
+        messages: [
+            {
+                id: `user-${paper.run_id}`,
+                role: 'user' as const,
+                content: paper.title || 'Research request'
+            },
+            {
+                id: `assistant-${paper.run_id}`,
+                role: 'assistant' as const,
+                content: 'Research completed. View the generated artifacts below.'
+            }
+        ],
+        artifacts: paper.artifacts,
+        createdAt: paper.created_at,
+        runId: paper.run_id
+    }));
 }
 
 const SUGGESTIONS = [
@@ -210,7 +241,8 @@ export function GeneratePageContent() {
     const [isFetchingArtifacts, setIsFetchingArtifacts] = useState(false);
     const [artifacts, setArtifacts] = useState<PaperArtifacts | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const [papers, setPapers] = useState<GeneratedPaper[]>([]);
+    const [sessions, setSessions] = useState<Session[]>([]);
+    const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [experimentsEnabled, setExperimentsEnabled] = useState(true);
 
@@ -228,7 +260,9 @@ export function GeneratePageContent() {
     }, [messages]);
 
     useEffect(() => {
-        fetchPapers().then(setPapers);
+        fetchPapers().then(papers => {
+            setSessions(papersToSessions(papers));
+        });
     }, []);
 
     const pollForArtifacts = async (runId: string) => {
@@ -248,7 +282,9 @@ export function GeneratePageContent() {
                         const data = await response.json();
                         if (data.artifacts && (data.artifacts.pdf_url || data.artifacts.latex_url)) {
                             setArtifacts(data.artifacts);
-                            fetchPapers().then(setPapers);
+                            fetchPapers().then(papers => {
+                                setSessions(papersToSessions(papers));
+                            });
                             return;
                         }
                     }
@@ -284,6 +320,7 @@ export function GeneratePageContent() {
         setIsGenerating(true);
         setArtifacts(null);
         setError(null);
+        setActiveSessionId(null);
 
         let generatedRunId: string | null = null;
 
@@ -294,7 +331,7 @@ export function GeneratePageContent() {
                 headers,
                 body: JSON.stringify({
                     prompt: userMessage.content,
-                    test_mode: false,
+                    test_mode: true,
                     experiments_enabled: experimentsEnabled,
                 }),
             });
@@ -360,7 +397,9 @@ export function GeneratePageContent() {
             setError(err instanceof Error ? err.message : 'An error occurred');
         } finally {
             setIsGenerating(false);
-            fetchPapers().then(setPapers);
+            fetchPapers().then(papers => {
+                setSessions(papersToSessions(papers));
+            });
             if (generatedRunId) {
                 pollForArtifacts(generatedRunId);
             }
@@ -372,8 +411,20 @@ export function GeneratePageContent() {
         textareaRef.current?.focus();
     };
 
-    const handleSelectPaper = (paper: GeneratedPaper) => {
-        setArtifacts(paper.artifacts);
+    const handleSelectSession = (session: Session) => {
+        setActiveSessionId(session.id);
+        setMessages(session.messages);
+        setArtifacts(session.artifacts);
+        setError(null);
+    };
+
+    const handleNewChat = () => {
+        setActiveSessionId(null);
+        setMessages([]);
+        setArtifacts(null);
+        setError(null);
+        setPrompt('');
+        textareaRef.current?.focus();
     };
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -398,7 +449,15 @@ export function GeneratePageContent() {
                     sidebarOpen ? 'px-3' : 'justify-center'
                 )}>
                     {sidebarOpen && (
-                        <span className="mr-auto text-sm font-medium">History</span>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleNewChat}
+                            className="mr-auto gap-1.5"
+                        >
+                            <Plus className="h-4 w-4" />
+                            New Chat
+                        </Button>
                     )}
                     <Button
                         variant="ghost"
@@ -416,24 +475,26 @@ export function GeneratePageContent() {
                 {sidebarOpen && (
                     <div className="min-h-0 flex-1 overflow-y-auto">
                         <div className="p-2">
-                            {papers.length === 0 ? (
+                            {sessions.length === 0 ? (
                                 <p className="p-4 text-center text-sm text-muted-foreground">
-                                    No papers yet
+                                    No conversations yet
                                 </p>
                             ) : (
-                                papers.map((paper) => (
+                                sessions.map((session) => (
                                     <Button
-                                        key={paper.id}
-                                        variant="ghost"
-                                        onClick={() => handleSelectPaper(paper)}
-                                        className="mb-1 h-auto w-full flex-col items-start gap-0.5 p-3 text-left"
+                                        key={session.id}
+                                        variant={activeSessionId === session.id ? 'secondary' : 'ghost'}
+                                        onClick={() => handleSelectSession(session)}
+                                        className="mb-1 h-auto w-full justify-start gap-2 p-3 text-left"
                                     >
-                                        <span className="line-clamp-2 text-sm font-medium">
-                                            {paper.title || 'Untitled'}
-                                        </span>
-                                        <span className="text-xs text-muted-foreground">
-                                            {new Date(paper.created_at).toLocaleDateString()}
-                                        </span>
+                                        <div className="min-w-0 flex-1">
+                                            <span className="line-clamp-2 block text-sm font-medium">
+                                                {session.title}
+                                            </span>
+                                            <span className="text-xs text-muted-foreground">
+                                                {new Date(session.createdAt).toLocaleDateString()}
+                                            </span>
+                                        </div>
                                     </Button>
                                 ))
                             )}

@@ -73,13 +73,13 @@ export function PaywallDialog({ userEmail }: PaywallDialogProps) {
               htmlFor="annual-switch"
               className="cursor-pointer text-sm font-normal"
             >
-              Save 42% with an annual plan
+              Save 17% with an annual plan
             </Label>
           </div>
 
           <div className="space-y-1">
             <div className="flex items-baseline gap-2">
-              <p className="text-3xl font-bold">{isAnnual ? '$70' : '$10'}</p>
+              <p className="text-3xl font-bold">{isAnnual ? '$199.99' : '$19.99'}</p>
               <p className="text-sm text-muted-foreground">
                 {isAnnual ? 'per year' : 'per month'}
               </p>

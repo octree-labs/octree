@@ -238,11 +238,12 @@ export default function OnboardingPage() {
 
               <div className="space-y-1">
                 <div className="flex items-baseline gap-2">
-                  <p className="text-3xl font-bold">{isAnnual ? '$199.99' : '$19.99'}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {isAnnual ? 'per year' : 'per month'}
-                  </p>
+                  <p className="text-3xl font-bold">{isAnnual ? '$16.67' : '$19.99'}</p>
+                  <p className="text-sm text-muted-foreground">per month</p>
                 </div>
+                {isAnnual && (
+                  <p className="text-xs text-muted-foreground">Billed annually</p>
+                )}
               </div>
 
               <div>

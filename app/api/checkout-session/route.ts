@@ -4,7 +4,6 @@ import Stripe from 'stripe';
 
 import { stripe } from '@/lib/stripe';
 import { createClient } from '@/lib/supabase/server';
-import { STRIPE_PRICE_IDS } from '@/lib/stripe-config';
 
 export async function POST(request: Request) {
   try {
@@ -30,16 +29,23 @@ export async function POST(request: Request) {
     }
 
     const isAnnual = body.annual === true;
-    const withTrial = body.withTrial === true;
 
-    const priceId = isAnnual
-      ? STRIPE_PRICE_IDS.proAnnual
-      : STRIPE_PRICE_IDS.pro;
+    // $19.99 USD monthly, $199.99 USD annually
+    const priceData: Stripe.Checkout.SessionCreateParams.LineItem.PriceData = {
+      currency: 'usd',
+      product_data: {
+        name: 'Octree Pro',
+      },
+      unit_amount: isAnnual ? 19999 : 1999, // $199.99/year or $19.99/month in cents
+      recurring: {
+        interval: isAnnual ? 'year' : 'month',
+      },
+    };
 
     const sessionConfig: Stripe.Checkout.SessionCreateParams = {
       line_items: [
         {
-          price: priceId,
+          price_data: priceData,
           quantity: 1,
         },
       ],
@@ -51,17 +57,12 @@ export async function POST(request: Request) {
       metadata: {
         user_id: user.id,
       },
-    };
-
-    sessionConfig.subscription_data = {
-      metadata: {
-        user_id: user.id,
+      subscription_data: {
+        metadata: {
+          user_id: user.id,
+        },
       },
     };
-
-    if (withTrial) {
-      sessionConfig.subscription_data.trial_period_days = 3;
-    }
 
     const session = await stripe.checkout.sessions.create(sessionConfig);
 

@@ -43,7 +43,7 @@ export default function OnboardingPage() {
   const [useCase, setUseCase] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [userEmail, setUserEmail] = useState<string>('');
-  const [isAnnual, setIsAnnual] = useState(false);
+  const [isAnnual, setIsAnnual] = useState(true);
   const router = useRouter();
 
   useEffect(() => {
@@ -125,7 +125,7 @@ export default function OnboardingPage() {
       try {
         const checkoutUrl = await createCheckoutSession({
           annual: isAnnual,
-          withTrial: true,
+          withTrial: false,
         });
         window.location.href = checkoutUrl;
         return;
@@ -216,7 +216,7 @@ export default function OnboardingPage() {
         return (
           <>
             <CardHeader>
-              <CardTitle>Start your free trial</CardTitle>
+              <CardTitle>Subscribe to Octree Pro</CardTitle>
               <CardDescription>
                 Everything you need for professional LaTeX documents.
               </CardDescription>
@@ -232,29 +232,23 @@ export default function OnboardingPage() {
                   htmlFor="annual-switch"
                   className="cursor-pointer text-sm font-normal"
                 >
-                  Save 42% with an annual plan
+                  Save 17% with an annual plan
                 </Label>
               </div>
 
               <div className="space-y-1">
                 <div className="flex items-baseline gap-2">
-                  <p className="text-3xl font-bold">$0.00</p>
-                  <p className="text-sm text-muted-foreground">for 3 days</p>
+                  <p className="text-3xl font-bold">{isAnnual ? '$16.67' : '$19.99'}</p>
+                  <p className="text-sm text-muted-foreground">per month</p>
                 </div>
-                <p className="text-sm text-muted-foreground">
-                  {isAnnual ? '$70 billed annually' : '$10 billed monthly'}
-                </p>
+                {isAnnual && (
+                  <p className="text-xs text-muted-foreground">Billed annually</p>
+                )}
               </div>
 
               <div>
                 <p className="mb-4 text-sm font-semibold">Octree includes</p>
                 <FeatureList />
-              </div>
-
-              <div className="space-y-3">
-                <p className="text-center text-xs text-muted-foreground">
-                  You won't be charged until after your trial ends
-                </p>
               </div>
             </CardContent>
           </>
@@ -300,7 +294,7 @@ export default function OnboardingPage() {
                       ? 'Loading...'
                       : 'Saving...'
                     : currentStep === TOTAL_STEPS - 1
-                      ? 'Start Free Trial →'
+                      ? 'Subscribe Now →'
                       : 'Continue'}
                 </Button>
               </CardContent>

@@ -3,6 +3,7 @@ const UNLIMITED_EDIT_EMAILS = [
   'basilyusuf1709@gmail.com',
   'zainsajidnust@gmail.com',
   'faizmustansar10@gmail.com',
+  'boriskurikhin@gmail.com',
 ] as const;
 
 const unlimitedEmailSet = new Set(

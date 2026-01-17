@@ -24,7 +24,7 @@ interface PaywallDialogProps {
 
 export function PaywallDialog({ userEmail }: PaywallDialogProps) {
   const router = useRouter();
-  const [isAnnual, setIsAnnual] = useState(false);
+  const [isAnnual, setIsAnnual] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubscribe = async () => {
@@ -73,20 +73,18 @@ export function PaywallDialog({ userEmail }: PaywallDialogProps) {
               htmlFor="annual-switch"
               className="cursor-pointer text-sm font-normal"
             >
-              Save 42% with an annual plan
+              Save 17% with an annual plan
             </Label>
           </div>
 
           <div className="space-y-1">
             <div className="flex items-baseline gap-2">
-              <p className="text-3xl font-bold">{isAnnual ? '$70' : '$10'}</p>
-              <p className="text-sm text-muted-foreground">
-                {isAnnual ? 'per year' : 'per month'}
-              </p>
+              <p className="text-3xl font-bold">{isAnnual ? '$16.67' : '$19.99'}</p>
+              <p className="text-sm text-muted-foreground">per month</p>
             </div>
-            <p className="text-sm text-muted-foreground">
-              Billed {isAnnual ? 'annually' : 'monthly'}
-            </p>
+            {isAnnual && (
+              <p className="text-xs text-muted-foreground">Billed annually</p>
+            )}
           </div>
 
           <div>

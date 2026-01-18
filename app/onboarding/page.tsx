@@ -43,7 +43,7 @@ export default function OnboardingPage() {
   const [useCase, setUseCase] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [userEmail, setUserEmail] = useState<string>('');
-  const [isAnnual, setIsAnnual] = useState(false);
+  const [isAnnual, setIsAnnual] = useState(true);
   const router = useRouter();
 
   useEffect(() => {
@@ -250,7 +250,6 @@ export default function OnboardingPage() {
                 <p className="mb-4 text-sm font-semibold">Octree includes</p>
                 <FeatureList />
               </div>
-
             </CardContent>
           </>
         );

@@ -24,7 +24,7 @@ interface PaywallDialogProps {
 
 export function PaywallDialog({ userEmail }: PaywallDialogProps) {
   const router = useRouter();
-  const [isAnnual, setIsAnnual] = useState(false);
+  const [isAnnual, setIsAnnual] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubscribe = async () => {

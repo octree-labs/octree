@@ -47,7 +47,6 @@ export async function POST(request: Request) {
     const supabase = createServiceClient();
 
     switch (event.type) {
-      case 'customer.subscription.created':
       case 'customer.subscription.updated':
       case 'customer.subscription.deleted':
         const subscription = event.data.object as Stripe.Subscription;
@@ -63,7 +62,6 @@ export async function POST(request: Request) {
         }
 
         try {
-          // Convert Unix timestamps to ISO strings, handling null/undefined values
           const currentPeriodStart = subscription.current_period_start
             ? new Date(subscription.current_period_start * 1000).toISOString()
             : null;
@@ -71,16 +69,42 @@ export async function POST(request: Request) {
             ? new Date(subscription.current_period_end * 1000).toISOString()
             : null;
 
-          // @ts-ignore
-          await supabase.rpc('update_user_subscription_status', {
-            p_user_id: userId,
-            p_stripe_customer_id: customerId,
-            p_stripe_subscription_id: subscription.id,
-            p_subscription_status: subscription.status,
-            p_current_period_start: currentPeriodStart,
-            p_current_period_end: currentPeriodEnd,
-            p_cancel_at_period_end: subscription.cancel_at_period_end,
-          });
+          const isActive =
+            subscription.status === 'active' ||
+            subscription.status === 'trialing';
+
+          const monthlyResetDate = isActive
+            ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+            : undefined;
+
+          const updateData: any = {
+            stripe_customer_id: customerId,
+            stripe_subscription_id: subscription.id,
+            subscription_status: subscription.status,
+            current_period_start: currentPeriodStart,
+            current_period_end: currentPeriodEnd,
+            cancel_at_period_end: subscription.cancel_at_period_end,
+            is_pro: isActive,
+            updated_at: new Date().toISOString(),
+          };
+
+          if (isActive) {
+            updateData.monthly_edit_count = 0;
+            updateData.monthly_reset_date = monthlyResetDate;
+          }
+
+          const { error: updateError } = await supabase
+            .from('user_usage')
+            .update(updateData)
+            .eq('user_id', userId);
+
+          if (updateError) {
+            console.error(
+              'Failed to update subscription status:',
+              updateError
+            );
+            throw updateError;
+          }
 
           if (
             subscription.status === 'active' ||

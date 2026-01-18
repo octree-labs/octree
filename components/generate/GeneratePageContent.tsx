@@ -154,7 +154,7 @@ function DocumentPreview({ latex, onOpenInOctree, isCreatingProject }: DocumentP
 
   const compilePdf = useCallback(async () => {
     if (pdfUrl || isCompiling) return;
-    
+
     setIsCompiling(true);
     setPdfError(null);
 
@@ -232,7 +232,7 @@ function DocumentPreview({ latex, onOpenInOctree, isCreatingProject }: DocumentP
         </div>
       </div>
 
-      <div className="min-h-[300px] flex-1 overflow-hidden">
+      <div className="h-[600px] overflow-hidden">
         {viewMode === 'code' ? (
           <div className="h-full overflow-auto bg-muted/30 p-4">
             <pre className="text-xs leading-relaxed text-foreground">
@@ -256,7 +256,7 @@ function DocumentPreview({ latex, onOpenInOctree, isCreatingProject }: DocumentP
                 </Button>
               </div>
             ) : pdfUrl ? (
-              <iframe src={pdfUrl} className="h-full w-full" title="PDF Preview" />
+              <iframe src={`${pdfUrl}#toolbar=0&navpanes=0&scrollbar=1&view=FitH`} className="h-full w-full" title="PDF Preview" />
             ) : null}
           </div>
         )}

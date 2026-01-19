@@ -6,7 +6,6 @@ import {
   Send,
   Loader2,
   FileText,
-  FileCode,
   PanelLeftClose,
   PanelLeft,
   Plus,
@@ -23,6 +22,7 @@ import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { createProjectFromLatex } from '@/actions/create-project-from-latex';
 import { createClient } from '@/lib/supabase/client';
+import PDFViewer from '@/components/pdf-viewer';
 
 interface GeneratedDocument {
   id: string;
@@ -141,15 +141,12 @@ interface DocumentPreviewProps {
 function DocumentPreview({ latex, onOpenInOctree, isCreatingProject }: DocumentPreviewProps) {
   const [viewMode, setViewMode] = useState<'code' | 'pdf'>('code');
   const [copied, setCopied] = useState(false);
-  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [pdfData, setPdfData] = useState<string | null>(null);
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [isCompiling, setIsCompiling] = useState(false);
 
   useEffect(() => {
-    setPdfUrl((prev) => {
-      if (prev) URL.revokeObjectURL(prev);
-      return null;
-    });
+    setPdfData(null);
     setPdfError(null);
     setIsCompiling(false);
   }, [latex]);
@@ -161,7 +158,7 @@ function DocumentPreview({ latex, onOpenInOctree, isCreatingProject }: DocumentP
   }, [latex]);
 
   const compilePdf = useCallback(async () => {
-    if (pdfUrl || isCompiling) return;
+    if (pdfData || isCompiling) return;
 
     setIsCompiling(true);
     setPdfError(null);
@@ -180,20 +177,19 @@ function DocumentPreview({ latex, onOpenInOctree, isCreatingProject }: DocumentP
         return;
       }
 
-      const blob = base64ToBlob(data.pdf, 'application/pdf');
-      setPdfUrl(URL.createObjectURL(blob));
+      setPdfData(data.pdf);
     } catch (err) {
       setPdfError(err instanceof Error ? err.message : 'Failed to compile');
     } finally {
       setIsCompiling(false);
     }
-  }, [latex, pdfUrl, isCompiling]);
+  }, [latex, pdfData, isCompiling]);
 
   useEffect(() => {
-    if (viewMode === 'pdf' && !pdfUrl && !isCompiling) {
+    if (viewMode === 'pdf' && !pdfData && !isCompiling) {
       compilePdf();
     }
-  }, [viewMode, pdfUrl, isCompiling, compilePdf]);
+  }, [viewMode, pdfData, isCompiling, compilePdf]);
 
   return (
     <Card className="flex flex-col overflow-hidden border bg-background">
@@ -242,25 +238,13 @@ function DocumentPreview({ latex, onOpenInOctree, isCreatingProject }: DocumentP
             </pre>
           </div>
         ) : (
-          <div className="flex h-full items-center justify-center bg-muted/30">
-            {isCompiling ? (
-              <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                <Loader2 className="h-6 w-6 animate-spin" />
-                <span className="text-sm">Compiling PDF...</span>
-              </div>
-            ) : pdfError ? (
-              <div className="flex flex-col items-center gap-2 px-4 text-center">
-                <FileCode className="h-8 w-8 text-muted-foreground" />
-                <p className="text-sm text-muted-foreground">PDF compilation failed</p>
-                <p className="text-xs text-destructive">{pdfError}</p>
-                <Button variant="outline" size="sm" onClick={compilePdf}>
-                  Retry
-                </Button>
-              </div>
-            ) : pdfUrl ? (
-              <iframe src={`${pdfUrl}#toolbar=0&navpanes=0&scrollbar=1&view=FitH`} className="h-full w-full" title="PDF Preview" />
-            ) : null}
-          </div>
+          <PDFViewer
+            pdfData={pdfData}
+            isLoading={isCompiling}
+            compilationError={pdfError ? { message: pdfError } : null}
+            onRetryCompile={compilePdf}
+            onDismissError={() => setPdfError(null)}
+          />
         )}
       </div>
 
@@ -276,15 +260,6 @@ function DocumentPreview({ latex, onOpenInOctree, isCreatingProject }: DocumentP
       </div>
     </Card>
   );
-}
-
-function base64ToBlob(base64: string, mimeType: string): Blob {
-  const bytes = atob(base64);
-  const buffer = new Uint8Array(bytes.length);
-  for (let i = 0; i < bytes.length; i++) {
-    buffer[i] = bytes.charCodeAt(i);
-  }
-  return new Blob([buffer], { type: mimeType });
 }
 
 export function GeneratePageContent() {

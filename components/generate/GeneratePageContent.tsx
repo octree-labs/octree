@@ -145,6 +145,15 @@ function DocumentPreview({ latex, onOpenInOctree, isCreatingProject }: DocumentP
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [isCompiling, setIsCompiling] = useState(false);
 
+  useEffect(() => {
+    setPdfUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+    setPdfError(null);
+    setIsCompiling(false);
+  }, [latex]);
+
   const handleCopy = useCallback(async () => {
     await navigator.clipboard.writeText(latex);
     setCopied(true);
@@ -185,12 +194,6 @@ function DocumentPreview({ latex, onOpenInOctree, isCreatingProject }: DocumentP
       compilePdf();
     }
   }, [viewMode, pdfUrl, isCompiling, compilePdf]);
-
-  useEffect(() => {
-    return () => {
-      if (pdfUrl) URL.revokeObjectURL(pdfUrl);
-    };
-  }, [pdfUrl]);
 
   return (
     <Card className="flex flex-col overflow-hidden border bg-background">

@@ -22,17 +22,16 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { createProjectFromLatex } from '@/actions/create-project-from-latex';
+import { createClient } from '@/lib/supabase/client';
 
-const STORAGE_KEY = 'octree_generate_sessions';
-
-interface GenerateSession {
+interface GeneratedDocument {
   id: string;
   title: string;
   prompt: string;
   latex: string | null;
   status: 'pending' | 'generating' | 'complete' | 'error';
   error: string | null;
-  createdAt: string;
+  created_at: string;
 }
 
 interface Message {
@@ -285,45 +284,50 @@ function base64ToBlob(base64: string, mimeType: string): Blob {
   return new Blob([buffer], { type: mimeType });
 }
 
-function loadSessions(): GenerateSession[] {
-  if (typeof window === 'undefined') return [];
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    return stored ? JSON.parse(stored) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveSessions(sessions: GenerateSession[]) {
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
-  } catch {
-    // Storage quota exceeded or unavailable
-  }
-}
-
 export function GeneratePageContent() {
   const router = useRouter();
+  const supabase = createClient();
+  
   const [prompt, setPrompt] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [currentLatex, setCurrentLatex] = useState<string | null>(null);
   const [currentTitle, setCurrentTitle] = useState<string>('Untitled Document');
   const [error, setError] = useState<string | null>(null);
-  const [sessions, setSessions] = useState<GenerateSession[]>([]);
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [documents, setDocuments] = useState<GeneratedDocument[]>([]);
+  const [activeDocumentId, setActiveDocumentId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [isCreatingProject, setIsCreatingProject] = useState(false);
+  const [isLoadingDocuments, setIsLoadingDocuments] = useState(true);
+  const [userId, setUserId] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
+  const fetchDocuments = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      setUserId(user.id);
+    }
+
+    const { data, error: fetchError } = await supabase
+      .from('generated_documents')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(50);
+
+    if (fetchError) {
+      console.error('Failed to fetch documents:', fetchError);
+      return;
+    }
+
+    setDocuments(data || []);
+  }, [supabase]);
+
   useEffect(() => {
-    setSessions(loadSessions());
-  }, []);
+    fetchDocuments().finally(() => setIsLoadingDocuments(false));
+  }, [fetchDocuments]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -333,17 +337,26 @@ export function GeneratePageContent() {
     e?.preventDefault();
     if (!prompt.trim() || isGenerating) return;
 
+    // Auto-start new chat if a document already exists in current view
+    if (currentLatex) {
+      setActiveDocumentId(null);
+      setMessages([]);
+      setCurrentLatex(null);
+      setCurrentTitle('Untitled Document');
+      setError(null);
+    }
+
     const userPrompt = prompt.trim();
-    const sessionId = crypto.randomUUID();
+    const documentId = crypto.randomUUID();
 
     const userMessage: Message = {
-      id: `user-${sessionId}`,
+      id: `user-${documentId}`,
       role: 'user',
       content: userPrompt,
     };
 
     const assistantMessage: Message = {
-      id: `assistant-${sessionId}`,
+      id: `assistant-${documentId}`,
       role: 'assistant',
       content: '',
     };
@@ -353,7 +366,7 @@ export function GeneratePageContent() {
     setIsGenerating(true);
     setCurrentLatex(null);
     setError(null);
-    setActiveSessionId(null);
+    setActiveDocumentId(null);
 
     abortControllerRef.current = new AbortController();
 
@@ -451,20 +464,27 @@ export function GeneratePageContent() {
         setCurrentLatex(finalLatex);
         setCurrentTitle(documentTitle);
 
-        const newSession: GenerateSession = {
-          id: sessionId,
-          title: documentTitle,
-          prompt: userPrompt,
-          latex: finalLatex,
-          status: 'complete',
-          error: null,
-          createdAt: new Date().toISOString(),
-        };
+        if (userId) {
+          const { data: inserted, error: insertError } = await supabase
+            .from('generated_documents')
+            .insert({
+              user_id: userId,
+              title: documentTitle,
+              prompt: userPrompt,
+              latex: finalLatex,
+              status: 'complete',
+            } as never)
+            .select()
+            .single();
 
-        const updatedSessions = [newSession, ...sessions].slice(0, 50);
-        setSessions(updatedSessions);
-        saveSessions(updatedSessions);
-        setActiveSessionId(sessionId);
+          if (insertError) {
+            console.error('Failed to save document:', insertError);
+          } else if (inserted) {
+            const doc = inserted as unknown as GeneratedDocument;
+            setDocuments((prev) => [doc, ...prev]);
+            setActiveDocumentId(doc.id);
+          }
+        }
       }
     } catch (err) {
       if ((err as Error).name === 'AbortError') return;
@@ -490,28 +510,28 @@ export function GeneratePageContent() {
     textareaRef.current?.focus();
   };
 
-  const handleSelectSession = (session: GenerateSession) => {
-    setActiveSessionId(session.id);
+  const handleSelectDocument = (doc: GeneratedDocument) => {
+    setActiveDocumentId(doc.id);
     setMessages([
-      { id: `user-${session.id}`, role: 'user', content: session.prompt },
+      { id: `user-${doc.id}`, role: 'user', content: doc.prompt },
       {
-        id: `assistant-${session.id}`,
+        id: `assistant-${doc.id}`,
         role: 'assistant',
-        content: session.status === 'complete'
+        content: doc.status === 'complete'
           ? 'Document generated successfully. Preview it below or open it in Octree.'
-          : session.error || 'Session incomplete',
+          : doc.error || 'Generation incomplete',
       },
     ]);
-    setCurrentLatex(session.latex);
-    setCurrentTitle(session.title);
-    setError(session.error);
+    setCurrentLatex(doc.latex);
+    setCurrentTitle(doc.title);
+    setError(doc.error);
   };
 
   const handleNewChat = () => {
     if (isGenerating) {
       abortControllerRef.current?.abort();
     }
-    setActiveSessionId(null);
+    setActiveDocumentId(null);
     setMessages([]);
     setCurrentLatex(null);
     setCurrentTitle('Untitled Document');
@@ -520,13 +540,22 @@ export function GeneratePageContent() {
     textareaRef.current?.focus();
   };
 
-  const handleDeleteSession = (sessionId: string, e: React.MouseEvent) => {
+  const handleDeleteDocument = async (documentId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    const updated = sessions.filter((s) => s.id !== sessionId);
-    setSessions(updated);
-    saveSessions(updated);
+    
+    const { error: deleteError } = await supabase
+      .from('generated_documents')
+      .delete()
+      .eq('id', documentId);
 
-    if (activeSessionId === sessionId) {
+    if (deleteError) {
+      console.error('Failed to delete document:', deleteError);
+      return;
+    }
+
+    setDocuments((prev) => prev.filter((d) => d.id !== documentId));
+
+    if (activeDocumentId === documentId) {
       handleNewChat();
     }
   };
@@ -603,31 +632,35 @@ export function GeneratePageContent() {
         {sidebarOpen && (
           <div className="min-h-0 flex-1 overflow-y-auto">
             <div className="p-2">
-              {sessions.length === 0 ? (
+              {isLoadingDocuments ? (
+                <div className="flex items-center justify-center p-4">
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                </div>
+              ) : documents.length === 0 ? (
                 <p className="p-4 text-center text-sm text-muted-foreground">
                   No documents yet
                 </p>
               ) : (
-                sessions.map((session) => (
-                  <div key={session.id} className="group relative mb-1">
+                documents.map((doc) => (
+                  <div key={doc.id} className="group relative mb-1">
                     <Button
-                      variant={activeSessionId === session.id ? 'secondary' : 'ghost'}
-                      onClick={() => handleSelectSession(session)}
+                      variant={activeDocumentId === doc.id ? 'secondary' : 'ghost'}
+                      onClick={() => handleSelectDocument(doc)}
                       className="h-auto w-full justify-start gap-2 p-3 pr-8 text-left"
                     >
                       <div className="min-w-0 flex-1">
                         <span className="line-clamp-2 block text-sm font-medium">
-                          {session.title}
+                          {doc.title}
                         </span>
                         <span className="text-xs text-muted-foreground">
-                          {new Date(session.createdAt).toLocaleDateString()}
+                          {new Date(doc.created_at).toLocaleDateString()}
                         </span>
                       </div>
                     </Button>
                     <Button
                       variant="ghost"
                       size="icon"
-                      onClick={(e) => handleDeleteSession(session.id, e)}
+                      onClick={(e) => handleDeleteDocument(doc.id, e)}
                       className="absolute right-1 top-1/2 h-6 w-6 -translate-y-1/2 opacity-0 transition-opacity group-hover:opacity-100"
                     >
                       <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />

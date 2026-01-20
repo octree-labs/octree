@@ -93,6 +93,8 @@ function MessageBubble({ message, isStreaming }: { message: Message; isStreaming
   const isUser = message.role === 'user';
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  const isCompletionMessage = message.content === 'Document generated successfully. Preview it below or open it in Octree.';
+
   useEffect(() => {
     if (isStreaming && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -109,11 +111,25 @@ function MessageBubble({ message, isStreaming }: { message: Message; isStreaming
     );
   }
 
+  if (isCompletionMessage) {
+    return (
+      <div className="flex w-full justify-start">
+        <div className="flex items-center gap-2 rounded-md bg-muted/50 px-4 py-3 text-sm text-muted-foreground">
+          <Check className="h-4 w-4 text-green-600" />
+          <span>{message.content}</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex w-full justify-start">
-      <Card className="max-w-[85%] bg-muted/50 p-0">
-        <div ref={scrollRef} className="h-[500px] overflow-y-auto p-4">
-          <div className="space-y-1 font-mono text-sm">
+      <Card className="w-full bg-muted/50 p-0">
+        <div
+          ref={scrollRef}
+          className="max-h-80 overflow-y-auto p-4"
+        >
+          <div className="space-y-0.5 font-mono text-sm">
             {message.content.split('\n').map((line, i) => (
               <p key={i} className="whitespace-pre-wrap text-foreground">
                 {line}

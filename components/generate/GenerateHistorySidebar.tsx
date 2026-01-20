@@ -88,10 +88,10 @@ export function GenerateHistorySidebar({
 
     return (
         <Sidebar collapsible="offcanvas">
-            <SidebarHeader className="flex-row items-center justify-between border-b border-gray-200">
+            <SidebarHeader className="flex-row items-center justify-between border-b border-gray-200 py-3">
                 <Button
                     variant="ghost"
-                    size="sm"
+                    size="xs"
                     onClick={onNewChat}
                     className="flex-1 gap-1.5"
                 >

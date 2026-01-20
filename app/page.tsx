@@ -1,5 +1,8 @@
 import { redirect } from 'next/navigation';
+import Link from 'next/link';
+import { Sparkles } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
+import { Button } from '@/components/ui/button';
 import { CreateProjectDialog } from '@/components/projects/create-project-dialog';
 import { ProjectsTable } from '@/components/projects/projects-table';
 import Navbar from '@/components/navbar';
@@ -49,7 +52,15 @@ export default async function Dashboard() {
             </p>
           </div>
 
-          <CreateProjectDialog />
+          <div className="flex items-center gap-2">
+            <Link href="/generate">
+              <Button variant="outline" size="sm">
+                <Sparkles className="mr-2 h-4 w-4" />
+                Generate with AI
+              </Button>
+            </Link>
+            <CreateProjectDialog />
+          </div>
         </div>
 
         <ProjectsTable data={data} />

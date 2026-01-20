@@ -119,7 +119,7 @@ export default function OnboardingPage() {
       return;
     }
 
-    // Special handling for step 1 (trial step - now last)
+    // Special handling for step 1 (subscription step)
     if (currentStep === 1) {
       setIsSubmitting(true);
       try {
@@ -131,7 +131,7 @@ export default function OnboardingPage() {
         return;
       } catch (error) {
         console.error('Failed to create checkout session:', error);
-        toast.error('Failed to start trial. Please try again.');
+        toast.error('Failed to start checkout. Please try again.');
         setIsSubmitting(false);
         return;
       }
@@ -264,7 +264,7 @@ export default function OnboardingPage() {
 
   const isStepValid = () => {
     if (currentStep === 0) return !!role && !!useCase && !!referralSource;
-    if (currentStep === 1) return true; // Trial step is always valid
+    if (currentStep === 1) return true; // Subscription step is always valid
     return false;
   };
 

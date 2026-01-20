@@ -34,26 +34,32 @@ const useCases = [
   {
     title: 'Generate Research Papers',
     description:
-      'Transform your ideas into professionally formatted academic papers. Octree handles citations, equations, and formatting while you focus on your research.',
-    videoUrl: '/assets/videos/demo.mp4',
+      'Transform your ideas into professionally formatted academic papers with citations and equations handled automatically.',
+    videoUrl: '/assets/videos/research.mp4',
   },
   {
     title: 'Create Technical Presentations',
     description:
-      'Build stunning Beamer presentations with AI assistance. From conference talks to lecture slides, create polished presentations in minutes.',
-    videoUrl: '/assets/videos/demo.mp4',
-  },
-  {
-    title: 'Fully Editable LaTeX Documentation',
-    description:
-      'Generate comprehensive technical documentation that you own. Every line is editable LaTeX code — no vendor lock-in, complete control.',
-    videoUrl: '/assets/videos/demo.mp4',
+      'Build stunning Beamer presentations with AI assistance. Polish your slides for conferences and lectures in minutes.',
+    videoUrl: '/assets/videos/beamer.mp4',
   },
   {
     title: 'AI-Powered Editing Agent',
     description:
-      'Edit your documents like you would with Cursor — but built for academics. Select text, describe changes, and let AI refactor your entire project.',
-    videoUrl: '/assets/videos/demo.mp4',
+      'Edit your documents like you would with Cursor — but built for academics. Refactor your entire project with a simple command.',
+    videoUrl: '/assets/videos/edit.mp4',
+  },
+  {
+    title: 'Fix Errors with AI',
+    description:
+      'One-click fixes for complex LaTeX compilation errors. Stop debugging and start writing with our intelligent error detection.',
+    videoUrl: '/assets/videos/fix-errors.mp4',
+  },
+  {
+    title: 'Create Professional Resumes',
+    description:
+      'Generate polished, ATS-friendly resumes using industry-standard LaTeX templates and AI-optimized content.',
+    videoUrl: '/assets/videos/resume.mp4',
   },
 ];
 
@@ -78,7 +84,7 @@ export function AuthMarketingSection() {
           </TabsList>
 
           {/* Content area - Fixed height to prevent any layout shift */}
-          <div className="h-[400px] mt-8 flex flex-col">
+          <div className="h-[450px] mt-8 flex flex-col">
             <TabsContent 
               value="testimonials" 
               className="m-0 flex-1 data-[state=active]:flex flex-col items-center justify-center animate-in fade-in duration-300"

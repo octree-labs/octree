@@ -6,24 +6,23 @@ import {
   Send,
   Loader2,
   FileText,
-  PanelLeftClose,
-  PanelLeft,
-  Plus,
   ExternalLink,
   Code,
   Eye,
   Copy,
   Check,
-  Trash2,
   Download,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Card } from '@/components/ui/card';
+import { SidebarInset, SidebarTrigger } from '@/components/ui/sidebar';
+import { BackButton } from '@/components/projects/back-button';
 import { cn } from '@/lib/utils';
 import { createProjectFromLatex } from '@/actions/create-project-from-latex';
 import { createClient } from '@/lib/supabase/client';
 import PDFViewer from '@/components/pdf-viewer';
+import { GenerateHistorySidebar } from '@/components/generate/GenerateHistorySidebar';
 
 interface GeneratedDocument {
   id: string;
@@ -113,7 +112,7 @@ function MessageBubble({ message, isStreaming }: { message: Message; isStreaming
   return (
     <div className="flex w-full justify-start">
       <Card className="max-w-[85%] bg-muted/50 p-0">
-        <div ref={scrollRef} className="max-h-[400px] overflow-y-auto p-4">
+        <div ref={scrollRef} className="h-[500px] overflow-y-auto p-4">
           <div className="space-y-1 font-mono text-sm">
             {message.content.split('\n').map((line, i) => (
               <p key={i} className="whitespace-pre-wrap text-foreground">
@@ -161,11 +160,11 @@ function DocumentPreview({ latex, title, onOpenInOctree, isCreatingProject }: Do
 
   const handleDownload = useCallback(async () => {
     let pdfToDownload = pdfData;
-    
+
     if (!pdfToDownload && !isCompiling) {
       setIsCompiling(true);
       setPdfError(null);
-      
+
       try {
         const response = await fetch('/api/compile-pdf', {
           method: 'POST',
@@ -189,9 +188,9 @@ function DocumentPreview({ latex, title, onOpenInOctree, isCreatingProject }: Do
         setIsCompiling(false);
       }
     }
-    
+
     if (!pdfToDownload) return;
-    
+
     const byteCharacters = atob(pdfToDownload);
     const byteNumbers = new Array(byteCharacters.length);
     for (let i = 0; i < byteCharacters.length; i++) {
@@ -199,7 +198,7 @@ function DocumentPreview({ latex, title, onOpenInOctree, isCreatingProject }: Do
     }
     const byteArray = new Uint8Array(byteNumbers);
     const blob = new Blob([byteArray], { type: 'application/pdf' });
-    
+
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -302,9 +301,9 @@ function DocumentPreview({ latex, title, onOpenInOctree, isCreatingProject }: Do
       </div>
 
       <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
-        <Button 
-          variant="outline" 
-          onClick={handleDownload} 
+        <Button
+          variant="outline"
+          onClick={handleDownload}
           disabled={isCompiling}
         >
           {isCompiling ? (
@@ -314,7 +313,11 @@ function DocumentPreview({ latex, title, onOpenInOctree, isCreatingProject }: Do
           )}
           {isCompiling ? 'Compiling...' : 'Download PDF'}
         </Button>
-        <Button onClick={onOpenInOctree} disabled={isCreatingProject}>
+        <Button
+          variant="gradient"
+          onClick={onOpenInOctree}
+          disabled={isCreatingProject}
+        >
           {isCreatingProject ? (
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
           ) : (
@@ -330,47 +333,30 @@ function DocumentPreview({ latex, title, onOpenInOctree, isCreatingProject }: Do
 export function GeneratePageContent() {
   const router = useRouter();
   const supabase = createClient();
-  
+
   const [prompt, setPrompt] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [currentLatex, setCurrentLatex] = useState<string | null>(null);
   const [currentTitle, setCurrentTitle] = useState<string>('Untitled Document');
   const [error, setError] = useState<string | null>(null);
-  const [documents, setDocuments] = useState<GeneratedDocument[]>([]);
   const [activeDocumentId, setActiveDocumentId] = useState<string | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [isCreatingProject, setIsCreatingProject] = useState(false);
-  const [isLoadingDocuments, setIsLoadingDocuments] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  const fetchDocuments = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) {
-      setUserId(user.id);
-    }
-
-    const { data, error: fetchError } = await supabase
-      .from('generated_documents')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(50);
-
-    if (fetchError) {
-      console.error('Failed to fetch documents:', fetchError);
-      return;
-    }
-
-    setDocuments(data || []);
-  }, [supabase]);
-
   useEffect(() => {
-    fetchDocuments().finally(() => setIsLoadingDocuments(false));
-  }, [fetchDocuments]);
+    const fetchUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        setUserId(user.id);
+      }
+    };
+    fetchUser();
+  }, [supabase]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -478,10 +464,7 @@ export function GeneratePageContent() {
                 const updated = [...prev];
                 const last = updated[updated.length - 1];
                 if (last?.role === 'assistant') {
-                  const preview = streamedContent.length > 500
-                    ? `Generating document...\n\n${streamedContent.slice(-500)}`
-                    : `Generating document...\n\n${streamedContent}`;
-                  last.content = preview;
+                  last.content = streamedContent;
                 }
                 return updated;
               });
@@ -524,8 +507,8 @@ export function GeneratePageContent() {
             console.error('Failed to save document:', insertError);
           } else if (inserted) {
             const doc = inserted as unknown as GeneratedDocument;
-            setDocuments((prev) => [doc, ...prev]);
             setActiveDocumentId(doc.id);
+            window.dispatchEvent(new CustomEvent('generate:documentCreated', { detail: doc }));
           }
         }
       }
@@ -548,10 +531,49 @@ export function GeneratePageContent() {
     }
   };
 
-  const handleSelectSuggestion = (suggestionPrompt: string) => {
-    setPrompt(suggestionPrompt);
-    textareaRef.current?.focus();
+
+
+  const handleOpenInOctree = async () => {
+    if (!currentLatex || isCreatingProject) return;
+
+    setIsCreatingProject(true);
+    try {
+      const result = await createProjectFromLatex(currentTitle, currentLatex);
+
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+
+      if (result.projectId) {
+        router.push(`/projects/${result.projectId}`);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create project');
+    } finally {
+      setIsCreatingProject(false);
+    }
   };
+
+  useEffect(() => {
+    const handleSelectDocumentEvent = (e: Event) => {
+      const customEvent = e as CustomEvent<GeneratedDocument>;
+      const doc = customEvent.detail;
+      handleSelectDocument(doc);
+    };
+
+    const handleNewChatEvent = () => {
+      handleNewChat();
+    };
+
+    window.addEventListener('generate:selectDocument', handleSelectDocumentEvent as EventListener);
+    window.addEventListener('generate:newChat', handleNewChatEvent);
+
+    return () => {
+      window.removeEventListener('generate:selectDocument', handleSelectDocumentEvent as EventListener);
+      window.removeEventListener('generate:newChat', handleNewChatEvent);
+    };
+  }, []);
 
   const handleSelectDocument = (doc: GeneratedDocument) => {
     setActiveDocumentId(doc.id);
@@ -583,46 +605,9 @@ export function GeneratePageContent() {
     textareaRef.current?.focus();
   };
 
-  const handleDeleteDocument = async (documentId: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    
-    const { error: deleteError } = await supabase
-      .from('generated_documents')
-      .delete()
-      .eq('id', documentId);
-
-    if (deleteError) {
-      console.error('Failed to delete document:', deleteError);
-      return;
-    }
-
-    setDocuments((prev) => prev.filter((d) => d.id !== documentId));
-
-    if (activeDocumentId === documentId) {
-      handleNewChat();
-    }
-  };
-
-  const handleOpenInOctree = async () => {
-    if (!currentLatex || isCreatingProject) return;
-
-    setIsCreatingProject(true);
-    try {
-      const result = await createProjectFromLatex(currentTitle, currentLatex);
-
-      if (result.error) {
-        setError(result.error);
-        return;
-      }
-
-      if (result.projectId) {
-        router.push(`/projects/${result.projectId}`);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create project');
-    } finally {
-      setIsCreatingProject(false);
-    }
+  const handleSelectSuggestion = (suggestionPrompt: string) => {
+    setPrompt(suggestionPrompt);
+    textareaRef.current?.focus();
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -635,155 +620,90 @@ export function GeneratePageContent() {
   const hasStarted = messages.length > 0;
 
   return (
-    <div className="flex h-full w-full overflow-hidden">
-      <aside
-        className={cn(
-          'flex h-full shrink-0 flex-col border-r bg-background transition-all duration-200',
-          sidebarOpen ? 'w-64' : 'w-12'
-        )}
-      >
-        <div
-          className={cn(
-            'flex h-12 shrink-0 items-center border-b',
-            sidebarOpen ? 'px-3' : 'justify-center'
-          )}
-        >
-          {sidebarOpen && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleNewChat}
-              className="mr-auto gap-1.5"
-            >
-              <Plus className="h-4 w-4" />
-              New
-            </Button>
-          )}
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="h-8 w-8"
-          >
-            {sidebarOpen ? (
-              <PanelLeftClose className="h-4 w-4" />
-            ) : (
-              <PanelLeft className="h-4 w-4" />
-            )}
-          </Button>
-        </div>
-        {sidebarOpen && (
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            <div className="p-2">
-              {isLoadingDocuments ? (
-                <div className="flex items-center justify-center p-4">
-                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                </div>
-              ) : documents.length === 0 ? (
-                <p className="p-4 text-center text-sm text-muted-foreground">
-                  No documents yet
-                </p>
-              ) : (
-                documents.map((doc) => (
-                  <div key={doc.id} className="group relative mb-1">
-                    <Button
-                      variant={activeDocumentId === doc.id ? 'secondary' : 'ghost'}
-                      onClick={() => handleSelectDocument(doc)}
-                      className="h-auto w-full justify-start gap-2 p-3 pr-8 text-left"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <span className="line-clamp-2 block text-sm font-medium">
-                          {doc.title}
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                          {new Date(doc.created_at).toLocaleDateString()}
-                        </span>
-                      </div>
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={(e) => handleDeleteDocument(doc.id, e)}
-                      className="absolute right-1 top-1/2 h-6 w-6 -translate-y-1/2 opacity-0 transition-opacity group-hover:opacity-100"
-                    >
-                      <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
-                    </Button>
-                  </div>
-                ))
-              )}
-            </div>
+    <>
+      <GenerateHistorySidebar
+        activeDocumentId={activeDocumentId}
+        onSelectDocument={handleSelectDocument}
+        onNewChat={handleNewChat}
+      />
+      <SidebarInset className="flex h-screen flex-col overflow-hidden">
+        <header className="flex shrink-0 items-center gap-2 border-b px-4 py-3">
+          <SidebarTrigger />
+          <span className="text-neutral-300">|</span>
+          <BackButton />
+          <div className="flex flex-1 items-center justify-center">
+            <h1 className="text-sm font-medium">Generate Document</h1>
           </div>
-        )}
-      </aside>
+        </header>
+        <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          {!hasStarted ? (
+            <WelcomeState onSelectSuggestion={handleSelectSuggestion} />
+          ) : (
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <div className="mx-auto max-w-3xl space-y-4 p-4">
+                {messages.map((message, index) => (
+                  <MessageBubble
+                    key={message.id}
+                    message={message}
+                    isStreaming={
+                      isGenerating &&
+                      message.role === 'assistant' &&
+                      index === messages.length - 1
+                    }
+                  />
+                ))}
 
-      <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        {!hasStarted ? (
-          <WelcomeState onSelectSuggestion={handleSelectSuggestion} />
-        ) : (
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            <div className="mx-auto max-w-3xl space-y-4 p-4">
-              {messages.map((message, index) => (
-                <MessageBubble
-                  key={message.id}
-                  message={message}
-                  isStreaming={
-                    isGenerating &&
-                    message.role === 'assistant' &&
-                    index === messages.length - 1
-                  }
-                />
-              ))}
+                {currentLatex && !isGenerating && (
+                  <DocumentPreview
+                    latex={currentLatex}
+                    title={currentTitle}
+                    onOpenInOctree={handleOpenInOctree}
+                    isCreatingProject={isCreatingProject}
+                  />
+                )}
 
-              {currentLatex && !isGenerating && (
-                <DocumentPreview
-                  latex={currentLatex}
-                  title={currentTitle}
-                  onOpenInOctree={handleOpenInOctree}
-                  isCreatingProject={isCreatingProject}
-                />
-              )}
+                {error && !isGenerating && (
+                  <Card className="border-destructive bg-destructive/10 p-3">
+                    <p className="text-sm text-destructive">{error}</p>
+                  </Card>
+                )}
 
-              {error && !isGenerating && (
-                <Card className="border-destructive bg-destructive/10 p-3">
-                  <p className="text-sm text-destructive">{error}</p>
-                </Card>
-              )}
-
-              <div ref={messagesEndRef} />
-            </div>
-          </div>
-        )}
-
-        <div className="shrink-0 border-t bg-background p-4">
-          <form onSubmit={handleSubmit} className="mx-auto max-w-3xl">
-            <Card className="flex flex-col gap-2 p-2">
-              <Textarea
-                ref={textareaRef}
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Describe the document you want to create..."
-                className="min-h-[60px] flex-1 resize-none border-0 bg-transparent p-2 shadow-none focus-visible:ring-0"
-                disabled={isGenerating}
-              />
-              <div className="flex items-center justify-end">
-                <Button
-                  type="submit"
-                  size="icon"
-                  disabled={!prompt.trim() || isGenerating}
-                  className="h-8 w-8 shrink-0 rounded-full"
-                >
-                  {isGenerating ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Send className="h-4 w-4" />
-                  )}
-                </Button>
+                <div ref={messagesEndRef} />
               </div>
-            </Card>
-          </form>
-        </div>
-      </main>
-    </div>
+            </div>
+          )}
+
+          <div className="shrink-0 border-t bg-background p-4">
+            <form onSubmit={handleSubmit} className="mx-auto max-w-3xl">
+              <Card className="flex flex-col gap-2 p-2">
+                <Textarea
+                  ref={textareaRef}
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Describe the document you want to create..."
+                  className="min-h-[60px] flex-1 resize-none border-0 bg-transparent p-2 shadow-none focus-visible:ring-0"
+                  disabled={isGenerating}
+                />
+                <div className="flex items-center justify-end">
+                  <Button
+                    type="submit"
+                    size="icon"
+                    disabled={!prompt.trim() || isGenerating}
+                    className="h-8 w-8 shrink-0 rounded-full"
+                  >
+                    {isGenerating ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Send className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+              </Card>
+            </form>
+          </div>
+        </main>
+      </SidebarInset>
+    </>
   );
 }

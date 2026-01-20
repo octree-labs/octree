@@ -9,8 +9,8 @@ export default async function Page({ searchParams }: { searchParams?: Promise<{ 
   
   return (
     <div className="flex min-h-screen w-full">
-      <div className="flex w-full flex-col p-6 lg:w-1/2">
-        <div className="mb-8 flex items-center gap-2">
+      <div className="relative flex w-full flex-col p-6 lg:w-1/2">
+        <div className="absolute top-8 left-8 flex items-center gap-2">
           <OctreeLogo className="h-6 w-6" />
           <span className="text-lg font-medium tracking-tight text-neutral-900">
             Octree

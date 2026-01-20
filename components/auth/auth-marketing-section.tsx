@@ -3,7 +3,7 @@
 import LogoCloud from '@/components/ui/logo-cloud';
 import { TestimonialCarousel } from './testimonial-carousel';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Play, X } from 'lucide-react';
+import { Play, X, ArrowRight } from 'lucide-react';
 import { Dialog, DialogContent, DialogTrigger, DialogTitle, DialogClose } from '@/components/ui/dialog';
 import {
   VideoPlayer,
@@ -101,19 +101,28 @@ export function AuthMarketingSection() {
                   <Dialog key={index}>
                     <DialogTrigger asChild>
                       <div
-                        className="group rounded-xl bg-gradient-to-t from-background to-background/80 backdrop-blur-sm p-3.5 transition-all hover:brightness-110 active:brightness-95 border border-zinc-950/25 shadow-md shadow-zinc-950/20 ring-1 ring-inset ring-white/20 cursor-pointer"
+                        className="group relative rounded-xl bg-gradient-to-t from-background to-background/80 backdrop-blur-sm p-3.5 transition-all hover:brightness-110 active:brightness-95 border border-zinc-950/25 shadow-md shadow-zinc-950/20 ring-1 ring-inset ring-white/20 cursor-pointer hover:-translate-y-0.5 hover:border-primary/30"
                       >
                         <div className="flex items-start gap-3">
-                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-t from-primary to-primary/85 text-primary-foreground border border-zinc-950/25 shadow-sm shadow-zinc-950/20 ring-1 ring-inset ring-white/20 transition-all group-hover:scale-110">
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-t from-primary to-primary/85 text-primary-foreground border border-zinc-950/25 shadow-sm shadow-zinc-950/20 ring-1 ring-inset ring-white/20 transition-all group-hover:scale-110 group-hover:shadow-[0_0_15px_rgba(59,130,246,0.5)]">
                             <Play className="h-3 w-3 fill-current" />
                           </div>
-                          <div>
-                            <h3 className="font-semibold text-foreground text-sm mb-0.5 leading-none">
-                              {useCase.title}
-                            </h3>
-                            <p className="text-[11px] text-muted-foreground leading-snug">
+                          <div className="flex-1 min-w-0 pr-12">
+                            <div className="flex items-center justify-between">
+                              <h3 className="font-semibold text-foreground text-sm mb-0.5 leading-none">
+                                {useCase.title}
+                              </h3>
+                            </div>
+                            <p className="text-[11px] text-muted-foreground leading-snug line-clamp-2">
                               {useCase.description}
                             </p>
+                          </div>
+                        </div>
+                        
+                        {/* Hidden indicator arrow that appears on hover */}
+                        <div className="absolute right-4 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 group-hover:translate-x-0 translate-x-2 transition-all duration-300">
+                          <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm shadow-zinc-950/20 ring-1 ring-inset ring-white/20">
+                            <ArrowRight className="size-3.5" />
                           </div>
                         </div>
                       </div>

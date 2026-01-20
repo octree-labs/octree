@@ -129,11 +129,14 @@ export function AuthMarketingSection() {
                               preload="auto"
                               autoPlay
                               muted
+                              loop
                               slot="media"
                               className="w-full h-full"
                               style={{
                                 objectFit: 'contain',
                                 objectPosition: '50% 50%',
+                                transform: 'translateZ(0)', // Force GPU acceleration
+                                imageRendering: 'auto',
                               }}
                             />
                           <VideoPlayerControlBar>

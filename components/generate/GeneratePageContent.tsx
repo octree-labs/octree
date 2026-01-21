@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback, FormEvent } from 'react';
+import { useState, useRef, useEffect, useCallback, FormEvent, ChangeEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Send,
@@ -12,7 +12,17 @@ import {
   Copy,
   Check,
   Download,
+  Plus,
+  Image as ImageIcon,
+  X,
 } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Card } from '@/components/ui/card';
@@ -346,6 +356,15 @@ function DocumentPreview({ latex, title, onOpenInOctree, isCreatingProject }: Do
   );
 }
 
+interface AttachedImage {
+  id: string;
+  file: File;
+  preview: string;
+}
+
+const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
+const ACCEPTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+
 export function GeneratePageContent() {
   const router = useRouter();
   const supabase = createClient();
@@ -363,6 +382,9 @@ export function GeneratePageContent() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -377,6 +399,71 @@ export function GeneratePageContent() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  useEffect(() => {
+    return () => {
+      attachedImages.forEach((img) => URL.revokeObjectURL(img.preview));
+    };
+  }, [attachedImages]);
+
+  const handleImageSelect = (e: ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+
+    const validFiles: AttachedImage[] = [];
+
+    Array.from(files).forEach((file) => {
+      if (!ACCEPTED_IMAGE_TYPES.includes(file.type)) {
+        return;
+      }
+      if (file.size > MAX_IMAGE_SIZE) {
+        return;
+      }
+      validFiles.push({
+        id: crypto.randomUUID(),
+        file,
+        preview: URL.createObjectURL(file),
+      });
+    });
+
+    setAttachedImages((prev) => [...prev, ...validFiles]);
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const handleRemoveImage = (imageId: string) => {
+    setAttachedImages((prev) => {
+      const imageToRemove = prev.find((img) => img.id === imageId);
+      if (imageToRemove) {
+        URL.revokeObjectURL(imageToRemove.preview);
+      }
+      return prev.filter((img) => img.id !== imageId);
+    });
+  };
+
+  const convertImagesToBase64 = async (
+    images: AttachedImage[]
+  ): Promise<{ mimeType: string; data: string }[]> => {
+    return Promise.all(
+      images.map(
+        (img) =>
+          new Promise<{ mimeType: string; data: string }>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              const result = reader.result as string;
+              const base64Data = result.split(',')[1];
+              resolve({
+                mimeType: img.file.type,
+                data: base64Data,
+              });
+            };
+            reader.readAsDataURL(img.file);
+          })
+      )
+    );
+  };
 
   const handleSubmit = async (e?: FormEvent) => {
     e?.preventDefault();
@@ -413,13 +500,22 @@ export function GeneratePageContent() {
     setError(null);
     setActiveDocumentId(null);
 
+    const imagesToSend = [...attachedImages];
+    setAttachedImages([]);
+
     abortControllerRef.current = new AbortController();
 
     try {
+      const images = imagesToSend.length > 0
+        ? await convertImagesToBase64(imagesToSend)
+        : undefined;
+
+      imagesToSend.forEach((img) => URL.revokeObjectURL(img.preview));
+
       const response = await fetch('/api/generate-document', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: userPrompt }),
+        body: JSON.stringify({ prompt: userPrompt, images }),
         signal: abortControllerRef.current.signal,
       });
 
@@ -692,6 +788,29 @@ export function GeneratePageContent() {
           <div className="shrink-0 border-t bg-background p-4">
             <form onSubmit={handleSubmit} className="mx-auto max-w-3xl">
               <Card className="flex flex-col gap-2 p-2">
+                {attachedImages.length > 0 && (
+                  <div className="flex flex-wrap gap-2 px-2 pt-1">
+                    {attachedImages.map((img) => (
+                      <div
+                        key={img.id}
+                        className="group relative h-16 w-16 overflow-hidden rounded-md border bg-muted"
+                      >
+                        <img
+                          src={img.preview}
+                          alt=""
+                          className="h-full w-full object-cover"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveImage(img.id)}
+                          className="absolute right-0.5 top-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-background/80 opacity-0 transition-opacity group-hover:opacity-100"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <Textarea
                   ref={textareaRef}
                   value={prompt}
@@ -701,7 +820,33 @@ export function GeneratePageContent() {
                   className="min-h-[60px] flex-1 resize-none border-0 bg-transparent p-2 shadow-none focus-visible:ring-0"
                   disabled={isGenerating}
                 />
-                <div className="flex items-center justify-end">
+                <div className="flex items-center justify-between">
+                  <DropdownMenu>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 shrink-0"
+                            disabled={isGenerating}
+                          >
+                            <Plus className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">Attach files</TooltipContent>
+                    </Tooltip>
+                    <DropdownMenuContent align="start">
+                      <DropdownMenuItem
+                        onClick={() => fileInputRef.current?.click()}
+                      >
+                        <ImageIcon className="mr-2 h-4 w-4" />
+                        Image
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                   <Button
                     type="submit"
                     size="icon"
@@ -716,6 +861,14 @@ export function GeneratePageContent() {
                   </Button>
                 </div>
               </Card>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/gif,image/webp"
+                multiple
+                onChange={handleImageSelect}
+                className="hidden"
+              />
             </form>
           </div>
         </main>

@@ -17,9 +17,15 @@ Requirements:
 
 The output must start with \\documentclass and end with \\end{document}.`;
 
+interface ImageData {
+  mimeType: string;
+  data: string;
+}
+
 interface GenerateRequest {
   prompt: string;
   documentType?: 'research' | 'article' | 'report' | 'letter' | 'general';
+  images?: ImageData[];
 }
 
 export async function POST(request: Request) {
@@ -46,7 +52,7 @@ export async function POST(request: Request) {
     }
 
     const body: GenerateRequest = await request.json();
-    const { prompt, documentType = 'general' } = body;
+    const { prompt, documentType = 'general', images } = body;
 
     if (!prompt?.trim()) {
       return NextResponse.json(
@@ -87,6 +93,23 @@ export async function POST(request: Request) {
             message: 'Starting document generation...',
           });
 
+          const messageContent: unknown[] = [];
+
+          if (images && images.length > 0) {
+            for (const img of images) {
+              messageContent.push({
+                type: 'image',
+                source: {
+                  type: 'base64',
+                  media_type: img.mimeType,
+                  data: img.data,
+                },
+              });
+            }
+          }
+
+          messageContent.push({ type: 'text', text: fullPrompt });
+
           const response = await fetch('https://api.anthropic.com/v1/messages', {
             method: 'POST',
             headers: {
@@ -98,7 +121,7 @@ export async function POST(request: Request) {
               model: 'claude-sonnet-4-20250514',
               max_tokens: 8192,
               system: DOCUMENT_GENERATION_PROMPT,
-              messages: [{ role: 'user', content: fullPrompt }],
+              messages: [{ role: 'user', content: messageContent }],
               stream: true,
             }),
           });

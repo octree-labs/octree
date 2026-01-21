@@ -12,9 +12,10 @@ import {
   Copy,
   Check,
   Download,
-  Plus,
-  Image as ImageIcon,
+  Paperclip,
   X,
+  Image as ImageIcon,
+  File,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -22,7 +23,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Card } from '@/components/ui/card';
@@ -44,10 +44,18 @@ interface GeneratedDocument {
   created_at: string;
 }
 
+interface MessageAttachment {
+  id: string;
+  name: string;
+  type: 'image' | 'document';
+  preview: string | null;
+}
+
 interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  attachments?: MessageAttachment[];
 }
 
 const SUGGESTIONS = [
@@ -113,7 +121,30 @@ function MessageBubble({ message, isStreaming }: { message: Message; isStreaming
 
   if (isUser) {
     return (
-      <div className="flex w-full justify-end">
+      <div className="flex w-full flex-col items-end gap-2">
+        {message.attachments && message.attachments.length > 0 && (
+          <div className="flex max-w-[85%] flex-wrap justify-end gap-1.5">
+            {message.attachments.map((att, index) => (
+              <div
+                key={att.id}
+                className="flex items-center gap-2 rounded-md border border-border/50 bg-muted px-2 py-1.5"
+              >
+                {att.type === 'image' && att.preview ? (
+                  <img
+                    src={att.preview}
+                    alt=""
+                    className="h-8 w-8 rounded object-cover"
+                  />
+                ) : (
+                  <FileText className="h-4 w-4 text-muted-foreground" />
+                )}
+                <span className="max-w-[120px] truncate text-xs text-foreground">
+                  {att.name}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
         <Card className="max-w-[85%] bg-primary px-4 py-3 text-primary-foreground">
           <p className="whitespace-pre-wrap text-sm">{message.content}</p>
         </Card>
@@ -356,14 +387,16 @@ function DocumentPreview({ latex, title, onOpenInOctree, isCreatingProject }: Do
   );
 }
 
-interface AttachedImage {
+interface AttachedFile {
   id: string;
   file: File;
-  preview: string;
+  preview: string | null;
+  type: 'image' | 'document';
 }
 
-const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
-const ACCEPTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+const MAX_FILE_SIZE = 20 * 1024 * 1024;
+const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+const DOCUMENT_TYPES = ['application/pdf'];
 
 export function GeneratePageContent() {
   const router = useRouter();
@@ -384,7 +417,7 @@ export function GeneratePageContent() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
+  const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -402,64 +435,67 @@ export function GeneratePageContent() {
 
   useEffect(() => {
     return () => {
-      attachedImages.forEach((img) => URL.revokeObjectURL(img.preview));
+      attachedFiles.forEach((f) => {
+        if (f.preview) URL.revokeObjectURL(f.preview);
+      });
     };
-  }, [attachedImages]);
+  }, [attachedFiles]);
 
-  const handleImageSelect = (e: ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = (e: ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
 
-    const validFiles: AttachedImage[] = [];
+    const newFiles: AttachedFile[] = [];
 
     Array.from(files).forEach((file) => {
-      if (!ACCEPTED_IMAGE_TYPES.includes(file.type)) {
-        return;
-      }
-      if (file.size > MAX_IMAGE_SIZE) {
-        return;
-      }
-      validFiles.push({
+      if (file.size > MAX_FILE_SIZE) return;
+
+      const isImage = IMAGE_TYPES.includes(file.type);
+      const isDocument = DOCUMENT_TYPES.includes(file.type);
+
+      if (!isImage && !isDocument) return;
+
+      newFiles.push({
         id: crypto.randomUUID(),
         file,
-        preview: URL.createObjectURL(file),
+        preview: isImage ? URL.createObjectURL(file) : null,
+        type: isImage ? 'image' : 'document',
       });
     });
 
-    setAttachedImages((prev) => [...prev, ...validFiles]);
+    setAttachedFiles((prev) => [...prev, ...newFiles]);
 
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
   };
 
-  const handleRemoveImage = (imageId: string) => {
-    setAttachedImages((prev) => {
-      const imageToRemove = prev.find((img) => img.id === imageId);
-      if (imageToRemove) {
-        URL.revokeObjectURL(imageToRemove.preview);
-      }
-      return prev.filter((img) => img.id !== imageId);
+  const handleRemoveFile = (fileId: string) => {
+    setAttachedFiles((prev) => {
+      const file = prev.find((f) => f.id === fileId);
+      if (file?.preview) URL.revokeObjectURL(file.preview);
+      return prev.filter((f) => f.id !== fileId);
     });
   };
 
-  const convertImagesToBase64 = async (
-    images: AttachedImage[]
-  ): Promise<{ mimeType: string; data: string }[]> => {
+  const convertFilesToBase64 = async (
+    files: AttachedFile[]
+  ): Promise<{ mimeType: string; data: string; name: string }[]> => {
     return Promise.all(
-      images.map(
-        (img) =>
-          new Promise<{ mimeType: string; data: string }>((resolve) => {
+      files.map(
+        (f) =>
+          new Promise<{ mimeType: string; data: string; name: string }>((resolve) => {
             const reader = new FileReader();
             reader.onloadend = () => {
               const result = reader.result as string;
               const base64Data = result.split(',')[1];
               resolve({
-                mimeType: img.file.type,
+                mimeType: f.file.type,
                 data: base64Data,
+                name: f.file.name,
               });
             };
-            reader.readAsDataURL(img.file);
+            reader.readAsDataURL(f.file);
           })
       )
     );
@@ -481,10 +517,19 @@ export function GeneratePageContent() {
     const userPrompt = prompt.trim();
     const documentId = crypto.randomUUID();
 
+    const filesToSend = [...attachedFiles];
+    const messageAttachments: MessageAttachment[] = filesToSend.map((f) => ({
+      id: f.id,
+      name: f.file.name,
+      type: f.type,
+      preview: f.preview,
+    }));
+
     const userMessage: Message = {
       id: `user-${documentId}`,
       role: 'user',
       content: userPrompt,
+      attachments: messageAttachments.length > 0 ? messageAttachments : undefined,
     };
 
     const assistantMessage: Message = {
@@ -499,23 +544,23 @@ export function GeneratePageContent() {
     setCurrentLatex(null);
     setError(null);
     setActiveDocumentId(null);
-
-    const imagesToSend = [...attachedImages];
-    setAttachedImages([]);
+    setAttachedFiles([]);
 
     abortControllerRef.current = new AbortController();
 
     try {
-      const images = imagesToSend.length > 0
-        ? await convertImagesToBase64(imagesToSend)
+      const files = filesToSend.length > 0
+        ? await convertFilesToBase64(filesToSend)
         : undefined;
 
-      imagesToSend.forEach((img) => URL.revokeObjectURL(img.preview));
+      filesToSend.forEach((f) => {
+        if (f.preview) URL.revokeObjectURL(f.preview);
+      });
 
       const response = await fetch('/api/generate-document', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: userPrompt, images }),
+        body: JSON.stringify({ prompt: userPrompt, files }),
         signal: abortControllerRef.current.signal,
       });
 
@@ -644,6 +689,12 @@ export function GeneratePageContent() {
   };
 
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit();
+    }
+  };
 
   const handleOpenInOctree = async () => {
     if (!currentLatex || isCreatingProject) return;
@@ -657,111 +708,61 @@ export function GeneratePageContent() {
         return;
       }
 
-      if (result.projectId) {
-        router.push(`/projects/${result.projectId}`);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create project');
-    } finally {
+      const project = result.project!;
+      router.push(`/projects/${project.id}`);
+    } catch {
+      setError('Failed to create project');
       setIsCreatingProject(false);
     }
   };
 
-  useEffect(() => {
-    const handleSelectDocumentEvent = (e: Event) => {
-      const customEvent = e as CustomEvent<GeneratedDocument>;
-      const doc = customEvent.detail;
-      handleSelectDocument(doc);
-    };
-
-    const handleNewChatEvent = () => {
-      handleNewChat();
-    };
-
-    window.addEventListener('generate:selectDocument', handleSelectDocumentEvent as EventListener);
-    window.addEventListener('generate:newChat', handleNewChatEvent);
-
-    return () => {
-      window.removeEventListener('generate:selectDocument', handleSelectDocumentEvent as EventListener);
-      window.removeEventListener('generate:newChat', handleNewChatEvent);
-    };
-  }, []);
-
-  const handleSelectDocument = (doc: GeneratedDocument) => {
-    setActiveDocumentId(doc.id);
-    setMessages([
-      { id: `user-${doc.id}`, role: 'user', content: doc.prompt },
-      {
-        id: `assistant-${doc.id}`,
-        role: 'assistant',
-        content: doc.status === 'complete'
-          ? 'Document generated successfully. Preview it below or open it in Octree.'
-          : doc.error || 'Generation incomplete',
-      },
-    ]);
-    setCurrentLatex(doc.latex);
-    setCurrentTitle(doc.title);
-    setError(doc.error);
-  };
-
-  const handleNewChat = () => {
-    if (isGenerating) {
-      abortControllerRef.current?.abort();
-    }
-    setActiveDocumentId(null);
-    setMessages([]);
-    setCurrentLatex(null);
-    setCurrentTitle('Untitled Document');
-    setError(null);
-    setPrompt('');
-    textareaRef.current?.focus();
-  };
-
-  const handleSelectSuggestion = (suggestionPrompt: string) => {
-    setPrompt(suggestionPrompt);
-    textareaRef.current?.focus();
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSubmit();
-    }
-  };
-
-  const hasStarted = messages.length > 0;
-
   return (
     <>
       <GenerateHistorySidebar
-        activeDocumentId={activeDocumentId}
-        onSelectDocument={handleSelectDocument}
-        onNewChat={handleNewChat}
+        key={activeDocumentId}
+        onSelectDocument={(doc) => {
+          if (!doc.latex) return;
+          setActiveDocumentId(doc.id);
+          setCurrentLatex(doc.latex);
+          setCurrentTitle(doc.title);
+          setError(null);
+          setMessages([
+            {
+              id: `user-${doc.id}`,
+              role: 'user',
+              content: doc.prompt,
+            },
+            {
+              id: `assistant-${doc.id}`,
+              role: 'assistant',
+              content: 'Document generated successfully. Preview it below or open it in Octree.',
+            },
+          ]);
+        }}
       />
-      <SidebarInset className="flex h-screen flex-col overflow-hidden">
-        <header className="flex shrink-0 items-center gap-2 border-b px-4 py-3">
-          <SidebarTrigger />
-          <span className="text-neutral-300">|</span>
-          <BackButton />
-          <div className="flex flex-1 items-center justify-center">
-            <h1 className="text-sm font-medium">Generate Document</h1>
+      <SidebarInset className="flex h-full flex-col overflow-hidden">
+        <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b px-4 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12">
+          <div className="flex items-center gap-2">
+            <SidebarTrigger className="-ml-1" />
+            <BackButton />
           </div>
+          <div className="text-sm font-medium text-muted-foreground">
+            {currentTitle}
+          </div>
+          <div className="w-8" /> {/* Spacer for centering */}
         </header>
-        <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          {!hasStarted ? (
-            <WelcomeState onSelectSuggestion={handleSelectSuggestion} />
+
+        <main className="flex min-h-0 flex-1 flex-col bg-muted/30">
+          {!messages.length ? (
+            <WelcomeState onSelectSuggestion={(suggestion) => setPrompt(suggestion)} />
           ) : (
-            <div className="min-h-0 flex-1 overflow-y-auto">
-              <div className="mx-auto max-w-3xl space-y-4 p-4">
-                {messages.map((message, index) => (
+            <div className="flex-1 overflow-y-auto p-4">
+              <div className="mx-auto max-w-3xl space-y-4">
+                {messages.map((message) => (
                   <MessageBubble
                     key={message.id}
                     message={message}
-                    isStreaming={
-                      isGenerating &&
-                      message.role === 'assistant' &&
-                      index === messages.length - 1
-                    }
+                    isStreaming={message.role === 'assistant' && isGenerating && message.content !== 'Document generated successfully. Preview it below or open it in Octree.' && !error}
                   />
                 ))}
 
@@ -788,22 +789,31 @@ export function GeneratePageContent() {
           <div className="shrink-0 border-t bg-background p-4">
             <form onSubmit={handleSubmit} className="mx-auto max-w-3xl">
               <Card className="flex flex-col gap-2 p-2">
-                {attachedImages.length > 0 && (
+                {attachedFiles.length > 0 && (
                   <div className="flex flex-wrap gap-2 px-2 pt-1">
-                    {attachedImages.map((img) => (
+                    {attachedFiles.map((f) => (
                       <div
-                        key={img.id}
-                        className="group relative h-16 w-16 overflow-hidden rounded-md border bg-muted"
+                        key={f.id}
+                        className="group relative flex h-14 items-center gap-2 rounded-md border bg-muted/50 px-2"
                       >
-                        <img
-                          src={img.preview}
-                          alt=""
-                          className="h-full w-full object-cover"
-                        />
+                        {f.type === 'image' && f.preview ? (
+                          <img
+                            src={f.preview}
+                            alt=""
+                            className="h-10 w-10 rounded object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-10 w-10 items-center justify-center rounded bg-muted">
+                            <FileText className="h-5 w-5 text-muted-foreground" />
+                          </div>
+                        )}
+                        <span className="max-w-[120px] truncate text-xs text-muted-foreground">
+                          {f.file.name}
+                        </span>
                         <button
                           type="button"
-                          onClick={() => handleRemoveImage(img.id)}
-                          className="absolute right-0.5 top-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-background/80 opacity-0 transition-opacity group-hover:opacity-100"
+                          onClick={() => handleRemoveFile(f.id)}
+                          className="ml-1 flex h-5 w-5 items-center justify-center rounded-full bg-background/80 opacity-0 transition-opacity group-hover:opacity-100"
                         >
                           <X className="h-3 w-3" />
                         </button>
@@ -822,28 +832,35 @@ export function GeneratePageContent() {
                 />
                 <div className="flex items-center justify-between">
                   <DropdownMenu>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 shrink-0"
-                            disabled={isGenerating}
-                          >
-                            <Plus className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                      </TooltipTrigger>
-                      <TooltipContent side="top">Attach files</TooltipContent>
-                    </Tooltip>
-                    <DropdownMenuContent align="start">
-                      <DropdownMenuItem
-                        onClick={() => fileInputRef.current?.click()}
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        disabled={isGenerating}
                       >
+                        <Paperclip className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                      <DropdownMenuItem onClick={() => {
+                        if (fileInputRef.current) {
+                          fileInputRef.current.accept = 'image/png,image/jpeg,image/gif,image/webp';
+                          fileInputRef.current.click();
+                        }
+                      }}>
                         <ImageIcon className="mr-2 h-4 w-4" />
                         Image
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => {
+                        if (fileInputRef.current) {
+                          fileInputRef.current.accept = 'application/pdf';
+                          fileInputRef.current.click();
+                        }
+                      }}>
+                        <File className="mr-2 h-4 w-4" />
+                        PDF Document
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -864,9 +881,8 @@ export function GeneratePageContent() {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/png,image/jpeg,image/gif,image/webp"
                 multiple
-                onChange={handleImageSelect}
+                onChange={handleFileSelect}
                 className="hidden"
               />
             </form>

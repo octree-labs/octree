@@ -17,15 +17,16 @@ Requirements:
 
 The output must start with \\documentclass and end with \\end{document}.`;
 
-interface ImageData {
+interface FileData {
   mimeType: string;
   data: string;
+  name: string;
 }
 
 interface GenerateRequest {
   prompt: string;
   documentType?: 'research' | 'article' | 'report' | 'letter' | 'general';
-  images?: ImageData[];
+  files?: FileData[];
 }
 
 export async function POST(request: Request) {
@@ -52,7 +53,7 @@ export async function POST(request: Request) {
     }
 
     const body: GenerateRequest = await request.json();
-    const { prompt, documentType = 'general', images } = body;
+    const { prompt, documentType = 'general', files } = body;
 
     if (!prompt?.trim()) {
       return NextResponse.json(
@@ -95,16 +96,27 @@ export async function POST(request: Request) {
 
           const messageContent: unknown[] = [];
 
-          if (images && images.length > 0) {
-            for (const img of images) {
-              messageContent.push({
-                type: 'image',
-                source: {
-                  type: 'base64',
-                  media_type: img.mimeType,
-                  data: img.data,
-                },
-              });
+          if (files && files.length > 0) {
+            for (const file of files) {
+              if (file.mimeType.startsWith('image/')) {
+                messageContent.push({
+                  type: 'image',
+                  source: {
+                    type: 'base64',
+                    media_type: file.mimeType,
+                    data: file.data,
+                  },
+                });
+              } else if (file.mimeType === 'application/pdf') {
+                messageContent.push({
+                  type: 'document',
+                  source: {
+                    type: 'base64',
+                    media_type: file.mimeType,
+                    data: file.data,
+                  },
+                });
+              }
             }
           }
 

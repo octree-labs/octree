@@ -57,7 +57,7 @@ export function GenerateHistorySidebar({
             <SidebarHeader className="flex-row items-center justify-between border-b border-gray-200 py-3">
                 <Button
                     variant="ghost"
-                    size="xs"
+                    size="sm"
                     onClick={onNewChat}
                     className="flex-1 gap-1.5"
                 >

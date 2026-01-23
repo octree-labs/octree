@@ -708,8 +708,8 @@ export function GeneratePageContent() {
         return;
       }
 
-      const project = result.project!;
-      router.push(`/projects/${project.id}`);
+      const projectId = result.projectId!;
+      router.push(`/projects/${projectId}`);
     } catch {
       setError('Failed to create project');
       setIsCreatingProject(false);
@@ -720,6 +720,14 @@ export function GeneratePageContent() {
     <>
       <GenerateHistorySidebar
         key={activeDocumentId}
+        activeDocumentId={activeDocumentId}
+        onNewChat={() => {
+          setActiveDocumentId(null);
+          setMessages([]);
+          setCurrentLatex(null);
+          setCurrentTitle('Untitled Document');
+          setError(null);
+        }}
         onSelectDocument={(doc) => {
           if (!doc.latex) return;
           setActiveDocumentId(doc.id);
@@ -740,7 +748,7 @@ export function GeneratePageContent() {
           ]);
         }}
       />
-      <SidebarInset className="flex h-full flex-col overflow-hidden">
+      <SidebarInset className="flex h-screen flex-col overflow-hidden">
         <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b px-4 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12">
           <div className="flex items-center gap-2">
             <SidebarTrigger className="-ml-1" />
@@ -752,11 +760,11 @@ export function GeneratePageContent() {
           <div className="w-8" /> {/* Spacer for centering */}
         </header>
 
-        <main className="flex min-h-0 flex-1 flex-col bg-muted/30">
+        <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-muted/30">
           {!messages.length ? (
             <WelcomeState onSelectSuggestion={(suggestion) => setPrompt(suggestion)} />
           ) : (
-            <div className="flex-1 overflow-y-auto p-4">
+            <div className="min-h-0 flex-1 overflow-y-auto p-4">
               <div className="mx-auto max-w-3xl space-y-4">
                 {messages.map((message) => (
                   <MessageBubble

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { Plus, Trash2, Loader2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -12,78 +12,44 @@ import {
     SidebarHeader,
     useSidebar,
 } from '@/components/ui/sidebar';
-import { createClient } from '@/lib/supabase/client';
-
-interface GeneratedDocument {
-    id: string;
-    title: string;
-    prompt: string;
-    latex: string | null;
-    status: 'pending' | 'generating' | 'complete' | 'error';
-    error: string | null;
-    created_at: string;
-}
+import {
+    useDocuments,
+    useActiveDocumentId,
+    useIsLoading,
+    GenerateActions,
+    type GeneratedDocument,
+} from '@/stores/generate';
 
 interface GenerateHistorySidebarProps {
-    activeDocumentId: string | null;
-    onSelectDocument: (doc: GeneratedDocument) => void;
     onNewChat: () => void;
+    onSelectDocument: (doc: GeneratedDocument) => void;
 }
 
 export function GenerateHistorySidebar({
-    activeDocumentId,
-    onSelectDocument,
     onNewChat,
+    onSelectDocument,
 }: GenerateHistorySidebarProps) {
     const { toggleSidebar } = useSidebar();
-    const supabase = createClient();
-    const [documents, setDocuments] = useState<GeneratedDocument[]>([]);
-    const [isLoadingDocuments, setIsLoadingDocuments] = useState(true);
-
-    const fetchDocuments = useCallback(async () => {
-        const { data, error: fetchError } = await supabase
-            .from('generated_documents')
-            .select('*')
-            .order('created_at', { ascending: false })
-            .limit(50);
-
-        if (fetchError) {
-            console.error('Failed to fetch documents:', fetchError);
-            return;
-        }
-
-        setDocuments(data || []);
-    }, [supabase]);
+    const documents = useDocuments();
+    const activeDocumentId = useActiveDocumentId();
+    const isLoading = useIsLoading();
 
     useEffect(() => {
-        fetchDocuments().finally(() => setIsLoadingDocuments(false));
+        GenerateActions.fetchDocuments();
+    }, []);
 
-        const handleRefresh = () => fetchDocuments();
-        window.addEventListener('generate:documentCreated', handleRefresh);
-
-        return () => {
-            window.removeEventListener('generate:documentCreated', handleRefresh);
-        };
-    }, [fetchDocuments]);
-
-    const handleDeleteDocument = async (documentId: string, e: React.MouseEvent) => {
+    const handleDelete = async (id: string, e: React.MouseEvent) => {
         e.stopPropagation();
-
-        const { error: deleteError } = await supabase
-            .from('generated_documents')
-            .delete()
-            .eq('id', documentId);
-
-        if (deleteError) {
-            console.error('Failed to delete document:', deleteError);
-            return;
-        }
-
-        setDocuments((prev) => prev.filter((d) => d.id !== documentId));
-
-        if (activeDocumentId === documentId) {
+        const wasActive = activeDocumentId === id;
+        const success = await GenerateActions.deleteDocument(id);
+        if (success && wasActive) {
             onNewChat();
         }
+    };
+
+    const handleSelect = (doc: GeneratedDocument) => {
+        GenerateActions.setActiveDocument(doc.id);
+        onSelectDocument(doc);
     };
 
     return (
@@ -110,7 +76,7 @@ export function GenerateHistorySidebar({
                 <SidebarGroup>
                     <SidebarGroupLabel>History</SidebarGroupLabel>
                     <SidebarGroupContent>
-                        {isLoadingDocuments ? (
+                        {isLoading ? (
                             <div className="flex items-center justify-center p-4">
                                 <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                             </div>
@@ -123,7 +89,7 @@ export function GenerateHistorySidebar({
                                 <div key={doc.id} className="group relative mb-1">
                                     <Button
                                         variant={activeDocumentId === doc.id ? 'secondary' : 'ghost'}
-                                        onClick={() => onSelectDocument(doc)}
+                                        onClick={() => handleSelect(doc)}
                                         className="h-auto w-full justify-start gap-2 px-3 py-3 pr-8 text-left"
                                     >
                                         <div className="min-w-0 flex-1">
@@ -138,7 +104,7 @@ export function GenerateHistorySidebar({
                                     <Button
                                         variant="ghost"
                                         size="icon"
-                                        onClick={(e) => handleDeleteDocument(doc.id, e)}
+                                        onClick={(e) => handleDelete(doc.id, e)}
                                         className="absolute right-1 top-1/2 h-6 w-6 -translate-y-1/2 opacity-0 transition-opacity group-hover:opacity-100"
                                     >
                                         <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />

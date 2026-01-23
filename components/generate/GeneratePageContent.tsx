@@ -33,16 +33,14 @@ import { createProjectFromLatex } from '@/actions/create-project-from-latex';
 import { createClient } from '@/lib/supabase/client';
 import PDFViewer from '@/components/pdf-viewer';
 import { GenerateHistorySidebar } from '@/components/generate/GenerateHistorySidebar';
+import {
+  useActiveDocument,
+  useActiveDocumentId,
+  GenerateActions,
+  type GeneratedDocument,
+} from '@/stores/generate';
 
-interface GeneratedDocument {
-  id: string;
-  title: string;
-  prompt: string;
-  latex: string | null;
-  status: 'pending' | 'generating' | 'complete' | 'error';
-  error: string | null;
-  created_at: string;
-}
+
 
 interface MessageAttachment {
   id: string;
@@ -402,13 +400,16 @@ export function GeneratePageContent() {
   const router = useRouter();
   const supabase = createClient();
 
+  const activeDocument = useActiveDocument();
+  const activeDocumentId = useActiveDocumentId();
+
+  const currentLatex = activeDocument?.latex ?? null;
+  const currentTitle = activeDocument?.title ?? 'Untitled Document';
+
   const [prompt, setPrompt] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [currentLatex, setCurrentLatex] = useState<string | null>(null);
-  const [currentTitle, setCurrentTitle] = useState<string>('Untitled Document');
   const [error, setError] = useState<string | null>(null);
-  const [activeDocumentId, setActiveDocumentId] = useState<string | null>(null);
   const [isCreatingProject, setIsCreatingProject] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
 
@@ -505,12 +506,9 @@ export function GeneratePageContent() {
     e?.preventDefault();
     if (!prompt.trim() || isGenerating) return;
 
-    // Auto-start new chat if a document already exists in current view
-    if (currentLatex) {
-      setActiveDocumentId(null);
+    if (activeDocument) {
+      GenerateActions.reset();
       setMessages([]);
-      setCurrentLatex(null);
-      setCurrentTitle('Untitled Document');
       setError(null);
     }
 
@@ -541,9 +539,8 @@ export function GeneratePageContent() {
     setMessages([userMessage, assistantMessage]);
     setPrompt('');
     setIsGenerating(true);
-    setCurrentLatex(null);
+    GenerateActions.reset();
     setError(null);
-    setActiveDocumentId(null);
     setAttachedFiles([]);
 
     abortControllerRef.current = new AbortController();
@@ -643,30 +640,23 @@ export function GeneratePageContent() {
         }
       }
 
-      if (finalLatex) {
-        setCurrentLatex(finalLatex);
-        setCurrentTitle(documentTitle);
+      if (finalLatex && userId) {
+        const { data: inserted, error: insertError } = await supabase
+          .from('generated_documents')
+          .insert({
+            user_id: userId,
+            title: documentTitle,
+            prompt: userPrompt,
+            latex: finalLatex,
+            status: 'complete',
+          } as never)
+          .select()
+          .single();
 
-        if (userId) {
-          const { data: inserted, error: insertError } = await supabase
-            .from('generated_documents')
-            .insert({
-              user_id: userId,
-              title: documentTitle,
-              prompt: userPrompt,
-              latex: finalLatex,
-              status: 'complete',
-            } as never)
-            .select()
-            .single();
-
-          if (insertError) {
-            console.error('Failed to save document:', insertError);
-          } else if (inserted) {
-            const doc = inserted as unknown as GeneratedDocument;
-            setActiveDocumentId(doc.id);
-            window.dispatchEvent(new CustomEvent('generate:documentCreated', { detail: doc }));
-          }
+        if (insertError) {
+          console.error('Failed to save document:', insertError);
+        } else if (inserted) {
+          GenerateActions.addDocument(inserted as GeneratedDocument);
         }
       }
     } catch (err) {
@@ -719,20 +709,13 @@ export function GeneratePageContent() {
   return (
     <>
       <GenerateHistorySidebar
-        key={activeDocumentId}
-        activeDocumentId={activeDocumentId}
         onNewChat={() => {
-          setActiveDocumentId(null);
+          GenerateActions.reset();
           setMessages([]);
-          setCurrentLatex(null);
-          setCurrentTitle('Untitled Document');
           setError(null);
         }}
         onSelectDocument={(doc) => {
           if (!doc.latex) return;
-          setActiveDocumentId(doc.id);
-          setCurrentLatex(doc.latex);
-          setCurrentTitle(doc.title);
           setError(null);
           setMessages([
             {

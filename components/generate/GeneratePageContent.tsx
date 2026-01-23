@@ -38,6 +38,7 @@ import {
   useActiveDocumentId,
   GenerateActions,
   type GeneratedDocument,
+  type StoredAttachment,
 } from '@/stores/generate';
 
 
@@ -511,6 +512,41 @@ export function GeneratePageContent() {
     );
   };
 
+  const uploadFilesToStorage = async (
+    files: AttachedFile[],
+    docId: string
+  ): Promise<StoredAttachment[]> => {
+    if (!userId) return [];
+
+    const results: StoredAttachment[] = [];
+
+    for (const f of files) {
+      const ext = f.file.name.split('.').pop() || 'bin';
+      const path = `${userId}/${docId}/${f.id}.${ext}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('chat-attachments')
+        .upload(path, f.file, { upsert: true });
+
+      if (uploadError) {
+        console.error('Failed to upload file:', uploadError);
+        continue;
+      }
+
+      const { data: publicUrlData } = supabase.storage
+        .from('chat-attachments')
+        .getPublicUrl(path);
+
+      results.push({
+        id: f.id,
+        name: f.file.name,
+        type: f.type,
+        url: publicUrlData.publicUrl,
+      });
+    }
+
+    return results;
+  };
   const handleSubmit = async (e?: FormEvent) => {
     e?.preventDefault();
     if (!prompt.trim() || isGenerating) return;
@@ -558,10 +594,6 @@ export function GeneratePageContent() {
       const files = filesToSend.length > 0
         ? await convertFilesToBase64(filesToSend)
         : undefined;
-
-      filesToSend.forEach((f) => {
-        if (f.preview) URL.revokeObjectURL(f.preview);
-      });
 
       const response = await fetch('/api/generate-document', {
         method: 'POST',
@@ -650,6 +682,14 @@ export function GeneratePageContent() {
       }
 
       if (finalLatex && userId) {
+        const storedAttachments = filesToSend.length > 0
+          ? await uploadFilesToStorage(filesToSend, documentId)
+          : [];
+
+        filesToSend.forEach((f) => {
+          if (f.preview) URL.revokeObjectURL(f.preview);
+        });
+
         const { data: inserted, error: insertError } = await supabase
           .from('generated_documents')
           .insert({
@@ -658,6 +698,7 @@ export function GeneratePageContent() {
             prompt: userPrompt,
             latex: finalLatex,
             status: 'complete',
+            attachments: storedAttachments,
           } as never)
           .select()
           .single();
@@ -667,6 +708,10 @@ export function GeneratePageContent() {
         } else if (inserted) {
           GenerateActions.addDocument(inserted as GeneratedDocument);
         }
+      } else {
+        filesToSend.forEach((f) => {
+          if (f.preview) URL.revokeObjectURL(f.preview);
+        });
       }
     } catch (err) {
       if ((err as Error).name === 'AbortError') return;
@@ -726,11 +771,20 @@ export function GeneratePageContent() {
         onSelectDocument={(doc) => {
           if (!doc.latex) return;
           setError(null);
+
+          const restoredAttachments: MessageAttachment[] = (doc.attachments || []).map((att) => ({
+            id: att.id,
+            name: att.name,
+            type: att.type,
+            preview: att.url,
+          }));
+
           setMessages([
             {
               id: `user-${doc.id}`,
               role: 'user',
               content: doc.prompt,
+              attachments: restoredAttachments.length > 0 ? restoredAttachments : undefined,
             },
             {
               id: `assistant-${doc.id}`,

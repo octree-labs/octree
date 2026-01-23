@@ -3,6 +3,13 @@ import { createClient } from '@/lib/supabase/client';
 
 export type DocumentStatus = 'pending' | 'generating' | 'complete' | 'error';
 
+export interface StoredAttachment {
+  id: string;
+  name: string;
+  type: 'image' | 'document';
+  url: string;
+}
+
 export interface GeneratedDocument {
   id: string;
   user_id: string;
@@ -12,6 +19,7 @@ export interface GeneratedDocument {
   status: DocumentStatus;
   error: string | null;
   created_at: string;
+  attachments: StoredAttachment[];
 }
 
 type GenerateStoreState = {

@@ -200,11 +200,13 @@ function DocumentPreview({ latex, title, onOpenInOctree, isCreatingProject }: Do
   const [pdfData, setPdfData] = useState<string | null>(null);
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [isCompiling, setIsCompiling] = useState(false);
+  const [hasCompilationWarnings, setHasCompilationWarnings] = useState(false);
 
   useEffect(() => {
     setPdfData(null);
     setPdfError(null);
     setIsCompiling(false);
+    setHasCompilationWarnings(false);
   }, [latex]);
 
   const handleCopy = useCallback(async () => {
@@ -228,14 +230,18 @@ function DocumentPreview({ latex, title, onOpenInOctree, isCreatingProject }: Do
         });
 
         const data = await response.json();
+        const pdf = data.pdf || data.error?.pdf;
 
-        if (!response.ok || !data.pdf) {
-          setPdfError(data.error || 'Compilation failed');
+        if (pdf) {
+          setPdfData(pdf);
+          pdfToDownload = pdf;
+          if (!response.ok) {
+            setHasCompilationWarnings(true);
+          }
+        } else {
+          setPdfError('Open in Octree to fix LaTeX errors');
           return;
         }
-
-        setPdfData(data.pdf);
-        pdfToDownload = data.pdf;
       } catch (err) {
         setPdfError(err instanceof Error ? err.message : 'Failed to compile');
         return;
@@ -278,13 +284,16 @@ function DocumentPreview({ latex, title, onOpenInOctree, isCreatingProject }: Do
       });
 
       const data = await response.json();
+      const pdf = data.pdf || data.error?.pdf;
 
-      if (!response.ok || !data.pdf) {
-        setPdfError(data.error || 'Compilation failed');
-        return;
+      if (pdf) {
+        setPdfData(pdf);
+        if (!response.ok) {
+          setHasCompilationWarnings(true);
+        }
+      } else {
+        setPdfError('Open in Octree to fix LaTeX errors');
       }
-
-      setPdfData(data.pdf);
     } catch (err) {
       setPdfError(err instanceof Error ? err.message : 'Failed to compile');
     } finally {

@@ -125,7 +125,7 @@ export default function OnboardingPage() {
       try {
         const checkoutUrl = await createCheckoutSession({
           annual: isMonthly,
-          withTrial: false,
+          withTrial: true,
         });
         window.location.href = checkoutUrl;
         return;
@@ -221,7 +221,7 @@ export default function OnboardingPage() {
                 Everything you need for professional LaTeX documents.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-6">
+            <CardContent className="space-y-4">
               <div className="flex items-center gap-2">
                 <Switch
                   id="monthly-switch"
@@ -237,15 +237,12 @@ export default function OnboardingPage() {
               </div>
 
               <div className="space-y-1">
-                <div className="flex items-baseline gap-2">
-                  <p className="text-3xl font-bold">{isMonthly ? '$2.49' : '$4.99'}</p>
-                  <p className="text-sm text-muted-foreground">per week</p>
-                </div>
+                <p className="text-2xl font-bold">$0.00 for 3 days</p>
                 {isMonthly && (
-                  <p className="text-xs text-muted-foreground">Billed monthly at $9.99/month</p>
+                  <p className="text-sm text-muted-foreground">$9.99 billed monthly</p>
                 )}
                 {!isMonthly && (
-                  <p className="text-xs text-muted-foreground">Billed weekly</p>
+                  <p className="text-sm text-muted-foreground">$4.99 billed weekly</p>
                 )}
               </div>
 
@@ -297,7 +294,7 @@ export default function OnboardingPage() {
                       ? 'Loading...'
                       : 'Saving...'
                     : currentStep === TOTAL_STEPS - 1
-                      ? 'Subscribe Now →'
+                      ? 'Start Free Trial →'
                       : 'Continue'}
                 </Button>
               </CardContent>

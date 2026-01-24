@@ -212,6 +212,21 @@ function DynamicPDFViewer({
   }
 
   if (!pdfData) {
+    if (compilationError) {
+      return (
+        <div className="relative h-full w-full bg-muted/10">
+          <CompilationError
+            error={compilationError}
+            variant="overlay"
+            onRetry={onRetryCompile}
+            onDismiss={onDismissError}
+            onFixWithAI={onFixWithAI}
+            className="absolute left-1/2 top-1/2 z-10 w-full max-w-md -translate-x-1/2 -translate-y-1/2 px-4"
+          />
+        </div>
+      );
+    }
+
     return (
       <p className="flex h-full items-center justify-center whitespace-pre text-sm text-slate-600">
         Click <span className="font-semibold">Compile</span> to see the PDF
@@ -316,11 +331,10 @@ function DynamicPDFViewer({
             <button
               onClick={handleZoomOut}
               disabled={zoom <= MIN_ZOOM}
-              className={`rounded-full p-0.5 transition-colors ${
-                zoom <= MIN_ZOOM
+              className={`rounded-full p-0.5 transition-colors ${zoom <= MIN_ZOOM
                   ? 'text-slate-300'
                   : 'text-slate-500 hover:text-blue-500'
-              }`}
+                }`}
               aria-label="Zoom out"
             >
               <ZoomOut size={16} />
@@ -337,11 +351,10 @@ function DynamicPDFViewer({
             <button
               onClick={handleZoomIn}
               disabled={zoom >= MAX_ZOOM}
-              className={`rounded-full p-0.5 transition-colors ${
-                zoom >= MAX_ZOOM
+              className={`rounded-full p-0.5 transition-colors ${zoom >= MAX_ZOOM
                   ? 'text-slate-300'
                   : 'text-slate-500 hover:text-blue-500'
-              }`}
+                }`}
               aria-label="Zoom in"
             >
               <ZoomIn size={16} />
@@ -354,11 +367,10 @@ function DynamicPDFViewer({
               <button
                 onClick={previousPage}
                 disabled={pageNumber <= 1}
-                className={`rounded-full p-0.5 transition-colors ${
-                  pageNumber <= 1
+                className={`rounded-full p-0.5 transition-colors ${pageNumber <= 1
                     ? 'text-slate-300'
                     : 'text-slate-500 hover:text-blue-500'
-                }`}
+                  }`}
                 aria-label="Previous page"
               >
                 <ChevronLeft size={16} />
@@ -381,11 +393,10 @@ function DynamicPDFViewer({
               <button
                 onClick={nextPage}
                 disabled={pageNumber >= numPages}
-                className={`rounded-full p-0.5 transition-colors ${
-                  pageNumber >= numPages
+                className={`rounded-full p-0.5 transition-colors ${pageNumber >= numPages
                     ? 'text-slate-300'
                     : 'text-slate-400 hover:text-blue-500'
-                }`}
+                  }`}
                 aria-label="Next page"
               >
                 <ChevronRight size={16} />

@@ -7,15 +7,29 @@ export const maxDuration = 120;
 
 const DOCUMENT_GENERATION_PROMPT = `You are an expert LaTeX document writer. Generate a complete, compilable LaTeX document based on the user's request.
 
-Requirements:
-1. Output ONLY valid LaTeX code - no explanations, no markdown, no code fences
-2. The document must compile without errors using pdflatex
-3. Use standard packages (amsmath, graphicx, geometry, hyperref, etc.)
-4. Include proper document structure: \\documentclass, \\begin{document}, \\end{document}
-5. For research papers: include abstract, sections, subsections, and a bibliography section
-6. For other documents: use appropriate structure for the document type
+STRICT COMPILATION CONSTRAINTS (MUST FOLLOW):
+1.  **Engine**: The document will be compiled with **pdflatex**.
+    -   DO NOT use packages that require XeTeX or LuaTeX (e.g., \`fontspec\`, \`unicode-math\`).
+    -   DO NOT use packages that require shell-escape (e.g., \`minted\`, \`svg\`, \`auto-pst-pdf\`).
+2.  **Fonts**: Use ONLY standard Type 1 fonts compatible with pdflatex.
+    -   Approved: \`lmodern\` (default), \`mathptmx\` (Times), \`helvet\` (Helvetica), \`courier\`.
+    -   FORBIDDEN: System fonts, TTF/OTF fonts via fontspec.
+3.  **Packages**:
+    -   USE: \`amsmath\`, \`amssymb\`, \`graphicx\`, \`geometry\`, \`hyperref\`, \`xcolor\`, \`fancyhdr\`, \`enumitem\`, \`booktabs\`, \`caption\`, \`listings\` (for code).
+    -   AVOID: \`tcolorbox\` (unless simple), complex tikz libraries that might timeout.
+4.  **Structure**:
+    -   MUST start with \`\\documentclass{...}\`
+    -   MUST end with \`\\end{document}\`
+    -   MUST be a single self-contained file (except for provided images).
+5.  **Images**:
+    -   If the user provided images, use \`\\includegraphics\` with the filenames derived from context.
+    -   If NO images provided, use \`draft\` option in graphicx or placeholder rectangles.
+6.  **Content**:
+    -   Output ONLY valid LaTeX code.
+    -   NO markdown, NO code fences, NO explanations before/after.
 
-The output must start with \\documentclass and end with \\end{document}.`;
+For research papers: include abstract, sections, subsections, and a bibliography section.
+For other documents: use appropriate structure.`;
 
 interface FileData {
   mimeType: string;

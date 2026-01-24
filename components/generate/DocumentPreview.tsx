@@ -12,11 +12,13 @@ interface DocumentPreviewProps {
     isCreatingProject: boolean;
 }
 
+import { CompilationError } from '@/types/compilation';
+
 export function DocumentPreview({ latex, title, onOpenInOctree, isCreatingProject }: DocumentPreviewProps) {
     const [viewMode, setViewMode] = useState<'code' | 'pdf'>('code');
     const [copied, setCopied] = useState(false);
     const [pdfData, setPdfData] = useState<string | null>(null);
-    const [pdfError, setPdfError] = useState<string | null>(null);
+    const [pdfError, setPdfError] = useState<CompilationError | null>(null);
     const [isCompiling, setIsCompiling] = useState(false);
     const [hasCompilationWarnings, setHasCompilationWarnings] = useState(false);
 
@@ -57,11 +59,18 @@ export function DocumentPreview({ latex, title, onOpenInOctree, isCreatingProjec
                         setHasCompilationWarnings(true);
                     }
                 } else {
-                    setPdfError('Open in Octree to fix LaTeX errors');
+                    const compilationError: CompilationError = data.error || {
+                        message: 'Compilation failed',
+                        details: 'Open in Octree to fix LaTeX errors'
+                    };
+                    setPdfError(compilationError);
                     return;
                 }
             } catch (err) {
-                setPdfError(err instanceof Error ? err.message : 'Failed to compile');
+                setPdfError({
+                    message: 'Failed to compile',
+                    details: err instanceof Error ? err.message : String(err)
+                });
                 return;
             } finally {
                 setIsCompiling(false);
@@ -110,10 +119,17 @@ export function DocumentPreview({ latex, title, onOpenInOctree, isCreatingProjec
                     setHasCompilationWarnings(true);
                 }
             } else {
-                setPdfError('Open in Octree to fix LaTeX errors');
+                const compilationError: CompilationError = data.error || {
+                    message: 'Compilation failed',
+                    details: 'Open in Octree to fix LaTeX errors'
+                };
+                setPdfError(compilationError);
             }
         } catch (err) {
-            setPdfError(err instanceof Error ? err.message : 'Failed to compile');
+            setPdfError({
+                message: 'Failed to compile',
+                details: err instanceof Error ? err.message : String(err)
+            });
         } finally {
             setIsCompiling(false);
         }
@@ -175,7 +191,7 @@ export function DocumentPreview({ latex, title, onOpenInOctree, isCreatingProjec
                     <PDFViewer
                         pdfData={pdfData}
                         isLoading={isCompiling}
-                        compilationError={pdfError ? { message: pdfError } : null}
+                        compilationError={pdfError}
                         onRetryCompile={compilePdf}
                         onDismissError={() => setPdfError(null)}
                     />

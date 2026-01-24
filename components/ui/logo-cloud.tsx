@@ -9,6 +9,13 @@ export default function LogoCloud() {
             <div className="flex items-center justify-center">
               <img
                 className="h-12 w-auto object-contain dark:invert"
+                src="/logos/harvard.png"
+                alt="Harvard University"
+              />
+            </div>
+            <div className="flex items-center justify-center">
+              <img
+                className="h-12 w-auto object-contain dark:invert"
                 src="/logos/nyu.png"
                 alt="New York University"
               />

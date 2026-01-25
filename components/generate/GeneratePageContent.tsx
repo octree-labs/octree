@@ -55,10 +55,35 @@ export function GeneratePageContent() {
     attachedFiles,
     fileInputRef,
     handleFileSelect,
+    addFiles,
     handleRemoveFile,
     generateDocument,
     resetState,
   } = useGenerate();
+
+  const [isDragging, setIsDragging] = useState(false);
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      addFiles(Array.from(e.dataTransfer.files));
+    }
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -163,15 +188,6 @@ export function GeneratePageContent() {
                     <p className="text-sm text-destructive">{error}</p>
                   </Card>
                 )}
-
-                {/* messagesEndRef logic is handled via auto-scroll in MessageBubble usually, but the original had a ref. 
-                    Let's check if we need to restore the auto-scroll behavior for the container. 
-                    The original had `messagesEndRef` attached to a div at the end. 
-                    And `useEffect` to scroll to it. 
-                    We should probably restore that behavior or let the user scroll manually. 
-                    For better UX, let's restore it.
-                    I need to add a ref and useEffect for scrolling here.
-                */}
                 <AutoScrollDiv messages={messages} />
               </div>
             </div>
@@ -179,7 +195,13 @@ export function GeneratePageContent() {
 
           <div className="shrink-0 border-t bg-background p-4">
             <form onSubmit={(e) => { e.preventDefault(); generateDocument(); }} className="mx-auto max-w-3xl">
-              <Card className="flex flex-col gap-2 p-2">
+              <Card
+                className={`flex flex-col gap-2 p-2 transition-colors ${isDragging ? 'border-primary ring-2 ring-primary/20 bg-muted/50' : ''
+                  }`}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+              >
                 {/* Attached Files Preview */}
                 {attachedFiles.length > 0 && (
                   <div className="flex flex-wrap gap-2 px-2 pt-1">

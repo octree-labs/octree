@@ -54,17 +54,17 @@ export function useGenerate() {
     };
   }, [attachedFiles]);
 
-  const handleFileSelect = (e: ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files) return;
-
+  const addFiles = (filesToCheck: File[]) => {
     const newFiles: AttachedFile[] = [];
 
-    Array.from(files).forEach((file) => {
+    filesToCheck.forEach((file) => {
       if (file.size > MAX_FILE_SIZE) return;
 
       const isImage = IMAGE_TYPES.includes(file.type);
-      const isDocument = DOCUMENT_TYPES.includes(file.type);
+      const isDocument =
+        DOCUMENT_TYPES.includes(file.type) ||
+        (file.type === '' && file.name.slice((file.name.lastIndexOf(".") - 1 >>> 0) + 2).toLowerCase() === 'pdf') ||
+        file.name.toLowerCase().endsWith('.pdf');
 
       if (!isImage && !isDocument) return;
 
@@ -77,6 +77,13 @@ export function useGenerate() {
     });
 
     setAttachedFiles((prev) => [...prev, ...newFiles]);
+  };
+
+  const handleFileSelect = (e: ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+
+    addFiles(Array.from(files));
 
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
@@ -299,6 +306,7 @@ export function useGenerate() {
     setAttachedFiles,
     fileInputRef,
     handleFileSelect,
+    addFiles,
     handleRemoveFile,
     generateDocument,
     resetState,

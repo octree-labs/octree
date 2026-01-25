@@ -1,5 +1,5 @@
 
-import { useState, useRef, useEffect, ChangeEvent } from 'react';
+import { useState, useRef, useEffect, useCallback, ChangeEvent } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import {
   GenerateActions,
@@ -17,8 +17,8 @@ export interface AttachedFile {
 }
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
-const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
-const DOCUMENT_TYPES = ['application/pdf'];
+const ALLOWED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+const ALLOWED_DOC_TYPES = new Set(['application/pdf']);
 
 export function useGenerate() {
   const supabase = createClient();
@@ -35,15 +35,9 @@ export function useGenerate() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const fetchUser = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (user) {
-        setUserId(user.id);
-      }
-    };
-    fetchUser();
+    supabase.auth.getUser().then(({ data }) => {
+      if (data.user) setUserId(data.user.id);
+    });
   }, [supabase]);
 
   useEffect(() => {
@@ -54,19 +48,16 @@ export function useGenerate() {
     };
   }, [attachedFiles]);
 
-  const addFiles = (filesToCheck: File[]) => {
+  const addFiles = useCallback((filesToCheck: File[]) => {
     const newFiles: AttachedFile[] = [];
 
-    filesToCheck.forEach((file) => {
-      if (file.size > MAX_FILE_SIZE) return;
+    for (const file of filesToCheck) {
+      if (file.size > MAX_FILE_SIZE) continue;
 
-      const isImage = IMAGE_TYPES.includes(file.type);
-      const isDocument =
-        DOCUMENT_TYPES.includes(file.type) ||
-        (file.type === '' && file.name.slice((file.name.lastIndexOf(".") - 1 >>> 0) + 2).toLowerCase() === 'pdf') ||
-        file.name.toLowerCase().endsWith('.pdf');
+      const isImage = ALLOWED_IMAGE_TYPES.has(file.type);
+      const isPdf = ALLOWED_DOC_TYPES.has(file.type) || file.name.toLowerCase().endsWith('.pdf');
 
-      if (!isImage && !isDocument) return;
+      if (!isImage && !isPdf) continue;
 
       newFiles.push({
         id: crypto.randomUUID(),
@@ -74,51 +65,54 @@ export function useGenerate() {
         preview: isImage ? URL.createObjectURL(file) : null,
         type: isImage ? 'image' : 'document',
       });
-    });
+    }
 
     setAttachedFiles((prev) => [...prev, ...newFiles]);
-  };
+  }, []);
 
-  const handleFileSelect = (e: ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files) return;
-
-    addFiles(Array.from(files));
-
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
+  const handleFileSelect = useCallback((e: ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      addFiles(Array.from(e.target.files));
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
-  };
+  }, [addFiles]);
 
-  const handleRemoveFile = (fileId: string) => {
+  const handleRemoveFile = useCallback((fileId: string) => {
     setAttachedFiles((prev) => {
       const file = prev.find((f) => f.id === fileId);
       if (file?.preview) URL.revokeObjectURL(file.preview);
       return prev.filter((f) => f.id !== fileId);
     });
-  };
+  }, []);
 
-  const resetState = () => {
-      GenerateActions.reset();
-      setMessages([]);
-      setError(null);
-      setPrompt('');
-      setAttachedFiles([]);
-  }
+  const resetState = useCallback(() => {
+    GenerateActions.reset();
+    setMessages([]);
+    setError(null);
+    setPrompt('');
+    setAttachedFiles([]);
+  }, []);
 
-  const generateDocument = async () => {
+  const updateLastMessage = useCallback((updater: (msg: Message) => void) => {
+    setMessages((prev) => {
+      if (prev.length === 0) return prev;
+      const newMessages = [...prev];
+      const lastMsg = { ...newMessages[newMessages.length - 1] };
+      updater(lastMsg);
+      newMessages[newMessages.length - 1] = lastMsg;
+      return newMessages;
+    });
+  }, []);
+
+  const generateDocument = useCallback(async () => {
     if (!prompt.trim() || isGenerating) return;
 
-    if (activeDocument) {
-      GenerateActions.reset();
-      setMessages([]);
-      setError(null);
-    }
+    if (activeDocument) resetState();
 
     const userPrompt = prompt.trim();
     const documentId = crypto.randomUUID();
-
     const filesToSend = [...attachedFiles];
+
     const messageAttachments: MessageAttachment[] = filesToSend.map((f) => ({
       id: f.id,
       name: f.file.name,
@@ -142,157 +136,110 @@ export function useGenerate() {
     setMessages([userMessage, assistantMessage]);
     setPrompt('');
     setIsGenerating(true);
-    GenerateActions.reset();
     setError(null);
     setAttachedFiles([]);
+    GenerateActions.reset();
 
-    abortControllerRef.current = new AbortController();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
     try {
-      const files =
-        filesToSend.length > 0
-          ? await convertFilesToBase64(filesToSend)
-          : undefined;
+      const filePayload = filesToSend.length > 0
+        ? await convertFilesToBase64(filesToSend)
+        : undefined;
 
       const response = await fetch('/api/generate-document', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: userPrompt, files }),
-        signal: abortControllerRef.current.signal,
+        body: JSON.stringify({ prompt: userPrompt, files: filePayload }),
+        signal: controller.signal,
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || `Request failed: ${response.status}`);
+        const json = await response.json().catch(() => ({}));
+        throw new Error(json.error || `Request failed: ${response.status}`);
       }
 
       const reader = response.body?.getReader();
       if (!reader) throw new Error('No response stream');
 
-      const decoder = new TextDecoder();
-      let buffer = '';
       let streamedContent = '';
       let finalLatex: string | null = null;
-      let documentTitle = 'Untitled Document';
+      let docTitle = 'Untitled Document';
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n\n');
-        buffer = lines.pop() || '';
-
-        for (const chunk of lines) {
-          const eventMatch = chunk.match(/^event:\s*(\S+)/);
-          const dataMatch = chunk.match(/data:\s*([\s\S]+)$/m);
-
-          if (!eventMatch || !dataMatch) continue;
-
-          const eventType = eventMatch[1];
-          let eventData: Record<string, unknown>;
-
-          try {
-            eventData = JSON.parse(dataMatch[1]);
-          } catch {
-            continue;
-          }
-
-          if (eventType === 'status') {
-            const statusMessage = eventData.message as string;
-            if (statusMessage) {
-              setMessages((prev) => {
-                const updated = [...prev];
-                const last = updated[updated.length - 1];
-                if (last?.role === 'assistant') {
-                  last.content = statusMessage;
-                }
-                return updated;
-              });
+      await readStream(reader, (event, data) => {
+        switch (event) {
+          case 'status':
+            if (data.message) {
+              updateLastMessage((m) => (m.content = data.message as string));
             }
-          } else if (eventType === 'content') {
-            const text = eventData.text as string;
-            if (text) {
-              streamedContent += text;
-              setMessages((prev) => {
-                const updated = [...prev];
-                const last = updated[updated.length - 1];
-                if (last?.role === 'assistant') {
-                  last.content = streamedContent;
-                }
-                return updated;
-              });
+            break;
+          case 'content':
+            if (data.text) {
+              streamedContent += data.text;
+              updateLastMessage((m) => (m.content = streamedContent));
             }
-          } else if (eventType === 'complete') {
-            finalLatex = eventData.latex as string;
-            documentTitle = (eventData.title as string) || 'Untitled Document';
-            setMessages((prev) => {
-              const updated = [...prev];
-              const last = updated[updated.length - 1];
-              if (last?.role === 'assistant') {
-                last.content =
-                  'Document generated successfully. Preview it below or open it in Octree.';
-              }
-              return updated;
-            });
-          } else if (eventType === 'error') {
-            throw new Error(eventData.message as string);
-          }
+            break;
+          case 'complete':
+            finalLatex = data.latex as string;
+            docTitle = (data.title as string) || docTitle;
+            updateLastMessage(
+              (m) =>
+                (m.content =
+                  'Document generated successfully. Preview it below or open it in Octree.')
+            );
+            break;
+          case 'error':
+            throw new Error(data.message as string);
         }
-      }
+      });
 
       if (finalLatex && userId) {
-        const storedAttachments =
-          filesToSend.length > 0
-            ? await uploadFilesToStorage(supabase, filesToSend, documentId, userId)
-            : [];
+        const attachments = await uploadFilesToStorage(
+          supabase,
+          filesToSend,
+          documentId,
+          userId
+        );
 
-        filesToSend.forEach((f) => {
-          if (f.preview) URL.revokeObjectURL(f.preview);
-        });
+        filesToSend.forEach((f) => f.preview && URL.revokeObjectURL(f.preview));
 
-        const { data: inserted, error: insertError } = await supabase
+        const { data: doc, error: dbError } = await supabase
           .from('generated_documents')
           .insert({
             user_id: userId,
-            title: documentTitle,
+            title: docTitle,
             prompt: userPrompt,
             latex: finalLatex,
             status: 'complete',
-            attachments: storedAttachments,
-          } as never)
+            attachments,
+          } as any)
           .select()
           .single();
 
-        if (insertError) {
-          console.error('Failed to save document:', insertError);
-        } else if (inserted) {
-          GenerateActions.addDocument(inserted as GeneratedDocument);
-        }
-      } else {
-        filesToSend.forEach((f) => {
-          if (f.preview) URL.revokeObjectURL(f.preview);
-        });
+        if (dbError) console.error('DB Error:', dbError);
+        if (doc) GenerateActions.addDocument(doc as GeneratedDocument);
       }
     } catch (err) {
       if ((err as Error).name === 'AbortError') return;
-
-      const errorMessage =
-        err instanceof Error ? err.message : 'Generation failed';
-      setError(errorMessage);
-      setMessages((prev) => {
-        const updated = [...prev];
-        const last = updated[updated.length - 1];
-        if (last?.role === 'assistant') {
-          last.content = `Error: ${errorMessage}`;
-        }
-        return updated;
-      });
+      
+      const msg = err instanceof Error ? err.message : 'Generation failed';
+      setError(msg);
+      updateLastMessage((m) => (m.content = `Error: ${msg}`));
     } finally {
       setIsGenerating(false);
       abortControllerRef.current = null;
     }
-  };
+  }, [
+    prompt,
+    isGenerating,
+    activeDocument,
+    attachedFiles,
+    userId,
+    supabase,
+    resetState,
+    updateLastMessage,
+  ]);
 
   return {
     prompt,
@@ -313,25 +260,52 @@ export function useGenerate() {
   };
 }
 
-async function convertFilesToBase64(
-  files: AttachedFile[]
-): Promise<{ mimeType: string; data: string; name: string }[]> {
+async function readStream(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  onEvent: (type: string, data: Record<string, unknown>) => void
+) {
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const parts = buffer.split('\n\n');
+    buffer = parts.pop() || '';
+
+    for (const part of parts) {
+      const eventMatch = part.match(/^event:\s*(\S+)/);
+      const dataMatch = part.match(/data:\s*([\s\S]+)$/m);
+      if (eventMatch && dataMatch) {
+        try {
+          onEvent(eventMatch[1], JSON.parse(dataMatch[1]));
+        } catch {
+          // ignore invalid json
+        }
+      }
+    }
+  }
+}
+
+async function convertFilesToBase64(files: AttachedFile[]) {
   return Promise.all(
     files.map(
       (f) =>
-        new Promise<{ mimeType: string; data: string; name: string }>((resolve) => {
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            const result = reader.result as string;
-            const base64Data = result.split(',')[1];
-            resolve({
-              mimeType: f.file.type,
-              data: base64Data,
-              name: f.file.name,
-            });
-          };
-          reader.readAsDataURL(f.file);
-        })
+        new Promise<{ mimeType: string; data: string; name: string }>(
+          (resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () =>
+              resolve({
+                mimeType: f.file.type,
+                data: (reader.result as string).split(',')[1],
+                name: f.file.name,
+              });
+            reader.onerror = reject;
+            reader.readAsDataURL(f.file);
+          }
+        )
     )
   );
 }
@@ -342,32 +316,31 @@ async function uploadFilesToStorage(
   docId: string,
   userId: string
 ): Promise<StoredAttachment[]> {
-  const results: StoredAttachment[] = [];
+  if (!files.length) return [];
 
-  for (const f of files) {
+  const uploads = files.map(async (f) => {
     const ext = f.file.name.split('.').pop() || 'bin';
     const path = `${userId}/${docId}/${f.id}.${ext}`;
-
-    const { error: uploadError } = await supabase.storage
+    const { error } = await supabase.storage
       .from('chat-attachments')
       .upload(path, f.file, { upsert: true });
 
-    if (uploadError) {
-      console.error('Failed to upload file:', uploadError);
-      continue;
+    if (error) {
+      console.error('Upload failed:', error);
+      return null;
     }
 
-    const { data: publicUrlData } = supabase.storage
+    const { data } = supabase.storage
       .from('chat-attachments')
       .getPublicUrl(path);
-
-    results.push({
+    return {
       id: f.id,
       name: f.file.name,
       type: f.type,
-      url: publicUrlData.publicUrl,
-    });
-  }
+      url: data.publicUrl,
+    };
+  });
 
-  return results;
+  const results = await Promise.all(uploads);
+  return results.filter(Boolean) as StoredAttachment[];
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect, useCallback, memo } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Send,
@@ -9,7 +9,7 @@ import {
   Paperclip,
   X,
   Image as ImageIcon,
-  File,
+  File as FileIcon,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -26,24 +26,67 @@ import { createProjectFromLatex } from '@/actions/create-project-from-latex';
 import { GenerateHistorySidebar } from '@/components/generate/GenerateHistorySidebar';
 import {
   useActiveDocument,
-  useActiveDocumentId,
+  type GeneratedDocument,
 } from '@/stores/generate';
 import { WelcomeState } from '@/components/generate/WelcomeState';
-import { MessageBubble, Message, MessageAttachment } from '@/components/generate/MessageBubble';
+import { MessageBubble, type Message, type MessageAttachment } from '@/components/generate/MessageBubble';
 import { DocumentPreview } from '@/components/generate/DocumentPreview';
-import { useGenerate } from '@/hooks/use-generate';
+import { useGenerate, type AttachedFile } from '@/hooks/use-generate';
+
+const AutoScrollDiv = memo(function AutoScrollDiv({ messages }: { messages: Message[] }) {
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages.length, messages[messages.length - 1]?.content]);
+  return <div ref={messagesEndRef} />;
+});
+
+interface AttachedFilesListProps {
+  files: AttachedFile[];
+  onRemove: (id: string) => void;
+}
+
+const AttachedFilesList = memo(function AttachedFilesList({ files, onRemove }: AttachedFilesListProps) {
+  if (files.length === 0) return null;
+
+  return (
+    <div className="flex flex-wrap gap-2 px-2 pt-1">
+      {files.map((f) => (
+        <div
+          key={f.id}
+          className="group relative flex h-14 items-center gap-2 rounded-md border bg-muted/50 px-2"
+        >
+          {f.type === 'image' && f.preview ? (
+            <img
+              src={f.preview}
+              alt={f.file.name}
+              className="h-10 w-10 rounded object-cover"
+            />
+          ) : (
+            <div className="flex h-10 w-10 items-center justify-center rounded bg-muted">
+              <FileText className="h-5 w-5 text-muted-foreground" />
+            </div>
+          )}
+          <span className="max-w-[120px] truncate text-xs text-muted-foreground">
+            {f.file.name}
+          </span>
+          <button
+            type="button"
+            onClick={() => onRemove(f.id)}
+            className="ml-1 flex h-5 w-5 items-center justify-center rounded-full bg-background/80 opacity-0 transition-opacity group-hover:opacity-100"
+            aria-label="Remove file"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+});
 
 export function GeneratePageContent() {
   const router = useRouter();
-
   const activeDocument = useActiveDocument();
-  const activeDocumentId = useActiveDocumentId(); // Keep for consistency if used by other hooks implicitly, though we use activeDocument mostly
-
-  const currentLatex = activeDocument?.latex ?? null;
-  const currentTitle = activeDocument?.title ?? 'Untitled Document';
-
-  const [isCreatingProject, setIsCreatingProject] = useState(false);
-
   const {
     prompt,
     setPrompt,
@@ -61,86 +104,98 @@ export function GeneratePageContent() {
     resetState,
   } = useGenerate();
 
+  const [isCreatingProject, setIsCreatingProject] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
 
-  const handleDragOver = (e: React.DragEvent) => {
+  const currentLatex = activeDocument?.latex ?? null;
+  const currentTitle = activeDocument?.title ?? 'Untitled Document';
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(true);
-  };
+  }, []);
 
-  const handleDragLeave = (e: React.DragEvent) => {
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
-  };
+  }, []);
 
-  const handleDrop = (e: React.DragEvent) => {
+  const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
 
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+    if (e.dataTransfer.files?.length > 0) {
       addFiles(Array.from(e.dataTransfer.files));
     }
-  };
+  }, [addFiles]);
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       generateDocument();
     }
-  };
+  }, [generateDocument]);
 
-  const handleOpenInOctree = async () => {
+  const handleOpenInOctree = useCallback(async () => {
     if (!currentLatex || isCreatingProject) return;
 
     setIsCreatingProject(true);
     try {
       const result = await createProjectFromLatex(currentTitle, currentLatex);
-
       if (result.error) {
         setError(result.error);
         return;
       }
-
-      const projectId = result.projectId!;
-      router.push(`/projects/${projectId}`);
+      if (result.projectId) {
+        router.push(`/projects/${result.projectId}`);
+      }
     } catch {
       setError('Failed to create project');
       setIsCreatingProject(false);
     }
-  };
+  }, [currentLatex, currentTitle, isCreatingProject, router, setError]);
+
+  const handleDocumentSelect = useCallback((doc: GeneratedDocument) => {
+    if (!doc.latex) return;
+    setError(null);
+
+    const restoredAttachments: MessageAttachment[] = (doc.attachments || []).map((att) => ({
+      id: att.id,
+      name: att.name,
+      type: att.type,
+      preview: att.url,
+    }));
+
+    setMessages([
+      {
+        id: `user-${doc.id}`,
+        role: 'user',
+        content: doc.prompt,
+        attachments: restoredAttachments.length > 0 ? restoredAttachments : undefined,
+      },
+      {
+        id: `assistant-${doc.id}`,
+        role: 'assistant',
+        content: 'Document generated successfully. Preview it below or open it in Octree.',
+      },
+    ]);
+  }, [setError, setMessages]);
+
+  const triggerFileInput = useCallback((accept: string) => {
+    if (fileInputRef.current) {
+      fileInputRef.current.accept = accept;
+      fileInputRef.current.click();
+    }
+  }, [fileInputRef]);
 
   return (
     <>
       <GenerateHistorySidebar
         onNewChat={resetState}
-        onSelectDocument={(doc) => {
-          if (!doc.latex) return;
-          setError(null);
-
-          const restoredAttachments: MessageAttachment[] = (doc.attachments || []).map((att) => ({
-            id: att.id,
-            name: att.name,
-            type: att.type,
-            preview: att.url,
-          }));
-
-          setMessages([
-            {
-              id: `user-${doc.id}`,
-              role: 'user',
-              content: doc.prompt,
-              attachments: restoredAttachments.length > 0 ? restoredAttachments : undefined,
-            },
-            {
-              id: `assistant-${doc.id}`,
-              role: 'assistant',
-              content: 'Document generated successfully. Preview it below or open it in Octree.',
-            },
-          ]);
-        }}
+        onSelectDocument={handleDocumentSelect}
       />
       <SidebarInset className="flex h-screen flex-col overflow-hidden">
         <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b px-4 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12">
@@ -151,7 +206,7 @@ export function GeneratePageContent() {
           <div className="text-sm font-medium text-muted-foreground">
             {currentTitle}
           </div>
-          <div className="w-8" /> {/* Spacer for centering */}
+          <div className="w-8" />
         </header>
 
         <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-muted/30">
@@ -167,8 +222,7 @@ export function GeneratePageContent() {
                     isStreaming={
                       message.role === 'assistant' &&
                       isGenerating &&
-                      message.content !==
-                      'Document generated successfully. Preview it below or open it in Octree.' &&
+                      message.content !== 'Document generated successfully. Preview it below or open it in Octree.' &&
                       !error
                     }
                   />
@@ -194,7 +248,13 @@ export function GeneratePageContent() {
           )}
 
           <div className="shrink-0 border-t bg-background p-4">
-            <form onSubmit={(e) => { e.preventDefault(); generateDocument(); }} className="mx-auto max-w-3xl">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                generateDocument();
+              }}
+              className="mx-auto max-w-3xl"
+            >
               <Card
                 className={`flex flex-col gap-2 p-2 transition-colors ${isDragging ? 'border-primary ring-2 ring-primary/20 bg-muted/50' : ''
                   }`}
@@ -202,39 +262,7 @@ export function GeneratePageContent() {
                 onDragLeave={handleDragLeave}
                 onDrop={handleDrop}
               >
-                {/* Attached Files Preview */}
-                {attachedFiles.length > 0 && (
-                  <div className="flex flex-wrap gap-2 px-2 pt-1">
-                    {attachedFiles.map((f) => (
-                      <div
-                        key={f.id}
-                        className="group relative flex h-14 items-center gap-2 rounded-md border bg-muted/50 px-2"
-                      >
-                        {f.type === 'image' && f.preview ? (
-                          <img
-                            src={f.preview}
-                            alt=""
-                            className="h-10 w-10 rounded object-cover"
-                          />
-                        ) : (
-                          <div className="flex h-10 w-10 items-center justify-center rounded bg-muted">
-                            <FileText className="h-5 w-5 text-muted-foreground" />
-                          </div>
-                        )}
-                        <span className="max-w-[120px] truncate text-xs text-muted-foreground">
-                          {f.file.name}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveFile(f.id)}
-                          className="ml-1 flex h-5 w-5 items-center justify-center rounded-full bg-background/80 opacity-0 transition-opacity group-hover:opacity-100"
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                <AttachedFilesList files={attachedFiles} onRemove={handleRemoveFile} />
 
                 <Textarea
                   value={prompt}
@@ -256,29 +284,21 @@ export function GeneratePageContent() {
                         disabled={isGenerating}
                       >
                         <Paperclip className="h-4 w-4" />
+                        <span className="sr-only">Attach file</span>
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="start">
-                      <DropdownMenuItem onClick={() => {
-                        if (fileInputRef.current) {
-                          fileInputRef.current.accept = 'image/png,image/jpeg,image/gif,image/webp';
-                          fileInputRef.current.click();
-                        }
-                      }}>
+                      <DropdownMenuItem onClick={() => triggerFileInput('image/png,image/jpeg,image/gif,image/webp')}>
                         <ImageIcon className="mr-2 h-4 w-4" />
                         Image
                       </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => {
-                        if (fileInputRef.current) {
-                          fileInputRef.current.accept = 'application/pdf';
-                          fileInputRef.current.click();
-                        }
-                      }}>
-                        <File className="mr-2 h-4 w-4" />
+                      <DropdownMenuItem onClick={() => triggerFileInput('application/pdf')}>
+                        <FileIcon className="mr-2 h-4 w-4" />
                         PDF Document
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
+
                   <Button
                     type="submit"
                     size="icon"
@@ -290,6 +310,7 @@ export function GeneratePageContent() {
                     ) : (
                       <Send className="h-4 w-4" />
                     )}
+                    <span className="sr-only">Send prompt</span>
                   </Button>
                 </div>
               </Card>
@@ -299,6 +320,7 @@ export function GeneratePageContent() {
                 multiple
                 onChange={handleFileSelect}
                 className="hidden"
+                aria-hidden="true"
               />
             </form>
           </div>
@@ -306,15 +328,4 @@ export function GeneratePageContent() {
       </SidebarInset>
     </>
   );
-}
-
-// Simple AutoScroll Helper
-import { useRef, useEffect } from 'react';
-
-function AutoScrollDiv({ messages }: { messages: unknown[] }) {
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
-  return <div ref={messagesEndRef} />;
 }

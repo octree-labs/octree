@@ -10,6 +10,8 @@ import {
 } from './lib/octra-agent';
 import type { ProjectFileContext } from './lib/octra-agent';
 
+import { SessionManager } from './lib/session-manager';
+
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
@@ -26,6 +28,7 @@ app.post('/agent', async (req: any, res: any) => {
       selectionRange,
       projectFiles: projectFilesPayload,
       currentFilePath,
+      sessionId,
     } = req.body || {};
     if (!messages?.length || typeof fileContent !== 'string') return res.status(400).json({ error: 'Invalid request' });
 
@@ -37,7 +40,7 @@ app.post('/agent', async (req: any, res: any) => {
 
     // Binary file extensions to exclude (PDFs, images, etc.)
     const binaryExtensions = ['.pdf', '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.svg', '.eps', '.ps', '.dvi', '.aux', '.log', '.out', '.toc', '.lof', '.lot', '.bbl', '.blg', '.synctex', '.fls', '.fdb_latexmk', '.gz'];
-    
+
     const projectFiles: ProjectFileContext[] = Array.isArray(projectFilesPayload)
       ? projectFilesPayload
           .filter(
@@ -82,12 +85,18 @@ app.post('/agent', async (req: any, res: any) => {
       currentFilePath: normalizedCurrentFilePath,
     } as any);
     const sdkServer = createSdkMcpServer(createMCPServerConfig(tools) as any);
+
+    const sessionManager = SessionManager.getInstance();
+    const currentSession = sessionId ? sessionManager.getSession(sessionId) : undefined;
+    const sessionSummary = currentSession?.summary || null;
+
     const fullPrompt = `${buildSystemPrompt(
       numbered,
       textFromEditor,
       selectionRange,
       projectFiles,
-      normalizedCurrentFilePath
+      normalizedCurrentFilePath,
+      sessionSummary
     )}\n\nUser request:\n${userText}`;
 
     const gen = query({
@@ -102,10 +111,15 @@ app.post('/agent', async (req: any, res: any) => {
     });
 
     writeEvent('status', { state: 'started' });
-    
+
     // Use processStreamMessages to convert SDK events to chat-compatible events
     const finalText = await processStreamMessages(gen as AsyncIterable<any>, writeEvent, collectedEdits);
-    
+
+    if (sessionId) {
+        // Fire and forget - don't await this
+        sessionManager.generateUpdatedSummary(sessionId, sessionSummary || '', userText, finalText).catch(console.error);
+    }
+
     writeEvent('done', { text: finalText, edits: collectedEdits });
     res.end();
   } catch (e: any) {

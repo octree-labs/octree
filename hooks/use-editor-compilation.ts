@@ -136,59 +136,45 @@ export function useEditorCompilation({
       activePath: string,
       activeContent: string
     ): Promise<Array<{ path: string; content: string; encoding?: string }>> => {
-      // Use the in-memory files first to get up-to-date project content
-      if (projectFilesState && projectFilesState.length > 0) {
-        const payload = projectFilesState.map((projectFile) => {
-          const path = projectFile.file.name;
+      // Always fetch all files from storage to ensure we have everything
+      // (binary files, .cls, .bst, images, etc. that aren't loaded in the editor)
+      const storageFiles = await fetchProjectFiles();
+      
+      if (!storageFiles || storageFiles.length === 0) {
+        // No project files - just use the active content
+        return [{ path: activePath, content: activeContent }];
+      }
 
+      // Build a map of in-memory file contents (for files open in editor)
+      const inMemoryContents = new Map<string, string>();
+      if (projectFilesState && projectFilesState.length > 0) {
+        for (const projectFile of projectFilesState) {
+          const path = projectFile.file.name;
           if (
             projectFile.document &&
             typeof projectFile.document.content === 'string'
           ) {
-            const content =
-              path === activePath
-                ? activeContent
-                : projectFile.document.content;
-
-            const fileEntry: {
-              path: string;
-              content: string;
-              encoding?: string;
-            } = {
-              path,
-              content,
-            };
-
-            // Mark binary files with base64 encoding
-            if (isBinaryFile(path)) {
-              fileEntry.encoding = 'base64';
-            }
-
-            return fileEntry;
+            inMemoryContents.set(path, projectFile.document.content);
           }
-
-          return null;
-        });
-
-        const validPayload = payload.filter(
-          (
-            entry
-          ): entry is { path: string; content: string; encoding?: string } =>
-            entry !== null
-        );
-        if (validPayload.length > 0) {
-          return validPayload;
         }
       }
 
-      const fetched = await fetchProjectFiles();
-      if (fetched && fetched.length > 0) {
-        return fetched.map((file) =>
-          file.path === activePath ? { ...file, content: activeContent } : file
-        );
-      }
-
-      return [{ path: activePath, content: activeContent }];
+      // Merge: use in-memory content for edited files, storage content for others
+      return storageFiles.map((file) => {
+        // Active file always uses the current editor content
+        if (file.path === activePath) {
+          return { ...file, content: activeContent };
+        }
+        
+        // Use in-memory content if available (file is open and edited)
+        const inMemoryContent = inMemoryContents.get(file.path);
+        if (inMemoryContent !== undefined && !isBinaryFile(file.path)) {
+          return { ...file, content: inMemoryContent };
+        }
+        
+        // Use storage content (for binary files and files not open in editor)
+        return file;
+      });
     },
     [fetchProjectFiles, projectFilesState]
   );

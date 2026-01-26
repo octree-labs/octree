@@ -84,7 +84,7 @@ export function SignUpForm({
 
           <p className="text-sm text-green-700">
             Please check your email ({email}) to verify your account before
-            signing in.
+            signing in. Be sure to check your spam folder.
           </p>
         </div>
       )}

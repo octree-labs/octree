@@ -142,6 +142,35 @@ export default function OnboardingPage() {
     }
   };
 
+  // Skip subscription and go directly to dashboard
+  const handleSkipSubscription = async () => {
+    setIsSubmitting(true);
+    try {
+      const supabase = createClient();
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      if (userError || !user) {
+        toast.error('Session expired. Please log in again.');
+        router.push('/auth/login');
+        return;
+      }
+
+      // Mark onboarding as completed without subscription
+      await upsertUserUsage(user.id, {
+        onboarding_completed: true,
+      });
+
+      router.push('/');
+    } catch (error) {
+      console.error('Failed to skip subscription:', error);
+      toast.error('Something went wrong. Please try again.');
+      setIsSubmitting(false);
+    }
+  };
+
   const handleBack = () => {
     if (currentStep > 0) {
       setCurrentStep(currentStep - 1);
@@ -282,7 +311,7 @@ export default function OnboardingPage() {
           <div className="w-full max-w-md space-y-6">
             <Card>
               {renderStep()}
-              <CardContent className="pt-0">
+              <CardContent className="pt-0 space-y-3">
                 <Button
                   className="w-full"
                   variant="gradient"
@@ -297,6 +326,16 @@ export default function OnboardingPage() {
                       ? 'Start Free Trial →'
                       : 'Continue'}
                 </Button>
+                {currentStep === 1 && (
+                  <Button
+                    className="w-full"
+                    variant="ghost"
+                    onClick={handleSkipSubscription}
+                    disabled={isSubmitting}
+                  >
+                    Skip for now
+                  </Button>
+                )}
               </CardContent>
             </Card>
 

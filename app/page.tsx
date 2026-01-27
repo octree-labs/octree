@@ -27,7 +27,8 @@ export default async function Dashboard() {
   }
 
   // Show paywall if user has completed onboarding but is not pro
-  const showPaywall = usage.onboarding_completed && !usage.is_pro;
+  // TEMPORARILY DISABLED - allowing users to enter without paywall
+  // const showPaywall = usage.onboarding_completed && !usage.is_pro;
 
   const userName = user?.user_metadata?.name ?? user?.email ?? null;
 
@@ -39,7 +40,7 @@ export default async function Dashboard() {
 
   return (
     <>
-      {showPaywall && <PaywallDialog userEmail={user.email!} />}
+      {/* {showPaywall && <PaywallDialog userEmail={user.email!} />} */}
 
       <Navbar userName={userName} />
 

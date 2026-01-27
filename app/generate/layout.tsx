@@ -9,12 +9,13 @@ export default async function GenerateLayout({
     children: React.ReactNode;
 }) {
     const user = await getCurrentUser();
-    const usage = user ? await getUserUsageStatus(user.id) : null;
-    const showPaywall = usage?.onboarding_completed && !usage?.is_pro;
+    // TEMPORARILY DISABLED - allowing users to enter without paywall
+    // const usage = user ? await getUserUsageStatus(user.id) : null;
+    // const showPaywall = usage?.onboarding_completed && !usage?.is_pro;
 
     return (
         <SidebarProvider defaultOpen={true}>
-            {showPaywall && user?.email && <PaywallDialog userEmail={user.email} />}
+            {/* {showPaywall && user?.email && <PaywallDialog userEmail={user.email} />} */}
             {children}
         </SidebarProvider>
     );

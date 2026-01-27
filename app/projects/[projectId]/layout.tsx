@@ -24,12 +24,13 @@ export default async function ProjectLayout({
   const project = await getProjectById(projectId);
 
   // Check if user needs to see paywall
-  const usage = user ? await getUserUsageStatus(user.id) : null;
-  const showPaywall = usage?.onboarding_completed && !usage?.is_pro;
+  // TEMPORARILY DISABLED - allowing users to enter without paywall
+  // const usage = user ? await getUserUsageStatus(user.id) : null;
+  // const showPaywall = usage?.onboarding_completed && !usage?.is_pro;
 
   return (
     <SidebarProvider defaultOpen={true}>
-      {showPaywall && user?.email && <PaywallDialog userEmail={user.email} />}
+      {/* {showPaywall && user?.email && <PaywallDialog userEmail={user.email} />} */}
 
       <AppSidebar userName={userName} />
       <SidebarInset className="flex h-screen flex-col overflow-hidden">

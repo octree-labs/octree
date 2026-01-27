@@ -22,5 +22,6 @@ export interface UseEditSuggestionsProps {
   showInlinePreview?: boolean; // controls inline 'after' preview decoration
   currentFilePath?: string | null; // Path of currently open file for edit validation
   onSwitchFile?: (filePath: string) => void; // Callback to switch to a different file
+  onOtherFileEdited?: (filePath: string, newContent: string) => void; // Callback when another file is edited
 }
 

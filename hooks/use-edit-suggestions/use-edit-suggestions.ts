@@ -17,6 +17,7 @@ export function useEditSuggestions({
   showInlinePreview = true,
   currentFilePath,
   onSwitchFile,
+  onOtherFileEdited,
 }: UseEditSuggestionsProps): EditSuggestionsState {
   // Use cached edit limit to check before requesting AI suggestions
   // Note: Quota is consumed on generation (in /api/octra-agent), not on accept
@@ -39,10 +40,11 @@ export function useEditSuggestions({
     currentFilePath,
   });
 
-  // Options for file validation
+  // Options for file validation and sync
   const acceptOptions: AcceptEditOptions = {
     currentFilePath,
     onSwitchFile,
+    onOtherFileEdited,
   };
 
   // Accept a single edit
@@ -76,7 +78,7 @@ export function useEditSuggestions({
         );
       }
     },
-    [canEdit, editor, monacoInstance, editSuggestions, setEditSuggestions, currentFilePath, onSwitchFile]
+    [canEdit, editor, monacoInstance, editSuggestions, setEditSuggestions, currentFilePath, onSwitchFile, onOtherFileEdited]
   );
 
   // Accept all pending edits
@@ -139,6 +141,7 @@ export function useEditSuggestions({
     setEditSuggestions,
     currentFilePath,
     onSwitchFile,
+    onOtherFileEdited,
   ]);
 
   // Reject a single edit

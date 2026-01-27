@@ -215,7 +215,8 @@ export function buildSystemPrompt(
   selectionRange?: { startLineNumber: number; endLineNumber: number } | null,
   projectFiles?: ProjectFileContext[] | null,
   currentFilePath?: string | null,
-  sessionSummary?: string | null
+  sessionSummary?: string | null,
+  lastInteraction?: { userRequest: string; assistantResponse: string } | null
 ): string {
   const validProjectFiles =
     projectFiles?.filter(
@@ -247,13 +248,32 @@ MULTI-FILE PROJECTS:
 - For edits to other files, ALWAYS specify: { ..., targetFile: 'filename.tex' }
 - Line numbers in targetFile edits refer to that file's line numbers.` : '';
 
-  const sessionContext = sessionSummary ? `
+  // Build session context with both summary and last interaction for immediate memory
+  let sessionContext = '';
   
-EDITING SESSION CONTEXT:
-The following is a summary of the current editing session. Use this to resolve references (e.g., "the table", "that figure") and understand the user's ongoing goals.
+  if (sessionSummary || lastInteraction) {
+    sessionContext = `
+
+EDITING SESSION CONTEXT:`;
+    
+    if (sessionSummary) {
+      sessionContext += `
+Session summary (ongoing goals and changes):
+${sessionSummary}`;
+    }
+    
+    if (lastInteraction) {
+      sessionContext += `
+
+Last interaction:
+User: ${lastInteraction.userRequest}
+Assistant: ${lastInteraction.assistantResponse.substring(0, 500)}${lastInteraction.assistantResponse.length > 500 ? '...' : ''}`;
+    }
+    
+    sessionContext += `
 ---
-${sessionSummary}
----` : '';
+Use this context to resolve references (e.g., "the table", "that figure") and understand what was just done.`;
+  }
 
   return `You are Octra, a LaTeX editing assistant. You edit LaTeX documents by calling the 'propose_edits' tool.
 

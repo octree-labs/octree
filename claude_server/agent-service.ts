@@ -89,6 +89,10 @@ app.post('/agent', async (req: any, res: any) => {
     const sessionManager = SessionManager.getInstance();
     const currentSession = sessionId ? sessionManager.getSession(sessionId) : undefined;
     const sessionSummary = currentSession?.summary || null;
+    const lastInteraction = currentSession?.lastInteraction || null;
+
+    console.log('[Session] sessionId:', sessionId || '(none)');
+    console.log('[Session] hasSummary:', !!sessionSummary, 'hasLastInteraction:', !!lastInteraction);
 
     const fullPrompt = `${buildSystemPrompt(
       numbered,
@@ -96,7 +100,8 @@ app.post('/agent', async (req: any, res: any) => {
       selectionRange,
       projectFiles,
       normalizedCurrentFilePath,
-      sessionSummary
+      sessionSummary,
+      lastInteraction
     )}\n\nUser request:\n${userText}`;
 
     const gen = query({
@@ -116,8 +121,14 @@ app.post('/agent', async (req: any, res: any) => {
     const finalText = await processStreamMessages(gen as AsyncIterable<any>, writeEvent, collectedEdits);
 
     if (sessionId) {
-        // Fire and forget - don't await this
+        // Store interaction IMMEDIATELY for instant memory on next request
+        sessionManager.storeLastInteraction(sessionId, userText, finalText);
+        
+        // Generate summary in background (fire and forget)
+        console.log('[Session] Generating updated summary for:', sessionId);
         sessionManager.generateUpdatedSummary(sessionId, sessionSummary || '', userText, finalText).catch(console.error);
+    } else {
+        console.log('[Session] No sessionId provided - skipping session update');
     }
 
     writeEvent('done', { text: finalText, edits: collectedEdits });

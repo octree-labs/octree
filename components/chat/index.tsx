@@ -34,6 +34,7 @@ interface ChatProps {
   setIsOpen: React.Dispatch<React.SetStateAction<boolean>>;
   autoSendMessage?: string | null;
   setAutoSendMessage?: (message: string | null) => void;
+  projectId?: string;
 }
 
 interface ChatMessage {
@@ -59,6 +60,7 @@ export function Chat({
   currentFilePath = null,
   autoSendMessage,
   setAutoSendMessage,
+  projectId,
 }: ChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -228,7 +230,8 @@ export function Chat({
           onStatus: (state) => {
             if (state === 'started') setIsLoading(true);
           },
-        }
+        },
+        projectId
       );
 
       if (!response.ok || !response.body) {

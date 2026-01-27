@@ -1,7 +1,14 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 
+interface LastInteraction {
+  userRequest: string;
+  assistantResponse: string;
+  timestamp: number;
+}
+
 interface SessionState {
   summary: string;
+  lastInteraction: LastInteraction | null;
   lastUpdated: number;
 }
 
@@ -21,11 +28,37 @@ export class SessionManager {
   }
 
   getSession(sessionId: string): SessionState | undefined {
-    return this.sessions.get(sessionId);
+    const session = this.sessions.get(sessionId);
+    console.log(`[Session] getSession(${sessionId}): ${session ? 'FOUND' : 'NOT FOUND'}, mapSize=${this.sessions.size}`);
+    return session;
   }
 
-  updateSession(sessionId: string, state: SessionState): void {
-    this.sessions.set(sessionId, state);
+  /**
+   * Store the last interaction IMMEDIATELY for instant memory.
+   * This is called right after the response completes, before summary generation.
+   */
+  storeLastInteraction(sessionId: string, userRequest: string, assistantResponse: string): void {
+    const existing = this.sessions.get(sessionId);
+    this.sessions.set(sessionId, {
+      summary: existing?.summary || '',
+      lastInteraction: {
+        userRequest,
+        assistantResponse,
+        timestamp: Date.now(),
+      },
+      lastUpdated: Date.now(),
+    });
+    console.log(`[Session] storeLastInteraction(${sessionId}): stored immediately`);
+  }
+
+  updateSession(sessionId: string, summary: string): void {
+    const existing = this.sessions.get(sessionId);
+    this.sessions.set(sessionId, {
+      summary,
+      lastInteraction: existing?.lastInteraction || null,
+      lastUpdated: Date.now(),
+    });
+    console.log(`[Session] updateSession(${sessionId}): mapSize now=${this.sessions.size}, summaryLength=${summary?.length || 0}`);
   }
 
   /**
@@ -69,22 +102,38 @@ INSTRUCTIONS:
       });
 
       let newSummary = '';
+      let chunkCount = 0;
       for await (const chunk of result) {
+        chunkCount++;
         const msg = chunk as any;
+        if (chunkCount <= 3) {
+          console.log('[Session] chunk sample:', JSON.stringify(msg).substring(0, 300));
+        }
         if (msg.type === 'stream_event') {
             const delta = msg.event?.delta;
             if (delta?.text) {
                 newSummary += delta.text;
             }
         }
+        // Also check for assistant_message events
+        if (msg.type === 'assistant_message' && msg.message?.content) {
+            for (const block of msg.message.content) {
+                if (block.type === 'text') {
+                    newSummary = block.text; // Use full text
+                }
+            }
+        }
+        // Check for result event with text
+        if (msg.type === 'result' && typeof msg.result === 'string') {
+            newSummary = msg.result;
+        }
       }
+      console.log(`[Session] Generated summary: chunkCount=${chunkCount}, length=${newSummary.length}, preview: "${newSummary.substring(0, 80)}..."`);
 
-      this.updateSession(sessionId, {
-        summary: newSummary.trim(),
-        lastUpdated: Date.now(),
-      });
+      this.updateSession(sessionId, newSummary.trim());
+      console.log(`[Session] Updated summary for ${sessionId}:`, newSummary.trim().substring(0, 100) + '...');
     } catch (error) {
-      console.error(`Failed to update session summary for ${sessionId}:`, error);
+      console.error(`[Session] Failed to update session summary for ${sessionId}:`, error);
     }
   }
 }

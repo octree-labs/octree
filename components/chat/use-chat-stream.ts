@@ -49,7 +49,8 @@ export function useChatStream() {
       textFromEditor: string | null,
       selectionRange: SelectionRange | null | undefined,
       projectContext: ProjectContextPayload,
-      callbacks: StreamCallbacks
+      callbacks: StreamCallbacks,
+      sessionId?: string
     ) => {
       // Cancel existing stream
       if (abortControllerRef.current) {
@@ -79,6 +80,7 @@ export function useChatStream() {
           selectionRange,
           projectFiles: projectContext.projectFiles,
           currentFilePath: projectContext.currentFilePath,
+          sessionId,
         }),
         signal: controller.signal,
       });

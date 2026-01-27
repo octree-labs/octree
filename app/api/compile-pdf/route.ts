@@ -18,10 +18,7 @@ export const config = {
   },
 };
 
-const COMPILE_SERVICE_URL =
-  process.env.NODE_ENV === 'development'
-    ? process.env.COMPILE_SERVICE_URL_STAGING
-    : process.env.COMPILE_SERVICE_URL;
+const COMPILE_SERVICE_URL = process.env.COMPILE_SERVICE_URL;
 
 function normalizeRequest(body: Partial<CompileRequest>): CompileRequest {
   if (body.files && body.files.length > 0) {

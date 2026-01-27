@@ -53,9 +53,9 @@ rsync -avz --progress $CLAUDE_SERVER_DIR/package.json $SERVER_HOST:$SERVER_PATH/
 echo "  → Syncing tsconfig.json..."
 rsync -avz --progress $CLAUDE_SERVER_DIR/tsconfig.json $SERVER_HOST:$SERVER_PATH/
 
-# Sync lib directory
-echo "  → Syncing lib/octra-agent..."
-rsync -avz --progress --delete $CLAUDE_SERVER_DIR/lib/octra-agent/ $SERVER_HOST:$SERVER_PATH/lib/octra-agent/
+# Sync lib directory (all files including session-manager.ts)
+echo "  → Syncing lib/..."
+rsync -avz --progress --delete $CLAUDE_SERVER_DIR/lib/ $SERVER_HOST:$SERVER_PATH/lib/
 
 echo ""
 echo -e "${YELLOW}📚 Step 3: Installing dependencies...${NC}"

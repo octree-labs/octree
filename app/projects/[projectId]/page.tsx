@@ -437,6 +437,7 @@ export default function ProjectPage() {
           currentFilePath={selectedFile?.name ?? null}
           autoSendMessage={autoSendMessage}
           setAutoSendMessage={setAutoSendMessage}
+          projectId={projectId}
         />
       </div>
     </div>

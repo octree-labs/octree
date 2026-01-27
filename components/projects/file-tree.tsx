@@ -20,6 +20,19 @@ import {
 import { cn } from '@/lib/utils';
 import type { ProjectFile } from '@/hooks/use-file-editor';
 import { useFileTreeStore, FileTreeActions } from '@/stores/file-tree';
+import {
+  DndContext,
+  DragEndEvent,
+  useDraggable,
+  useDroppable,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import { renameFile, renameFolder } from '@/lib/requests/project';
+import { useProjectFilesRevalidation } from '@/hooks/use-file-editor';
+import { toast } from 'sonner';
 
 interface FileNode {
   name: string;
@@ -119,77 +132,94 @@ interface FileTreeNodeProps {
   node: FileNode;
   selectedFileId: string | null;
   onFileSelect: (file: ProjectFile['file']) => void;
+  projectId: string;
 }
 
 function FileTreeNode({
   node,
   selectedFileId,
   onFileSelect,
+  projectId,
 }: FileTreeNodeProps) {
+  const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({
+    id: node.path,
+    data: { type: node.type, path: node.path },
+  });
+
+  const { setNodeRef: setDropRef, isOver } = useDroppable({
+    id: node.path,
+    disabled: node.type !== 'folder',
+    data: { type: node.type, path: node.path },
+  });
   if (node.type === 'folder') {
     return (
-      <Folder
-        element={node.name}
-        value={node.path}
-        action={
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                className="inline-flex h-5 w-5 items-center justify-center rounded-sm text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                aria-label={`Open options for ${node.name}`}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <MoreVertical className="h-3.5 w-3.5" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                className="cursor-pointer gap-2 px-1.5 py-1 text-xs"
-                onSelect={() => FileTreeActions.openAddFileDialog(node.path)}
-              >
-                <Plus className="size-3.5" />
-                Add File
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className="cursor-pointer gap-2 px-1.5 py-1 text-xs"
-                onSelect={() => FileTreeActions.openAddFolderDialog(node.path)}
-              >
-                <FolderPlus className="size-3.5" />
-                Add Folder
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className="cursor-pointer gap-2 px-1.5 py-1 text-xs"
-                onSelect={() =>
-                  FileTreeActions.openRenameFolderDialog(node.path)
-                }
-              >
-                <Pencil className="size-3.5" />
-                Rename
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className="cursor-pointer gap-2 px-1.5 py-1 text-xs"
-                variant="destructive"
-                onSelect={() =>
-                  FileTreeActions.openDeleteFolderDialog(node.path)
-                }
-              >
-                <Trash2 className="size-3.5 text-destructive" />
-                Delete
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        }
-      >
-        {node.children?.map((child) => (
-          <FileTreeNode
-            key={child.path}
-            node={child}
-            selectedFileId={selectedFileId}
-            onFileSelect={onFileSelect}
-          />
-        ))}
-      </Folder>
+      <div ref={setDropRef} className={cn(isOver && "ring-2 ring-primary/50 rounded-md")}>
+        <div ref={setDragRef} {...attributes} {...listeners} className={cn(isDragging && "opacity-50")}>
+          <Folder
+            element={node.name}
+            value={node.path}
+            action={
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="inline-flex h-5 w-5 items-center justify-center rounded-sm text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                    aria-label={`Open options for ${node.name}`}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <MoreVertical className="h-3.5 w-3.5" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    className="cursor-pointer gap-2 px-1.5 py-1 text-xs"
+                    onSelect={() => FileTreeActions.openAddFileDialog(node.path)}
+                  >
+                    <Plus className="size-3.5" />
+                    Add File
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="cursor-pointer gap-2 px-1.5 py-1 text-xs"
+                    onSelect={() => FileTreeActions.openAddFolderDialog(node.path)}
+                  >
+                    <FolderPlus className="size-3.5" />
+                    Add Folder
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="cursor-pointer gap-2 px-1.5 py-1 text-xs"
+                    onSelect={() =>
+                      FileTreeActions.openRenameFolderDialog(node.path)
+                    }
+                  >
+                    <Pencil className="size-3.5" />
+                    Rename
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="cursor-pointer gap-2 px-1.5 py-1 text-xs"
+                    variant="destructive"
+                    onSelect={() =>
+                      FileTreeActions.openDeleteFolderDialog(node.path)
+                    }
+                  >
+                    <Trash2 className="size-3.5 text-destructive" />
+                    Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            }
+          >
+            {node.children?.map((child) => (
+              <FileTreeNode
+                key={child.path}
+                node={child}
+                selectedFileId={selectedFileId}
+                onFileSelect={onFileSelect}
+                projectId={projectId}
+              />
+            ))}
+          </Folder>
+        </div>
+      </div>
     );
   }
 
@@ -197,17 +227,19 @@ function FileTreeNode({
 
   return (
     <div className="flex items-center gap-1">
-      <File
-        value={node.path}
-        fileIcon={getFileIcon(node.name)}
-        isSelect={isSelected}
-        handleSelect={() => node.file && onFileSelect(node.file)}
-        className="flex-1"
-      >
-        <span className={cn('truncate', isSelected && 'font-medium')}>
-          {node.name}
-        </span>
-      </File>
+      <div ref={setDragRef} {...attributes} {...listeners} className={cn("flex-1", isDragging && "opacity-50")}>
+        <File
+          value={node.path}
+          fileIcon={getFileIcon(node.name)}
+          isSelect={isSelected}
+          handleSelect={() => node.file && onFileSelect(node.file)}
+          className="w-full"
+        >
+          <span className={cn('truncate', isSelected && 'font-medium')}>
+            {node.name}
+          </span>
+        </File>
+      </div>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
@@ -255,6 +287,46 @@ export function FileTree({
 }: FileTreeProps) {
   const tree = buildFileTree(files);
   const isLoading = useFileTreeStore((state) => state.isLoading);
+  const { revalidate } = useProjectFilesRevalidation(projectId);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 8 },
+    })
+  );
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const dragData = active.data.current as { type: string; path: string };
+    const dropData = over.data.current as { type: string; path: string };
+
+    if (dropData.path.startsWith(dragData.path + '/')) return;
+
+    const fileName = dragData.path.split('/').pop()!;
+    const newPath = dropData.path ? `${dropData.path}/${fileName}` : fileName;
+
+    if (dragData.path === newPath) return;
+
+    try {
+      if (dragData.type === 'folder') {
+        await renameFolder(projectId, dragData.path, newPath);
+      } else {
+        await renameFile(projectId, dragData.path, newPath);
+      }
+      toast.success('Moved successfully');
+      revalidate();
+    } catch (error) {
+      toast.error('Failed to move');
+      console.error(error);
+    }
+  };
+
+  const { setNodeRef: setRootDropRef, isOver: isRootOver } = useDroppable({
+    id: projectId,
+    data: { type: 'folder', path: '' },
+  });
 
   // Get all folder paths to expand them by default
   const getAllFolderPaths = (nodes: FileNode[]): string[] => {
@@ -314,25 +386,28 @@ export function FileTree({
   );
 
   return (
-    <div
-      className={cn('w-full', isLoading && 'pointer-events-none opacity-50')}
-    >
-      <Tree
-        key={`${projectId}-${files.length}`}
-        className="w-full overflow-visible"
-        initialExpandedItems={initialExpandedItems}
-      >
-        <Folder element={rootFolderName} value={projectId} action={rootAction}>
-          {tree.map((node) => (
-            <FileTreeNode
-              key={node.path}
-              node={node}
-              selectedFileId={selectedFileId}
-              onFileSelect={onFileSelect}
-            />
-          ))}
-        </Folder>
-      </Tree>
+    <div className={cn('w-full', isLoading && 'pointer-events-none opacity-50')}>
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <Tree
+          key={`${projectId}-${files.length}`}
+          className="w-full overflow-visible"
+          initialExpandedItems={initialExpandedItems}
+        >
+          <div ref={setRootDropRef} className={cn(isRootOver && "ring-2 ring-primary/50 rounded-md")}>
+            <Folder element={rootFolderName} value={projectId} action={rootAction}>
+              {tree.map((node) => (
+                <FileTreeNode
+                  key={node.path}
+                  node={node}
+                  selectedFileId={selectedFileId}
+                  onFileSelect={onFileSelect}
+                  projectId={projectId}
+                />
+              ))}
+            </Folder>
+          </div>
+        </Tree>
+      </DndContext>
     </div>
   );
 }

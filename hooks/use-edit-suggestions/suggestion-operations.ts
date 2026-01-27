@@ -13,6 +13,7 @@ import {
 export interface AcceptEditOptions {
   currentFilePath?: string | null;
   onSwitchFile?: (filePath: string) => void;
+  onOtherFileEdited?: (filePath: string, newContent: string) => void;
 }
 
 /**
@@ -63,7 +64,7 @@ export async function acceptSingleEdit(
   
   // If target file doesn't match current file, apply directly to file store
   if (targetFile && currentFile && targetFile !== currentFile) {
-    acceptEditDirect(suggestionId, editSuggestions, onUpdate, currentFile);
+    acceptEditDirect(suggestionId, editSuggestions, onUpdate, currentFile, options?.onOtherFileEdited);
     return;
   }
 
@@ -164,6 +165,20 @@ export async function acceptSingleEdit(
 }
 
 /**
+ * Apply multiple edits to a file's content in one batch (sorted bottom-to-top)
+ */
+function applyEditsToContentBatch(content: string, suggestions: EditSuggestion[]): string {
+  // Sort from bottom to top to avoid position shifts affecting later edits
+  const sorted = [...suggestions].sort((a, b) => getStartLine(b) - getStartLine(a));
+  
+  let result = content;
+  for (const suggestion of sorted) {
+    result = applyEditToContent(result, suggestion);
+  }
+  return result;
+}
+
+/**
  * Accept all pending edit suggestions at once
  */
 export async function acceptAllEdits(
@@ -194,20 +209,50 @@ export async function acceptAllEdits(
     return s.targetFile !== currentFile;
   });
 
-  // Apply edits to other files directly
-  for (const suggestion of otherFileEdits) {
-    acceptEditDirect(suggestion.id, allPendingSuggestions, onPartialClear ? 
-      (updater) => {
-        const result = updater(allPendingSuggestions);
-        if (onPartialClear) {
-          const removedIds = allPendingSuggestions.filter(s => !result.find(r => r.id === s.id)).map(s => s.id);
-          if (removedIds.length > 0) onPartialClear(removedIds);
-        }
-      } : onClearAll as any, currentFile);
+  // Group other-file edits by target file to apply in batches (fixes race condition)
+  const editsByFile = new Map<string, EditSuggestion[]>();
+  for (const edit of otherFileEdits) {
+    const targetFile = edit.targetFile!;
+    if (!editsByFile.has(targetFile)) {
+      editsByFile.set(targetFile, []);
+    }
+    editsByFile.get(targetFile)!.push(edit);
   }
 
-  // If no current file edits, we're done
+  // Apply edits to each other file in one batch per file
+  const appliedOtherFileIds: string[] = [];
+  for (const [targetFile, edits] of editsByFile) {
+    const content = FileActions.getContentByPath(targetFile);
+    if (content === null) {
+      console.error(`File "${targetFile}" not found or has no content.`);
+      continue;
+    }
+    
+    try {
+      const newContent = applyEditsToContentBatch(content, edits);
+      FileActions.setContentByPath(targetFile, newContent);
+      
+      // Notify parent that another file was edited (for Monaco sync)
+      if (options?.onOtherFileEdited) {
+        options.onOtherFileEdited(targetFile, newContent);
+      }
+      
+      appliedOtherFileIds.push(...edits.map(e => e.id));
+    } catch (error) {
+      console.error(`Error applying edits to ${targetFile}:`, error);
+    }
+  }
+
+  // If no current file edits, clear applied suggestions and return
   if (currentFileEdits.length === 0) {
+    if (appliedOtherFileIds.length > 0) {
+      if (onPartialClear) {
+        onPartialClear(appliedOtherFileIds);
+      } else {
+        onClearAll();
+      }
+      toast.success(`Applied ${appliedOtherFileIds.length} edit(s)`, { duration: 2000 });
+    }
     return;
   }
 
@@ -253,7 +298,7 @@ export async function acceptAllEdits(
     // Clear all suggestions (including those applied to other files)
     onClearAll();
     
-    const totalApplied = currentFileEdits.length + otherFileEdits.length;
+    const totalApplied = currentFileEdits.length + appliedOtherFileIds.length;
     toast.success(`Applied ${totalApplied} edit(s)`, { duration: 2000 });
   } catch (error) {
     console.error('Error applying all edits:', error);
@@ -278,7 +323,8 @@ export function acceptEditDirect(
   suggestionId: string,
   editSuggestions: EditSuggestion[],
   onUpdate: (updater: (prev: EditSuggestion[]) => EditSuggestion[]) => void,
-  currentFilePath?: string | null
+  currentFilePath?: string | null,
+  onOtherFileEdited?: (filePath: string, newContent: string) => void
 ): boolean {
   const suggestion = editSuggestions.find((s) => s.id === suggestionId);
   if (!suggestion || suggestion.status !== 'pending') return false;
@@ -303,6 +349,11 @@ export function acceptEditDirect(
     
     // Update the file store
     FileActions.setContentByPath(targetFile, newContent);
+    
+    // Notify parent that another file was edited (for Monaco sync)
+    if (onOtherFileEdited) {
+      onOtherFileEdited(targetFile, newContent);
+    }
 
     // Rebase remaining suggestions
     const startLine = getStartLine(suggestion);

@@ -105,7 +105,7 @@ export function Chat({
     incrementProgress,
     setError: setProposalError,
     convertEditsToSuggestions,
-  } = useEditProposals(fileContent);
+  } = useEditProposals(fileContent, projectFiles, currentFilePath);
   const {
     attachments,
     addFiles,

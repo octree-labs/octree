@@ -29,7 +29,16 @@ function buildStepStates(total: number, progress: number): ProposalStepState[] {
   });
 }
 
-export function useEditProposals(fileContent: string) {
+interface ProjectFile {
+  path: string;
+  content: string;
+}
+
+export function useEditProposals(
+  fileContent: string,
+  projectFiles: ProjectFile[] = [],
+  currentFilePath: string | null = null
+) {
   const [proposalIndicators, setProposalIndicators] = useState<
     Record<string, ProposalIndicator>
   >({});
@@ -185,13 +194,22 @@ export function useEditProposals(fileContent: string) {
       const mapped: EditSuggestion[] = edits.map((edit, idx) => {
         let originalContent = '';
         if (
-          edit.editType === 'delete' &&
+          (edit.editType === 'delete' || edit.editType === 'replace') &&
           edit.position?.line &&
           edit.originalLineCount
         ) {
+          // Get the correct file content based on targetFile
+          let targetContent = fileContent;
+          if (edit.targetFile && edit.targetFile !== currentFilePath) {
+            const targetFileData = projectFiles.find(f => f.path === edit.targetFile);
+            if (targetFileData) {
+              targetContent = targetFileData.content;
+            }
+          }
+          
           const startLine = edit.position.line;
           const lineCount = edit.originalLineCount;
-          const lines = fileContent.split('\n');
+          const lines = targetContent.split('\n');
           const endLine = Math.min(startLine + lineCount - 1, lines.length);
           originalContent = lines.slice(startLine - 1, endLine).join('\n');
         }
@@ -281,7 +299,7 @@ export function useEditProposals(fileContent: string) {
 
       return mapped;
     },
-    [fileContent, incrementProgress]
+    [fileContent, projectFiles, currentFilePath, incrementProgress]
   );
 
   return {

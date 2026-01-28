@@ -1,6 +1,6 @@
-
 import { useState, useCallback, useEffect } from 'react';
 import { Eye, Code, FileText, Check, Copy, Download, Loader2, ExternalLink } from 'lucide-react';
+import { MonacoEditor } from '@/components/editor/monaco-editor';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import PDFViewer from '@/components/pdf-viewer';
@@ -182,10 +182,24 @@ export function DocumentPreview({ latex, title, onOpenInOctree, isCreatingProjec
 
             <div className="h-[600px] overflow-hidden">
                 {viewMode === 'code' ? (
-                    <div className="h-full overflow-auto bg-muted/30 p-4">
-                        <pre className="text-xs leading-relaxed text-foreground">
-                            <code>{latex}</code>
-                        </pre>
+                    <div className="h-full w-full bg-muted/30">
+                        <MonacoEditor
+                            content={latex}
+                            className="h-full"
+                            options={{
+                                readOnly: true,
+                                minimap: { enabled: false },
+                                scrollBeyondLastLine: false,
+                                wordWrap: 'on',
+                                lineNumbers: 'on',
+                                renderLineHighlight: 'all',
+                                folding: true,
+                                scrollbar: {
+                                    vertical: 'visible',
+                                    verticalScrollbarSize: 10
+                                }
+                            }}
+                        />
                     </div>
                 ) : (
                     <PDFViewer

@@ -13,12 +13,13 @@ import type * as Monaco from 'monaco-editor';
 
 interface MonacoEditorProps {
   content: string;
-  onChange: (value: string) => void;
-  onMount: (
+  onChange?: (value: string) => void;
+  onMount?: (
     editor: Monaco.editor.IStandaloneCodeEditor,
     monaco: typeof Monaco
   ) => void;
   className?: string;
+  options?: Monaco.editor.IStandaloneEditorConstructionOptions;
 }
 
 export function MonacoEditor({
@@ -26,6 +27,7 @@ export function MonacoEditor({
   onChange,
   onMount,
   className = '',
+  options = {},
 }: MonacoEditorProps) {
   const theme = useEditorTheme((state) => state.theme);
   const themesRegistered = useRef(false);
@@ -55,7 +57,7 @@ export function MonacoEditor({
         height="100%"
         defaultLanguage="latex"
         value={content}
-        onChange={(value) => onChange(value || '')}
+        onChange={(value) => onChange?.(value || '')}
         theme={theme}
         options={{
           scrollbar: {
@@ -83,6 +85,7 @@ export function MonacoEditor({
             top: 10,
             bottom: 10,
           },
+          ...options,
         }}
         onMount={onMount}
       />

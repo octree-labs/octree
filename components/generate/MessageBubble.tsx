@@ -1,6 +1,5 @@
-
-import { useRef, useEffect } from 'react';
 import { FileText, Check, Loader2 } from 'lucide-react';
+import { MonacoEditor } from '@/components/editor/monaco-editor';
 import { Card } from '@/components/ui/card';
 
 export interface MessageAttachment {
@@ -24,15 +23,7 @@ interface MessageBubbleProps {
 
 export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
     const isUser = message.role === 'user';
-    const scrollRef = useRef<HTMLDivElement>(null);
-
     const isCompletionMessage = message.content === 'Document generated successfully. Preview it below or open it in Octree.';
-
-    useEffect(() => {
-        if (isStreaming && scrollRef.current) {
-            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-        }
-    }, [message.content, isStreaming]);
 
     if (isUser) {
         return (
@@ -80,21 +71,28 @@ export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
 
     return (
         <div className="flex w-full justify-start">
-            <Card className="w-full bg-muted/50 p-0">
-                <div
-                    ref={scrollRef}
-                    className="max-h-80 overflow-y-auto p-4"
-                >
-                    <div className="space-y-0.5 font-mono text-sm">
-                        {message.content.split('\n').map((line, i) => (
-                            <p key={i} className="whitespace-pre-wrap text-foreground">
-                                {line}
-                            </p>
-                        ))}
-                    </div>
+            <Card className="w-full overflow-hidden bg-muted/50 p-0">
+                <div className="h-80 w-full">
+                    <MonacoEditor
+                        content={message.content}
+                        className="h-full"
+                        options={{
+                            readOnly: true,
+                            minimap: { enabled: false },
+                            scrollBeyondLastLine: false,
+                            wordWrap: 'on',
+                            lineNumbers: 'off',
+                            renderLineHighlight: 'none',
+                            folding: false,
+                            scrollbar: {
+                                vertical: 'visible',
+                                verticalScrollbarSize: 10
+                            }
+                        }}
+                    />
                 </div>
                 {isStreaming && (
-                    <div className="flex items-center gap-2 border-t px-4 py-2 text-muted-foreground">
+                    <div className="flex items-center gap-2 border-t px-4 py-2 text-muted-foreground bg-background/50">
                         <Loader2 className="h-3 w-3 animate-spin" />
                         <span className="text-xs">Generating...</span>
                     </div>

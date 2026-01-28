@@ -1,3 +1,4 @@
+import { useRef, useEffect } from 'react';
 import { FileText, Check, Loader2 } from 'lucide-react';
 import { MonacoEditor } from '@/components/editor/monaco-editor';
 import { Card } from '@/components/ui/card';
@@ -24,6 +25,21 @@ interface MessageBubbleProps {
 export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
     const isUser = message.role === 'user';
     const isCompletionMessage = message.content === 'Document generated successfully. Preview it below or open it in Octree.';
+
+    // Refs for auto-scrolling
+    const editorRef = useRef<any>(null);
+
+    const handleEditorDidMount = (editor: any) => {
+        editorRef.current = editor;
+    };
+
+    useEffect(() => {
+        if (isStreaming && editorRef.current) {
+            const editor = editorRef.current;
+            const scrollHeight = editor.getScrollHeight();
+            editor.setScrollTop(scrollHeight);
+        }
+    }, [message.content, isStreaming]);
 
     if (isUser) {
         return (
@@ -76,6 +92,7 @@ export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
                     <MonacoEditor
                         content={message.content}
                         className="h-full"
+                        onMount={handleEditorDidMount}
                         options={{
                             readOnly: true,
                             minimap: { enabled: false },

@@ -172,10 +172,23 @@ export interface ImportProjectResponse {
 }
 
 export const importProject = async (
-  file: File
+  zipFile?: File,
+  folderFiles?: File[]
 ): Promise<ImportProjectResponse> => {
   const formData = new FormData();
-  formData.append('file', file);
+
+  if (zipFile) {
+    formData.append('file', zipFile);
+  } else if (folderFiles && folderFiles.length > 0) {
+    folderFiles.forEach((file) => {
+      formData.append('files', file);
+    });
+  } else {
+    return {
+      success: false,
+      error: 'No files provided',
+    };
+  }
 
   const response = await fetch('/api/import-project', {
     method: 'POST',

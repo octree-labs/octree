@@ -39,7 +39,7 @@ export function CreateProjectDialog() {
         <DialogHeader>
           <DialogTitle>New Project</DialogTitle>
           <DialogDescription>
-            Create a new project or import from a ZIP file.
+            Create a new project or import from a ZIP file or folder.
           </DialogDescription>
         </DialogHeader>
 

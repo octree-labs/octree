@@ -1,9 +1,6 @@
 'use client';
 
-import { FileText, X, Upload } from 'lucide-react';
-import { useDropzone } from 'react-dropzone';
-import { useFileUpload } from '@/hooks/use-file-upload';
-import { ALL_SUPPORTED_FILE_TYPES, MAX_BINARY_FILE_SIZE } from '@/lib/constants/file-types';
+import { FileText, X } from 'lucide-react';
 import {
   Sidebar,
   SidebarContent,
@@ -55,38 +52,11 @@ export function AppSidebar({ userName }: AppSidebarProps) {
   const targetFolder = useTargetFolder();
   const renameProjectDialog = useRenameProjectDialog();
 
-  const { uploadFile, isUploading } = useFileUpload({
-    projectId: project?.id ?? '',
-  });
-
-  const onDrop = async (acceptedFiles: File[]) => {
-    for (const file of acceptedFiles) {
-      await uploadFile(file);
-    }
-  };
-
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
-    accept: ALL_SUPPORTED_FILE_TYPES,
-    maxSize: MAX_BINARY_FILE_SIZE,
-    noClick: true,
-    noKeyboard: true,
-    disabled: isUploading,
-  });
 
   if (!project) return null;
 
   return (
-    <Sidebar collapsible="offcanvas" {...getRootProps()}>
-      <input {...getInputProps()} />
-      {isDragActive && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center m-2 rounded-lg border-2 border-dashed border-primary bg-primary/10 backdrop-blur-[1px]">
-          <div className="flex items-center gap-2 rounded-lg bg-background/90 px-4 py-3 font-medium text-primary shadow-sm">
-            <Upload className="h-5 w-5" />
-            Drop files to upload
-          </div>
-        </div>
-      )}
+    <Sidebar collapsible="offcanvas">
       <SidebarHeader className="flex-row items-center justify-between border-b border-gray-200">
         <p className="px-3 text-sm font-medium">Files</p>
         <button

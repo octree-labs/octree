@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import {
   FileText,
   MoreVertical,
@@ -32,6 +33,7 @@ import {
 } from '@dnd-kit/core';
 import { renameFile, renameFolder } from '@/lib/requests/project';
 import { useProjectFilesRevalidation } from '@/hooks/use-file-editor';
+import { useFileUpload } from '@/hooks/use-file-upload';
 import { toast } from 'sonner';
 
 interface FileNode {
@@ -133,6 +135,7 @@ interface FileTreeNodeProps {
   selectedFileId: string | null;
   onFileSelect: (file: ProjectFile['file']) => void;
   projectId: string;
+  onExternalDrop?: (files: File[], targetFolder: string) => Promise<void>;
 }
 
 function FileTreeNode({
@@ -140,6 +143,7 @@ function FileTreeNode({
   selectedFileId,
   onFileSelect,
   projectId,
+  onExternalDrop,
 }: FileTreeNodeProps) {
   const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({
     id: node.path,
@@ -151,9 +155,61 @@ function FileTreeNode({
     disabled: node.type !== 'folder',
     data: { type: node.type, path: node.path },
   });
+
+  const [isExternalDragOver, setIsExternalDragOver] = useState(false);
+  const [isDropping, setIsDropping] = useState(false);
+
+  const handleExternalDragOver = (e: React.DragEvent) => {
+    if (e.dataTransfer.types.includes('Files')) {
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = 'copy';
+    }
+  };
+
+  const handleExternalDragEnter = (e: React.DragEvent) => {
+    if (e.dataTransfer.types.includes('Files')) {
+      e.stopPropagation();
+      setIsExternalDragOver(true);
+    }
+  };
+
+  const handleExternalDragLeave = () => {
+    setIsExternalDragOver(false);
+  };
+
+  const handleExternalDrop = async (e: React.DragEvent) => {
+    if (e.dataTransfer.files.length > 0) {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsExternalDragOver(false);
+
+      if (!onExternalDrop || isDropping) return;
+
+      setIsDropping(true);
+      try {
+        const files = Array.from(e.dataTransfer.files);
+        await onExternalDrop(files, node.path);
+      } catch (error) {
+        toast.error('Failed to upload files');
+      } finally {
+        setIsDropping(false);
+      }
+    }
+  };
   if (node.type === 'folder') {
     return (
-      <div ref={setDropRef} className={cn(isOver && "ring-2 ring-primary/50 rounded-md")}>
+      <div
+        ref={setDropRef}
+        className={cn(
+          (isOver || isExternalDragOver) && "ring-2 ring-primary/50 rounded-md",
+          isDropping && "opacity-60 pointer-events-none"
+        )}
+        onDragOver={handleExternalDragOver}
+        onDragEnter={handleExternalDragEnter}
+        onDragLeave={handleExternalDragLeave}
+        onDrop={handleExternalDrop}
+      >
         <div ref={setDragRef} {...attributes} {...listeners} className={cn(isDragging && "opacity-50")}>
           <Folder
             element={node.name}
@@ -215,6 +271,7 @@ function FileTreeNode({
                 selectedFileId={selectedFileId}
                 onFileSelect={onFileSelect}
                 projectId={projectId}
+                onExternalDrop={onExternalDrop}
               />
             ))}
           </Folder>
@@ -288,6 +345,7 @@ export function FileTree({
   const tree = buildFileTree(files);
   const isLoading = useFileTreeStore((state) => state.isLoading);
   const { revalidate } = useProjectFilesRevalidation(projectId);
+  const { uploadFile } = useFileUpload({ projectId });
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -319,7 +377,6 @@ export function FileTree({
       revalidate();
     } catch (error) {
       toast.error('Failed to move');
-      console.error(error);
     }
   };
 
@@ -327,6 +384,53 @@ export function FileTree({
     id: projectId,
     data: { type: 'folder', path: '' },
   });
+
+  const [isRootExternalDragOver, setIsRootExternalDragOver] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+
+  const handleExternalDropToFolder = async (files: File[], targetFolder: string) => {
+    if (isUploading) return;
+
+    setIsUploading(true);
+    try {
+      for (const file of files) {
+        await uploadFile(file, targetFolder || null);
+      }
+      toast.success(`Uploaded ${files.length} file${files.length > 1 ? 's' : ''}`);
+    } catch (error) {
+      toast.error('Failed to upload files');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleRootExternalDragOver = (e: React.DragEvent) => {
+    if (e.dataTransfer.types.includes('Files')) {
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = 'copy';
+    }
+  };
+
+  const handleRootExternalDragEnter = (e: React.DragEvent) => {
+    if (e.dataTransfer.types.includes('Files')) {
+      setIsRootExternalDragOver(true);
+    }
+  };
+
+  const handleRootExternalDragLeave = () => {
+    setIsRootExternalDragOver(false);
+  };
+
+  const handleRootExternalDrop = async (e: React.DragEvent) => {
+    if (e.dataTransfer.files.length > 0 && !isUploading) {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsRootExternalDragOver(false);
+      const files = Array.from(e.dataTransfer.files);
+      await handleExternalDropToFolder(files, '');
+    }
+  };
 
   // Get all folder paths to expand them by default
   const getAllFolderPaths = (nodes: FileNode[]): string[] => {
@@ -386,14 +490,24 @@ export function FileTree({
   );
 
   return (
-    <div className={cn('w-full', isLoading && 'pointer-events-none opacity-50')}>
+    <div className={cn('w-full', (isLoading || isUploading) && 'pointer-events-none opacity-50')}>
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <Tree
           key={`${projectId}-${files.length}`}
           className="w-full overflow-visible"
           initialExpandedItems={initialExpandedItems}
         >
-          <div ref={setRootDropRef} className={cn(isRootOver && "ring-2 ring-primary/50 rounded-md")}>
+          <div
+            ref={setRootDropRef}
+            className={cn(
+              (isRootOver || isRootExternalDragOver) && "ring-2 ring-primary/50 rounded-md",
+              isUploading && "opacity-60"
+            )}
+            onDragOver={handleRootExternalDragOver}
+            onDragEnter={handleRootExternalDragEnter}
+            onDragLeave={handleRootExternalDragLeave}
+            onDrop={handleRootExternalDrop}
+          >
             <Folder element={rootFolderName} value={projectId} action={rootAction}>
               {tree.map((node) => (
                 <FileTreeNode
@@ -402,6 +516,7 @@ export function FileTree({
                   selectedFileId={selectedFileId}
                   onFileSelect={onFileSelect}
                   projectId={projectId}
+                  onExternalDrop={handleExternalDropToFolder}
                 />
               ))}
             </Folder>

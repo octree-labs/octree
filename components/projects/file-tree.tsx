@@ -26,7 +26,7 @@ import {
   DragEndEvent,
   useDraggable,
   useDroppable,
-  closestCenter,
+  rectIntersection,
   PointerSensor,
   useSensor,
   useSensors,
@@ -335,6 +335,70 @@ function FileTreeNode({
   );
 }
 
+interface RootFolderDroppableProps {
+  projectId: string;
+  rootFolderName: string;
+  rootAction: React.ReactNode;
+  isUploading: boolean;
+  onExternalDragOver: (e: React.DragEvent) => void;
+  onExternalDragEnter: (e: React.DragEvent) => void;
+  onExternalDragLeave: () => void;
+  onExternalDrop: (e: React.DragEvent) => void;
+  children: React.ReactNode;
+}
+
+function RootFolderDroppable({
+  projectId,
+  rootFolderName,
+  rootAction,
+  isUploading,
+  onExternalDragOver,
+  onExternalDragEnter,
+  onExternalDragLeave,
+  onExternalDrop,
+  children,
+}: RootFolderDroppableProps) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: projectId,
+    data: { type: 'folder', path: '' },
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        isOver && "ring-2 ring-primary/50 rounded-md",
+        isUploading && "opacity-60"
+      )}
+      onDragOver={onExternalDragOver}
+      onDragEnter={onExternalDragEnter}
+      onDragLeave={onExternalDragLeave}
+      onDrop={onExternalDrop}
+    >
+      <Folder element={rootFolderName} value={projectId} action={rootAction}>
+        {children}
+      </Folder>
+    </div>
+  );
+}
+
+function MoveToRootDropzone({ projectId }: { projectId: string }) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: `${projectId}-root-dropzone`,
+    data: { type: 'folder', path: '' },
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        "mt-1 mx-1 h-1 rounded-full transition-all",
+        isOver && "bg-primary h-1.5"
+      )}
+    />
+  );
+}
+
 export function FileTree({
   files,
   selectedFileId,
@@ -379,11 +443,6 @@ export function FileTree({
       toast.error('Failed to move');
     }
   };
-
-  const { setNodeRef: setRootDropRef, isOver: isRootOver } = useDroppable({
-    id: projectId,
-    data: { type: 'folder', path: '' },
-  });
 
   const [isRootExternalDragOver, setIsRootExternalDragOver] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -491,36 +550,38 @@ export function FileTree({
 
   return (
     <div className={cn('w-full', (isLoading || isUploading) && 'pointer-events-none opacity-50')}>
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={rectIntersection}
+        onDragEnd={handleDragEnd}
+      >
         <Tree
           key={`${projectId}-${files.length}`}
           className="w-full overflow-visible"
           initialExpandedItems={initialExpandedItems}
         >
-          <div
-            ref={setRootDropRef}
-            className={cn(
-              (isRootOver || isRootExternalDragOver) && "ring-2 ring-primary/50 rounded-md",
-              isUploading && "opacity-60"
-            )}
-            onDragOver={handleRootExternalDragOver}
-            onDragEnter={handleRootExternalDragEnter}
-            onDragLeave={handleRootExternalDragLeave}
-            onDrop={handleRootExternalDrop}
+          <RootFolderDroppable
+            projectId={projectId}
+            rootFolderName={rootFolderName}
+            rootAction={rootAction}
+            isUploading={isUploading}
+            onExternalDragOver={handleRootExternalDragOver}
+            onExternalDragEnter={handleRootExternalDragEnter}
+            onExternalDragLeave={handleRootExternalDragLeave}
+            onExternalDrop={handleRootExternalDrop}
           >
-            <Folder element={rootFolderName} value={projectId} action={rootAction}>
-              {tree.map((node) => (
-                <FileTreeNode
-                  key={node.path}
-                  node={node}
-                  selectedFileId={selectedFileId}
-                  onFileSelect={onFileSelect}
-                  projectId={projectId}
-                  onExternalDrop={handleExternalDropToFolder}
-                />
-              ))}
-            </Folder>
-          </div>
+            {tree.map((node) => (
+              <FileTreeNode
+                key={node.path}
+                node={node}
+                selectedFileId={selectedFileId}
+                onFileSelect={onFileSelect}
+                projectId={projectId}
+                onExternalDrop={handleExternalDropToFolder}
+              />
+            ))}
+          </RootFolderDroppable>
+          <MoveToRootDropzone projectId={projectId} />
         </Tree>
       </DndContext>
     </div>

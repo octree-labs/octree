@@ -3,7 +3,19 @@ import { headers } from 'next/headers';
 import Stripe from 'stripe';
 import { createClient as createServerClient } from '@supabase/supabase-js';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+function getStripeSecretKey(): string {
+  if (process.env.STRIPE_SECRET_KEY) return process.env.STRIPE_SECRET_KEY;
+  const env = process.env.ENVIRONMENT || process.env.NODE_ENV || 'dev';
+  const isProd = env === 'prod' || env === 'production';
+  if (isProd) {
+    if (!process.env.STRIPE_PROD_SECRET_KEY) throw new Error('STRIPE_PROD_SECRET_KEY not set');
+    return process.env.STRIPE_PROD_SECRET_KEY;
+  }
+  if (!process.env.STRIPE_TEST_SECRET_KEY) throw new Error('STRIPE_TEST_SECRET_KEY not set');
+  return process.env.STRIPE_TEST_SECRET_KEY;
+}
+
+const stripe = new Stripe(getStripeSecretKey(), {
   apiVersion: '2025-02-24.acacia',
 });
 

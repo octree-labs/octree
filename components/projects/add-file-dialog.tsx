@@ -18,8 +18,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Plus, Upload, FileText } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { createClient } from '@/lib/supabase/client';
+import { useProjectFilesRevalidation } from '@/hooks/use-file-editor';
 import { FileActions } from '@/stores/file';
-import { useFileUpload } from '@/hooks/use-file-upload';
 import {
   ALL_SUPPORTED_FILE_TYPES,
   MAX_BINARY_FILE_SIZE,
@@ -49,22 +49,11 @@ export function AddFileDialog({
   const setOpen = onOpenChange || setInternalOpen;
   const [fileName, setFileName] = useState('');
   const [fileContent, setFileContent] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadMode, setUploadMode] = useState<'create' | 'upload'>('create');
-
-  const { uploadFile, createFile, isUploading, error: uploadError } = useFileUpload({
-    projectId,
-    onUploadComplete: () => {
-      handleOpenChange(false);
-      onFileAdded?.();
-    }
-  });
-
-  // Local state for UI error handling (e.g. validtion)
-  const [validationError, setValidationError] = useState<string | null>(null);
-
-  // Combine errors
-  const error = validationError || uploadError;
+  const { revalidate } = useProjectFilesRevalidation(projectId);
 
   const onDrop = (acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {
@@ -72,7 +61,7 @@ export function AddFileDialog({
       setSelectedFile(file);
       setFileName(file.name);
       setUploadMode('upload');
-      setValidationError(null);
+      setError(null);
     }
   };
 
@@ -86,20 +75,132 @@ export function AddFileDialog({
     accept: ALL_SUPPORTED_FILE_TYPES,
     maxSize: MAX_BINARY_FILE_SIZE,
     multiple: false,
-    disabled: isUploading,
+    disabled: isLoading,
     noClick: true,
     noKeyboard: true,
   });
 
   const handleFileUpload = async () => {
     if (!selectedFile || !fileName.trim()) return;
-    await uploadFile(selectedFile, targetFolder, fileName);
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const supabase = createClient();
+
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.user) {
+        throw new Error('User not authenticated');
+      }
+
+      const fullPath = targetFolder ? `${targetFolder}/${fileName}` : fileName;
+      const mimeType = getContentTypeByFilename(fileName);
+      const { error: uploadError } = await supabase.storage
+        .from('octree')
+        .upload(`projects/${projectId}/${fullPath}`, selectedFile, {
+          cacheControl: '3600',
+          upsert: false,
+          contentType: mimeType,
+        });
+
+      if (uploadError) {
+        throw new Error('Failed to upload file');
+      }
+
+      const { data: storageFiles } = await supabase.storage
+        .from('octree')
+        .list(`projects/${projectId}`);
+
+      const uploadedFile = storageFiles?.find((f) => f.name === fileName);
+
+      if (uploadedFile) {
+        FileActions.setSelectedFile({
+          id: uploadedFile.id,
+          name: uploadedFile.name,
+          project_id: projectId,
+          size: uploadedFile.metadata?.size || null,
+          type: uploadedFile.metadata?.mimetype || null,
+          uploaded_at: uploadedFile.created_at,
+        });
+      }
+
+      handleOpenChange(false);
+      onFileAdded?.();
+
+      revalidate().then(() => {
+        toast.success('File uploaded successfully');
+      });
+    } catch (error) {
+      setError(
+        error instanceof Error ? error.message : 'Failed to upload file'
+      );
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleCreateFile = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!fileName.trim()) return;
-    await createFile(fileName, fileContent || '', targetFolder);
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const supabase = createClient();
+
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.user) {
+        throw new Error('User not authenticated');
+      }
+
+      const fullPath = targetFolder ? `${targetFolder}/${fileName}` : fileName;
+      const content = fileContent || '';
+      const mimeType = getContentTypeByFilename(fileName);
+      const blob = new Blob([content], { type: mimeType });
+
+      const { error: uploadError } = await supabase.storage
+        .from('octree')
+        .upload(`projects/${projectId}/${fullPath}`, blob, {
+          cacheControl: '3600',
+          upsert: false,
+          contentType: mimeType,
+        });
+
+      if (uploadError) {
+        throw new Error('Failed to create file');
+      }
+
+      const { data: storageFiles } = await supabase.storage
+        .from('octree')
+        .list(`projects/${projectId}`);
+
+      const createdFile = storageFiles?.find((f) => f.name === fileName);
+
+      handleOpenChange(false);
+      onFileAdded?.();
+      await revalidate();
+
+      if (createdFile) {
+        FileActions.setSelectedFile({
+          id: createdFile.id,
+          name: createdFile.name,
+          project_id: projectId,
+          size: createdFile.metadata?.size || null,
+          type: createdFile.metadata?.mimetype || null,
+          uploaded_at: createdFile.created_at,
+        });
+      }
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to add file');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleSubmit =
@@ -111,7 +212,7 @@ export function AddFileDialog({
       setFileName('');
       setFileContent('');
       setSelectedFile(null);
-      setValidationError(null);
+      setError(null);
       setUploadMode('create');
     }
   };
@@ -142,11 +243,11 @@ export function AddFileDialog({
           onValueChange={(value) => setUploadMode(value as 'create' | 'upload')}
         >
           <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="create" disabled={isUploading}>
+            <TabsTrigger value="create" disabled={isLoading}>
               <FileText className="h-4 w-4" />
               Create File
             </TabsTrigger>
-            <TabsTrigger value="upload" disabled={isUploading}>
+            <TabsTrigger value="upload" disabled={isLoading}>
               <Upload className="h-4 w-4" />
               Upload File
             </TabsTrigger>
@@ -170,12 +271,12 @@ export function AddFileDialog({
                   type="button"
                   variant="outline"
                   onClick={() => handleOpenChange(false)}
-                  disabled={isUploading}
+                  disabled={isLoading}
                 >
                   Cancel
                 </Button>
-                <Button type="submit" disabled={isUploading}>
-                  {isUploading ? 'Creating...' : 'Create File'}
+                <Button type="submit" disabled={isLoading}>
+                  {isLoading ? 'Creating...' : 'Create File'}
                 </Button>
               </DialogFooter>
             </form>
@@ -192,7 +293,7 @@ export function AddFileDialog({
                     isDragActive
                       ? 'border-primary bg-primary/5'
                       : 'border-neutral-300 hover:border-neutral-400 hover:bg-neutral-50',
-                    isUploading && 'cursor-not-allowed opacity-50'
+                    isLoading && 'cursor-not-allowed opacity-50'
                   )}
                 >
                   <input {...getInputProps()} />
@@ -212,7 +313,7 @@ export function AddFileDialog({
                           openFileDialog();
                         }}
                         className="font-medium text-primary hover:underline"
-                        disabled={isUploading}
+                        disabled={isLoading}
                       >
                         Click to upload
                       </button>
@@ -255,16 +356,16 @@ export function AddFileDialog({
                   type="button"
                   variant="outline"
                   onClick={() => handleOpenChange(false)}
-                  disabled={isUploading}
+                  disabled={isLoading}
                 >
                   Cancel
                 </Button>
                 <Button
                   type="button"
                   onClick={handleSubmit}
-                  disabled={isUploading || !selectedFile}
+                  disabled={isLoading || !selectedFile}
                 >
-                  {isUploading ? 'Uploading...' : 'Upload File'}
+                  {isLoading ? 'Uploading...' : 'Upload File'}
                 </Button>
               </DialogFooter>
             </div>

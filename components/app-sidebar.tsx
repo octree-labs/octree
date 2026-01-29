@@ -52,7 +52,6 @@ export function AppSidebar({ userName }: AppSidebarProps) {
   const targetFolder = useTargetFolder();
   const renameProjectDialog = useRenameProjectDialog();
 
-
   if (!project) return null;
 
   return (

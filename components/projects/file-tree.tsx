@@ -500,6 +500,18 @@ export function FileTree({
     }
   };
 
+  const NodeRenderer = useCallback(
+    (props: NodeRendererProps<FileNode>) => (
+      <Node
+        {...props}
+        selectedFileId={selectedFileId}
+        onFileSelect={onFileSelect}
+        projectId={projectId}
+      />
+    ),
+    [selectedFileId, onFileSelect, projectId]
+  );
+
   return (
     <div
       ref={containerRef}
@@ -544,14 +556,7 @@ export function FileTree({
           return false;
         }}
       >
-        {(props) => (
-          <Node
-            {...props}
-            selectedFileId={selectedFileId}
-            onFileSelect={onFileSelect}
-            projectId={projectId}
-          />
-        )}
+        {NodeRenderer}
       </Tree>
     </div>
   );

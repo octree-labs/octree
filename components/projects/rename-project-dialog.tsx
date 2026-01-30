@@ -113,7 +113,7 @@ export function RenameProjectDialog({
           >
             Cancel
           </Button>
-          <Button onClick={handleRename} disabled={isLoading}>
+          <Button onClick={handleRename} variant="gradient" disabled={isLoading}>
             {isLoading ? (
               <>
                 <Loader2 className="animate-spin" />

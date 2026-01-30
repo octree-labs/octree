@@ -157,7 +157,7 @@ export function ChangePasswordDialog() {
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={isLoading}>
+            <Button type="submit" variant="gradient" disabled={isLoading}>
               {isLoading ? 'Changing...' : 'Change Password'}
             </Button>
           </DialogFooter>

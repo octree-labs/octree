@@ -540,3 +540,34 @@ export const deleteFolder = async (
     throw new Error('Failed to delete folder contents');
   }
 };
+
+export const uploadFile = async (
+  projectId: string,
+  file: File,
+  folderPath: string | null
+): Promise<void> => {
+  const supabase = createClient();
+
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (!session?.user) {
+    throw new Error('User not authenticated');
+  }
+
+  const filePath = folderPath
+    ? `projects/${projectId}/${folderPath}/${file.name}`
+    : `projects/${projectId}/${file.name}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from('octree')
+    .upload(filePath, file, {
+      cacheControl: '3600',
+      upsert: false,
+    });
+
+  if (uploadError) {
+    throw new Error(`Failed to upload file: ${file.name}`);
+  }
+};

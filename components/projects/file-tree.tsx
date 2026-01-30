@@ -23,7 +23,7 @@ import {
 import { cn } from '@/lib/utils';
 import type { ProjectFile } from '@/hooks/use-file-editor';
 import { useFileTreeStore, FileTreeActions } from '@/stores/file-tree';
-import { moveFile, moveFolder } from '@/lib/requests/project';
+import { moveFile, moveFolder, uploadFile } from '@/lib/requests/project';
 import { useProjectFilesRevalidation } from '@/hooks/use-file-editor';
 import { toast } from 'sonner';
 
@@ -154,14 +154,76 @@ function Node({
 }) {
   const isRoot = node.data.path === '';
   const isSelected = node.data.file?.id === selectedFileId;
+  const [isDragOver, setIsDragOver] = useState(false);
+  const { revalidate } = useProjectFilesRevalidation(projectId);
+
+  const handleDragOver = (e: React.DragEvent) => {
+    if (e.dataTransfer.types.includes('Files')) {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragOver(true);
+    }
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    if (e.dataTransfer.types.includes('Files')) {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragOver(false);
+    }
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    if (e.dataTransfer.types.includes('Files')) {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragOver(false);
+
+      const files = Array.from(e.dataTransfer.files);
+      if (files.length === 0) return;
+
+      let targetPath = node.data.path;
+      // If dropped on a file, upload to its parent folder
+      if (node.data.type === 'file') {
+        const parts = node.data.path.split('/');
+        parts.pop();
+        targetPath = parts.join('/');
+      }
+      // If dropped on root node, path is empty string which is correct for uploadFile
+
+      const toastId = toast.loading(`Uploading ${files.length} file(s)...`);
+
+      try {
+        await Promise.all(
+          files.map((file) =>
+            uploadFile(projectId, file, targetPath || null)
+          )
+        );
+        await revalidate();
+        toast.dismiss(toastId);
+        toast.success('Files uploaded successfully');
+      } catch (error) {
+        toast.dismiss(toastId);
+        toast.error(
+          error instanceof Error ? error.message : 'Failed to upload files'
+        );
+      }
+    }
+  };
 
   if (node.data.type === 'folder') {
     return (
       <div
         ref={dragHandle}
         style={style}
-        className="flex items-center justify-between gap-1 px-2"
+        className={cn(
+          "flex items-center justify-between gap-1 px-2 rounded-md transition-colors",
+          (isDragOver || node.willReceiveDrop) && "bg-sidebar-accent text-sidebar-accent-foreground"
+        )}
         onClick={() => node.toggle()}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
       >
         <div className="flex flex-1 items-center gap-1 cursor-pointer">
           {node.isOpen ? (
@@ -249,12 +311,20 @@ function Node({
   }
 
   return (
-    <div ref={dragHandle} style={style} className="flex items-center gap-1 px-2">
+    <div ref={dragHandle} style={style} className={cn(
+      "flex items-center gap-1 px-2 rounded-md transition-colors relative",
+      (node.willReceiveDrop || (isDragOver && node.data.type === 'folder')) && "bg-sidebar-accent text-sidebar-accent-foreground"
+    )}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       <button
         type="button"
         className={cn(
           'flex flex-1 items-center gap-1 rounded-md pr-1 text-sm duration-200 ease-in-out',
-          isSelected && 'bg-muted'
+          isSelected && 'bg-muted',
+          (isDragOver || node.willReceiveDrop) && 'bg-transparent'
         )}
         onClick={() => node.data.file && onFileSelect(node.data.file)}
       >
@@ -303,6 +373,11 @@ function Node({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+      {isDragOver && node.data.type === 'file' && (
+        <div className="absolute bottom-0 left-2 right-2 h-0.5 bg-blue-500 z-10 pointer-events-none">
+          <div className="absolute -left-1 -top-1 h-2.5 w-2.5 rounded-full border-2 border-blue-500 bg-background" />
+        </div>
+      )}
     </div>
   );
 }
@@ -380,10 +455,59 @@ export function FileTree({
     [projectId, revalidate]
   );
 
+  const [isRootDragOver, setIsRootDragOver] = useState(false);
+
+  const handleRootDragOver = (e: React.DragEvent) => {
+    if (e.dataTransfer.types.includes('Files')) {
+      e.preventDefault();
+      setIsRootDragOver(true);
+    }
+  };
+
+  const handleRootDragLeave = (e: React.DragEvent) => {
+    if (e.dataTransfer.types.includes('Files')) {
+      e.preventDefault();
+      setIsRootDragOver(false);
+    }
+  };
+
+  const handleRootDrop = async (e: React.DragEvent) => {
+    if (e.dataTransfer.types.includes('Files')) {
+      e.preventDefault();
+      setIsRootDragOver(false);
+
+      const files = Array.from(e.dataTransfer.files);
+      if (files.length === 0) return;
+
+      const toastId = toast.loading(`Uploading ${files.length} file(s)...`);
+
+      try {
+        await Promise.all(
+          files.map((file) => uploadFile(projectId, file, null))
+        );
+        await revalidate();
+        toast.dismiss(toastId);
+        toast.success('Files uploaded successfully');
+      } catch (error) {
+        toast.dismiss(toastId);
+        toast.error(
+          error instanceof Error ? error.message : 'Failed to upload files'
+        );
+      }
+    }
+  };
+
   return (
     <div
       ref={containerRef}
-      className={cn('w-full h-full', isLoading && 'pointer-events-none opacity-50')}
+      className={cn(
+        'w-full h-full transition-colors',
+        isLoading && 'pointer-events-none opacity-50',
+        isRootDragOver && 'bg-sidebar-accent/50'
+      )}
+      onDragOver={handleRootDragOver}
+      onDragLeave={handleRootDragLeave}
+      onDrop={handleRootDrop}
     >
       <Tree<FileNode>
         ref={treeRef}
@@ -404,9 +528,12 @@ export function FileTree({
           if (!dragNode?.data || !parentNode?.data) return true;
           if (parentNode.data.type !== 'folder') return true;
 
+          // If dragging a folder, prevent dropping into its own children
           if (
+            dragNode.data.type === 'folder' &&
             parentNode.data.path !== '' &&
-            dragNode.data.path.startsWith(parentNode.data.path + '/')
+            (parentNode.data.path === dragNode.data.path ||
+              parentNode.data.path.startsWith(dragNode.data.path + '/'))
           ) {
             return true;
           }

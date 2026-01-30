@@ -301,6 +301,91 @@ export const deleteFile = async (
   }
 };
 
+export const moveFile = async (
+  projectId: string,
+  sourcePath: string,
+  destFolderPath: string | null
+): Promise<void> => {
+  const supabase = createClient();
+
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (!session?.user) {
+    throw new Error('User not authenticated');
+  }
+
+  const fileName = sourcePath.split('/').pop();
+  if (!fileName) {
+    throw new Error('Invalid source path');
+  }
+
+  const destPath = destFolderPath ? `${destFolderPath}/${fileName}` : fileName;
+
+  if (sourcePath === destPath) {
+    return;
+  }
+
+  const { error: moveError } = await supabase.storage
+    .from('octree')
+    .move(
+      `projects/${projectId}/${sourcePath}`,
+      `projects/${projectId}/${destPath}`
+    );
+
+  if (moveError) {
+    throw new Error('Failed to move file');
+  }
+};
+
+export const moveFolder = async (
+  projectId: string,
+  sourcePath: string,
+  destFolderPath: string | null
+): Promise<void> => {
+  const supabase = createClient();
+
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (!session?.user) {
+    throw new Error('User not authenticated');
+  }
+
+  const folderName = sourcePath.split('/').pop();
+  if (!folderName) {
+    throw new Error('Invalid source path');
+  }
+
+  const destPath = destFolderPath
+    ? `${destFolderPath}/${folderName}`
+    : folderName;
+
+  if (sourcePath === destPath) {
+    return;
+  }
+
+  const filePaths = await listFolderFiles(supabase, projectId, sourcePath);
+
+  for (const filePath of filePaths) {
+    const relativePath = filePath.replace(
+      `projects/${projectId}/${sourcePath}/`,
+      ''
+    );
+    const newPath = `projects/${projectId}/${destPath}/${relativePath}`;
+
+    const { error: moveError } = await supabase.storage
+      .from('octree')
+      .move(filePath, newPath);
+
+    if (moveError) {
+      throw new Error(`Failed to move file: ${relativePath}`);
+    }
+  }
+};
+
 export const createFolder = async (
   projectId: string,
   folderPath: string

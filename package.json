@@ -63,6 +63,7 @@
     "openai": "^5.23.2",
     "posthog-js": "^1.282.0",
     "react": "19.1.2",
+    "react-arborist": "^3.4.3",
     "react-dom": "19.1.2",
     "react-dropzone": "^14.3.8",
     "react-markdown": "^10.1.0",

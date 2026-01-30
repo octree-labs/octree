@@ -200,7 +200,7 @@ export function CompilationError({
 
               <div className="flex gap-2 border-t border-slate-100 pt-3">
                 {onFixWithAI && (
-                  <Button onClick={onFixWithAI} size="sm" className="text-xs">
+                  <Button onClick={onFixWithAI} size="sm" variant="gradient" className="text-xs">
                     <WandSparkles className="mr-1 h-3 w-3" />
                     Fix with AI
                   </Button>
@@ -371,7 +371,7 @@ export function CompilationError({
 
           <div className="flex gap-3 border-t border-slate-100 pt-4">
             {onFixWithAI && (
-              <Button onClick={onFixWithAI}>
+              <Button onClick={onFixWithAI} variant="gradient">
                 <WandSparkles className="h-4 w-4" />
                 Fix with AI
               </Button>

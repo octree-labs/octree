@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback, memo } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  Send,
+  ArrowUp,
   Loader2,
   FileText,
   Paperclip,
@@ -302,13 +302,14 @@ export function GeneratePageContent() {
                   <Button
                     type="submit"
                     size="icon"
+                    variant="gradient"
                     disabled={!prompt.trim() || isGenerating}
-                    className="h-8 w-8 shrink-0 rounded-full"
+                    className="h-8 w-8 shrink-0"
                   >
                     {isGenerating ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
-                      <Send className="h-4 w-4" />
+                      <ArrowUp className="h-4 w-4" />
                     )}
                     <span className="sr-only">Send prompt</span>
                   </Button>

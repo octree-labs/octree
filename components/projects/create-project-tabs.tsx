@@ -146,7 +146,7 @@ export function CreateProjectTabs({
                 Cancel
               </Button>
             </DialogClose>
-            <Button type="submit" disabled={isLoading || !title.trim()}>
+            <Button type="submit" variant="gradient" disabled={isLoading || !title.trim()}>
               {isLoading ? 'Creating...' : 'Create'}
             </Button>
           </DialogFooter>
@@ -231,6 +231,7 @@ export function CreateProjectTabs({
             </DialogClose>
             <Button
               type="submit"
+              variant="gradient"
               disabled={isLoading || !selectedFile}
               className="gap-2"
             >

@@ -122,7 +122,7 @@ export function RenameFileDialog({
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={isLoading}>
+            <Button type="submit" variant="gradient" disabled={isLoading}>
               {isLoading ? 'Saving...' : 'Save changes'}
             </Button>
           </DialogFooter>

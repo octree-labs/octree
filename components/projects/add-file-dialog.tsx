@@ -275,7 +275,7 @@ export function AddFileDialog({
                 >
                   Cancel
                 </Button>
-                <Button type="submit" disabled={isLoading}>
+                <Button type="submit" variant="gradient" disabled={isLoading}>
                   {isLoading ? 'Creating...' : 'Create File'}
                 </Button>
               </DialogFooter>

@@ -67,7 +67,7 @@ export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
                         ))}
                     </div>
                 )}
-                <Card className="max-w-[85%] bg-primary px-4 py-3 text-primary-foreground">
+                <Card className="max-w-[85%] bg-gradient-to-t from-primary to-primary/85 text-primary-foreground border border-zinc-950/25 shadow-md shadow-zinc-950/20 ring-1 ring-inset ring-white/20 dark:border-white/20 dark:ring-transparent px-4 py-3">
                     <p className="whitespace-pre-wrap text-sm">{message.content}</p>
                 </Card>
             </div>

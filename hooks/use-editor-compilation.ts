@@ -206,13 +206,17 @@ export function useEditorCompilation({
       if (!response.ok) {
         const errorMessage =
           data?.error || `Compilation failed with status ${response.status}`;
-        const structuredError = createCompilationError(data, errorMessage);
-        setCompilationError(structuredError);
 
-        // If a partial PDF is available despite the error, display it
+        // If a PDF was produced despite errors, show it without error UI
         if (data?.pdf) {
           setPdfData(data.pdf);
+          setCompilationError(null);
+          return true;
         }
+
+        // No PDF produced - show the error
+        const structuredError = createCompilationError(data, errorMessage);
+        setCompilationError(structuredError);
 
         handled = true;
         throw new Error(errorMessage);

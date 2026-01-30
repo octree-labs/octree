@@ -7,7 +7,10 @@ import {
   SUPPORTED_TEXT_FILE_EXTENSIONS,
 } from '@/lib/constants/file-types';
 
-const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB limit
+// Route segment config for App Router
+export const maxDuration = 60; // 60 seconds timeout for processing
+export const dynamic = 'force-dynamic';
+
 const MAX_FILES = 1000; // Maximum files per project
 
 interface ExtractedFile {
@@ -17,7 +20,14 @@ interface ExtractedFile {
   size: number;
 }
 
+interface ImportRequest {
+  storagePath: string;
+  fileName: string;
+}
+
 export async function POST(request: NextRequest) {
+  let tempStoragePath: string | null = null;
+
   try {
     const supabase = await createClient();
     const {
@@ -28,32 +38,50 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Parse form data
-    const formData = await request.formData();
-    const file = formData.get('file') as File;
+    // Parse JSON body (small payload - just the storage path)
+    const body: ImportRequest = await request.json();
+    const { storagePath, fileName } = body;
 
-    if (!file) {
-      return NextResponse.json({ error: 'No file provided' }, { status: 400 });
+    if (!storagePath || !fileName) {
+      return NextResponse.json(
+        { error: 'Missing storagePath or fileName' },
+        { status: 400 }
+      );
     }
 
+    // Validate the storage path belongs to this user's temp folder
+    if (!storagePath.startsWith(`temp-imports/${user.id}/`)) {
+      return NextResponse.json(
+        { error: 'Invalid storage path' },
+        { status: 403 }
+      );
+    }
+
+    tempStoragePath = storagePath;
+
     // Check file type
-    if (!file.name.endsWith('.zip')) {
+    if (!fileName.endsWith('.zip')) {
       return NextResponse.json(
         { error: 'Only ZIP files are supported' },
         { status: 400 }
       );
     }
 
-    // Check file size
-    if (file.size > MAX_FILE_SIZE) {
+    // Download the ZIP file from Supabase Storage
+    const { data: fileData, error: downloadError } = await supabase.storage
+      .from('octree')
+      .download(storagePath);
+
+    if (downloadError || !fileData) {
+      console.error('Failed to download ZIP from storage:', downloadError);
       return NextResponse.json(
-        { error: 'File size exceeds 50MB limit' },
-        { status: 400 }
+        { error: 'Failed to retrieve uploaded file' },
+        { status: 500 }
       );
     }
 
     // Read and extract ZIP
-    const arrayBuffer = await file.arrayBuffer();
+    const arrayBuffer = await fileData.arrayBuffer();
     const zip = new JSZip();
     const zipContent = await zip.loadAsync(arrayBuffer);
 
@@ -132,7 +160,7 @@ export async function POST(request: NextRequest) {
 
     // Determine project title from filename
     const projectTitle =
-      file.name.replace('.zip', '').slice(0, 120) || 'Imported Project';
+      fileName.replace('.zip', '').slice(0, 120) || 'Imported Project';
 
     // Create project
     const projectData: TablesInsert<'projects'> = {
@@ -191,6 +219,14 @@ export async function POST(request: NextRequest) {
       console.error('Some files failed to upload:', uploadErrors);
     }
 
+    // Clean up temp file after successful processing
+    if (tempStoragePath) {
+      await supabase.storage
+        .from('octree')
+        .remove([tempStoragePath])
+        .catch((err) => console.error('Failed to cleanup temp file:', err));
+    }
+
     return NextResponse.json({
       success: true,
       projectId: project.id,
@@ -200,6 +236,16 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error('Import error:', error);
+
+    // Clean up temp file on error
+    if (tempStoragePath) {
+      const supabase = await createClient();
+      await supabase.storage
+        .from('octree')
+        .remove([tempStoragePath])
+        .catch((err) => console.error('Failed to cleanup temp file:', err));
+    }
+
     return NextResponse.json(
       { error: 'Failed to import project. Please check your ZIP file.' },
       { status: 500 }

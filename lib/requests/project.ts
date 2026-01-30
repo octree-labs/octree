@@ -171,27 +171,83 @@ export interface ImportProjectResponse {
   error?: string;
 }
 
+/**
+ * Import a project from a ZIP file.
+ * 
+ * This uses a two-step process to bypass Vercel's 4.5MB body size limit:
+ * 1. Upload the ZIP directly to Supabase Storage from the client
+ * 2. Call the API with the storage path for processing
+ */
 export const importProject = async (
   file: File
 ): Promise<ImportProjectResponse> => {
-  const formData = new FormData();
-  formData.append('file', file);
+  const supabase = createClient();
 
-  const response = await fetch('/api/import-project', {
-    method: 'POST',
-    body: formData,
-  });
+  // Check authentication
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
 
-  const data = await response.json();
-
-  if (!response.ok) {
+  if (!session?.user) {
     return {
       success: false,
-      error: data.error || 'Failed to import project',
+      error: 'Not authenticated',
     };
   }
 
-  return data;
+  // Generate a unique temp path for the upload
+  const tempId = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+  const tempPath = `temp-imports/${session.user.id}/${tempId}/${file.name}`;
+
+  try {
+    // Step 1: Upload ZIP directly to Supabase Storage (bypasses Vercel limit)
+    const { error: uploadError } = await supabase.storage
+      .from('octree')
+      .upload(tempPath, file, {
+        cacheControl: '3600',
+        upsert: false,
+      });
+
+    if (uploadError) {
+      console.error('Failed to upload ZIP to storage:', uploadError);
+      return {
+        success: false,
+        error: 'Failed to upload file. Please try again.',
+      };
+    }
+
+    // Step 2: Call API with the storage path (small JSON payload)
+    const response = await fetch('/api/import-project', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        storagePath: tempPath,
+        fileName: file.name,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      // Clean up temp file on error
+      await supabase.storage.from('octree').remove([tempPath]);
+      return {
+        success: false,
+        error: data.error || 'Failed to import project',
+      };
+    }
+
+    return data;
+  } catch (error) {
+    // Clean up temp file on error
+    await supabase.storage.from('octree').remove([tempPath]).catch(() => {});
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to import project',
+    };
+  }
 };
 
 export const renameFile = async (

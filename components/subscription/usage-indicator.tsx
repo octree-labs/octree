@@ -152,6 +152,23 @@ export function UsageIndicator({ className }: UsageIndicatorProps) {
     monthlyLimitReached,
   } = usageData;
 
+  const handleSubscribe = async () => {
+    try {
+      const response = await fetch('/api/checkout-session', {
+        method: 'POST',
+      });
+
+      if (response.ok) {
+        const checkoutUrl = await response.text();
+        window.location.href = checkoutUrl;
+      } else {
+        console.error('Failed to create checkout session');
+      }
+    } catch (error) {
+      console.error('Error creating checkout session:', error);
+    }
+  };
+
   return (
     <div className={`flex items-center gap-2 ${className}`}>
       <Badge
@@ -173,6 +190,16 @@ export function UsageIndicator({ className }: UsageIndicatorProps) {
         </Tooltip>
       ) : (
         <Info className="h-4 w-4 text-neutral-500" />
+      )}
+      {(limitReached || monthlyLimitReached) && !usageData.isPro && (
+        <Button
+          size="sm"
+          onClick={handleSubscribe}
+          className="h-7 gap-1.5 bg-gradient-to-b from-primary-light to-primary px-3 text-white hover:from-primary-light/90 hover:to-primary/90"
+        >
+          <CreditCard className="h-3 w-3" />
+          <span className="text-xs font-medium">Subscribe</span>
+        </Button>
       )}
       <span className="text-xs text-neutral-600">
         {usageData.isPro

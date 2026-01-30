@@ -14,6 +14,7 @@ import {
   FolderIcon,
   FolderOpenIcon,
 } from 'lucide-react';
+import { SidebarMenuButton } from '@/components/ui/sidebar';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -217,7 +218,7 @@ function Node({
         ref={dragHandle}
         style={style}
         className={cn(
-          "flex items-center justify-between gap-1 px-2 rounded-md transition-colors",
+          "flex items-center justify-between gap-1 px-1.5 rounded-md transition-colors",
           (isDragOver || node.willReceiveDrop) && "bg-sidebar-accent text-sidebar-accent-foreground"
         )}
         onClick={() => node.toggle()}
@@ -225,14 +226,14 @@ function Node({
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
-        <div className="flex flex-1 items-center gap-1 cursor-pointer">
+        <SidebarMenuButton className="p-0 hover:bg-transparent active:bg-transparent">
           {node.isOpen ? (
             <FolderOpenIcon className="size-4" />
           ) : (
             <FolderIcon className="size-4" />
           )}
           <span>{node.data.name}</span>
-        </div>
+        </SidebarMenuButton>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
@@ -312,32 +313,29 @@ function Node({
 
   return (
     <div ref={dragHandle} style={style} className={cn(
-      "flex items-center gap-1 px-2 rounded-md transition-colors relative",
-      (node.willReceiveDrop || (isDragOver && node.data.type === 'folder')) && "bg-sidebar-accent text-sidebar-accent-foreground"
+      "flex items-center gap-1 px-1.5 rounded-md transition-colors relative group/file",
+      node.willReceiveDrop && "bg-sidebar-accent text-sidebar-accent-foreground"
     )}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      <button
-        type="button"
-        className={cn(
-          'flex flex-1 items-center gap-1 rounded-md pr-1 text-sm duration-200 ease-in-out',
-          isSelected && 'bg-muted',
-          (isDragOver || node.willReceiveDrop) && 'bg-transparent'
-        )}
+      <SidebarMenuButton
+        isActive={isSelected}
         onClick={() => node.data.file && onFileSelect(node.data.file)}
+        className="data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground"
       >
         {getFileIcon(node.data.name)}
-        <span className={cn('truncate', isSelected && 'font-medium')}>
+        <span className="truncate">
           {node.data.name}
         </span>
-      </button>
+      </SidebarMenuButton>
+
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            className="inline-flex h-5 w-5 items-center justify-center rounded-sm text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+            className="invisible group-hover/file:visible flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-gray-500 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 absolute right-1"
             aria-label={`Open options for ${node.data.name}`}
           >
             <MoreVertical className="h-3.5 w-3.5" />

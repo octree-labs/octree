@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useCallback } from 'react';
+import { useRef, useCallback, useState, useEffect } from 'react';
 import { Tree, NodeRendererProps } from 'react-arborist';
 import {
   FileText,
@@ -315,10 +315,28 @@ export function FileTree({
   projectId,
 }: FileTreeProps) {
   const treeRef = useRef<any>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const isLoading = useFileTreeStore((state) => state.isLoading);
   const { revalidate } = useProjectFilesRevalidation(projectId);
+  const [size, setSize] = useState({ width: 300, height: 600 });
 
   const data = buildFileTree(files, projectId, rootFolderName);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const updateSize = () => {
+      const { width, height } = container.getBoundingClientRect();
+      setSize({ width, height });
+    };
+
+    const resizeObserver = new ResizeObserver(updateSize);
+    resizeObserver.observe(container);
+    updateSize();
+
+    return () => resizeObserver.disconnect();
+  }, []);
 
   const handleMove = useCallback(
     async (args: { dragIds: string[]; parentId: string | null; index: number }) => {
@@ -363,13 +381,16 @@ export function FileTree({
   );
 
   return (
-    <div className={cn('w-full', isLoading && 'pointer-events-none opacity-50')}>
+    <div
+      ref={containerRef}
+      className={cn('w-full h-full', isLoading && 'pointer-events-none opacity-50')}
+    >
       <Tree<FileNode>
         ref={treeRef}
         data={data}
         openByDefault={true}
-        width={280}
-        height={600}
+        width={size.width}
+        height={size.height}
         indent={20}
         rowHeight={32}
         onMove={handleMove}

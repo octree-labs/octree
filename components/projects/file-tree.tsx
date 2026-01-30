@@ -214,33 +214,133 @@ function Node({
 
   if (node.data.type === 'folder') {
     return (
+      <div style={style}>
+        <div
+          ref={dragHandle}
+          className={cn(
+            "flex items-center justify-between gap-1 mx-2 px-2 py-0.5 rounded-md transition-colors",
+            (isDragOver || node.willReceiveDrop) && "bg-sidebar-accent text-sidebar-accent-foreground"
+          )}
+          onClick={() => node.toggle()}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
+          <SidebarMenuButton className="p-0 hover:bg-transparent active:bg-transparent h-auto flex items-center gap-1 w-full">
+            {node.isOpen ? (
+              <FolderOpenIcon className="size-4 shrink-0" />
+            ) : (
+              <FolderIcon className="size-4 shrink-0" />
+            )}
+            <span className="truncate">{node.data.name}</span>
+          </SidebarMenuButton>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                aria-label={`Open options for ${node.data.name}`}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <MoreVertical className="h-3.5 w-3.5" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                className="cursor-pointer gap-2 px-1.5 py-1 text-xs"
+                onSelect={() =>
+                  FileTreeActions.openAddFileDialog(
+                    isRoot ? undefined : node.data.path
+                  )
+                }
+              >
+                <Plus className="size-3.5" />
+                Add File
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="cursor-pointer gap-2 px-1.5 py-1 text-xs"
+                onSelect={() =>
+                  FileTreeActions.openAddFolderDialog(
+                    isRoot ? undefined : node.data.path
+                  )
+                }
+              >
+                <FolderPlus className="size-3.5" />
+                Add Folder
+              </DropdownMenuItem>
+              {!isRoot && (
+                <>
+                  <DropdownMenuItem
+                    className="cursor-pointer gap-2 px-1.5 py-1 text-xs"
+                    onSelect={() =>
+                      FileTreeActions.openRenameFolderDialog(node.data.path)
+                    }
+                  >
+                    <Pencil className="size-3.5" />
+                    Rename
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="cursor-pointer gap-2 px-1.5 py-1 text-xs"
+                    variant="destructive"
+                    onSelect={() =>
+                      FileTreeActions.openDeleteFolderDialog(node.data.path)
+                    }
+                  >
+                    <Trash2 className="size-3.5 text-destructive" />
+                    Delete
+                  </DropdownMenuItem>
+                </>
+              )}
+              {isRoot && (
+                <DropdownMenuItem
+                  className="cursor-pointer gap-2 px-1.5 py-1 text-xs"
+                  onSelect={() =>
+                    FileTreeActions.openRenameProjectDialog(
+                      projectId,
+                      node.data.name
+                    )
+                  }
+                >
+                  <Pencil className="size-3.5" />
+                  Rename
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={style}>
       <div
         ref={dragHandle}
-        style={style}
         className={cn(
-          "flex items-center justify-between gap-1 px-1.5 rounded-md transition-colors",
-          (isDragOver || node.willReceiveDrop) && "bg-sidebar-accent text-sidebar-accent-foreground"
+          "flex items-center gap-1 mx-2 rounded-md transition-colors relative group/file",
+          node.willReceiveDrop && "bg-sidebar-accent text-sidebar-accent-foreground"
         )}
-        onClick={() => node.toggle()}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
-        <SidebarMenuButton className="p-0 hover:bg-transparent active:bg-transparent">
-          {node.isOpen ? (
-            <FolderOpenIcon className="size-4" />
-          ) : (
-            <FolderIcon className="size-4" />
-          )}
-          <span>{node.data.name}</span>
+        <SidebarMenuButton
+          isActive={isSelected}
+          onClick={() => node.data.file && onFileSelect(node.data.file)}
+          className="data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground h-8 px-2 w-full"
+        >
+          {getFileIcon(node.data.name)}
+          <span className="truncate">
+            {node.data.name}
+          </span>
         </SidebarMenuButton>
+
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              className="inline-flex h-5 w-5 items-center justify-center rounded-sm text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+              className="invisible group-hover/file:visible flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-gray-500 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 absolute right-1"
               aria-label={`Open options for ${node.data.name}`}
-              onClick={(e) => e.stopPropagation()}
             >
               <MoreVertical className="h-3.5 w-3.5" />
             </button>
@@ -249,133 +349,38 @@ function Node({
             <DropdownMenuItem
               className="cursor-pointer gap-2 px-1.5 py-1 text-xs"
               onSelect={() =>
-                FileTreeActions.openAddFileDialog(
-                  isRoot ? undefined : node.data.path
+                node.data.file &&
+                FileTreeActions.openRenameFileDialog(
+                  node.data.file.id,
+                  node.data.file.name
                 )
               }
             >
-              <Plus className="size-3.5" />
-              Add File
+              <Pencil className="size-3.5" />
+              Rename
             </DropdownMenuItem>
             <DropdownMenuItem
               className="cursor-pointer gap-2 px-1.5 py-1 text-xs"
+              variant="destructive"
               onSelect={() =>
-                FileTreeActions.openAddFolderDialog(
-                  isRoot ? undefined : node.data.path
+                node.data.file &&
+                FileTreeActions.openDeleteFileDialog(
+                  node.data.file.id,
+                  node.data.file.name
                 )
               }
             >
-              <FolderPlus className="size-3.5" />
-              Add Folder
+              <Trash2 className="size-3.5 text-destructive" />
+              Delete
             </DropdownMenuItem>
-            {!isRoot && (
-              <>
-                <DropdownMenuItem
-                  className="cursor-pointer gap-2 px-1.5 py-1 text-xs"
-                  onSelect={() =>
-                    FileTreeActions.openRenameFolderDialog(node.data.path)
-                  }
-                >
-                  <Pencil className="size-3.5" />
-                  Rename
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  className="cursor-pointer gap-2 px-1.5 py-1 text-xs"
-                  variant="destructive"
-                  onSelect={() =>
-                    FileTreeActions.openDeleteFolderDialog(node.data.path)
-                  }
-                >
-                  <Trash2 className="size-3.5 text-destructive" />
-                  Delete
-                </DropdownMenuItem>
-              </>
-            )}
-            {isRoot && (
-              <DropdownMenuItem
-                className="cursor-pointer gap-2 px-1.5 py-1 text-xs"
-                onSelect={() =>
-                  FileTreeActions.openRenameProjectDialog(
-                    projectId,
-                    node.data.name
-                  )
-                }
-              >
-                <Pencil className="size-3.5" />
-                Rename
-              </DropdownMenuItem>
-            )}
           </DropdownMenuContent>
         </DropdownMenu>
+        {isDragOver && node.data.type === 'file' && (
+          <div className="absolute bottom-0 left-2 right-2 h-0.5 bg-blue-500 z-10 pointer-events-none">
+            <div className="absolute -left-1 -top-1 h-2.5 w-2.5 rounded-full border-2 border-blue-500 bg-background" />
+          </div>
+        )}
       </div>
-    );
-  }
-
-  return (
-    <div ref={dragHandle} style={style} className={cn(
-      "flex items-center gap-1 px-1.5 rounded-md transition-colors relative group/file",
-      node.willReceiveDrop && "bg-sidebar-accent text-sidebar-accent-foreground"
-    )}
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
-    >
-      <SidebarMenuButton
-        isActive={isSelected}
-        onClick={() => node.data.file && onFileSelect(node.data.file)}
-        className="data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground"
-      >
-        {getFileIcon(node.data.name)}
-        <span className="truncate">
-          {node.data.name}
-        </span>
-      </SidebarMenuButton>
-
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            className="invisible group-hover/file:visible flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-gray-500 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 absolute right-1"
-            aria-label={`Open options for ${node.data.name}`}
-          >
-            <MoreVertical className="h-3.5 w-3.5" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem
-            className="cursor-pointer gap-2 px-1.5 py-1 text-xs"
-            onSelect={() =>
-              node.data.file &&
-              FileTreeActions.openRenameFileDialog(
-                node.data.file.id,
-                node.data.file.name
-              )
-            }
-          >
-            <Pencil className="size-3.5" />
-            Rename
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            className="cursor-pointer gap-2 px-1.5 py-1 text-xs"
-            variant="destructive"
-            onSelect={() =>
-              node.data.file &&
-              FileTreeActions.openDeleteFileDialog(
-                node.data.file.id,
-                node.data.file.name
-              )
-            }
-          >
-            <Trash2 className="size-3.5 text-destructive" />
-            Delete
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-      {isDragOver && node.data.type === 'file' && (
-        <div className="absolute bottom-0 left-2 right-2 h-0.5 bg-blue-500 z-10 pointer-events-none">
-          <div className="absolute -left-1 -top-1 h-2.5 w-2.5 rounded-full border-2 border-blue-500 bg-background" />
-        </div>
-      )}
     </div>
   );
 }

@@ -210,122 +210,134 @@ export function GeneratePageContent() {
         </header>
 
         <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-muted/30">
-          {!messages.length ? (
-            <WelcomeState onSelectSuggestion={setPrompt} />
-          ) : (
-            <div className="min-h-0 flex-1 overflow-y-auto p-4">
-              <div className="mx-auto max-w-3xl space-y-4">
-                {messages.map((message) => (
-                  <MessageBubble
-                    key={message.id}
-                    message={message}
-                    isStreaming={
-                      message.role === 'assistant' &&
-                      isGenerating &&
-                      message.content !== 'Document generated successfully. Preview it below or open it in Octree.' &&
-                      !error
-                    }
-                  />
-                ))}
-
-                {currentLatex && !isGenerating && (
-                  <DocumentPreview
-                    latex={currentLatex}
-                    title={currentTitle}
-                    onOpenInOctree={handleOpenInOctree}
-                    isCreatingProject={isCreatingProject}
-                  />
-                )}
-
-                {error && !isGenerating && (
-                  <Card className="border-destructive bg-destructive/10 p-3">
-                    <p className="text-sm text-destructive">{error}</p>
-                  </Card>
-                )}
-                <AutoScrollDiv messages={messages} />
-              </div>
-            </div>
-          )}
-
-          <div className="shrink-0 border-t bg-background p-4">
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                generateDocument();
-              }}
-              className="mx-auto max-w-3xl"
-            >
-              <Card
-                className={`flex flex-col gap-2 p-2 transition-colors ${isDragging ? 'border-primary ring-2 ring-primary/20 bg-muted/50' : ''
-                  }`}
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
-              >
-                <AttachedFilesList files={attachedFiles} onRemove={handleRemoveFile} />
-
-                <Textarea
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder="Describe the document you want to create..."
-                  className="min-h-[60px] flex-1 resize-none border-0 bg-transparent p-2 shadow-none focus-visible:ring-0"
-                  disabled={isGenerating}
-                />
-
-                <div className="flex items-center justify-between">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        disabled={isGenerating}
-                      >
-                        <Paperclip className="h-4 w-4" />
-                        <span className="sr-only">Attach file</span>
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start">
-                      <DropdownMenuItem onClick={() => triggerFileInput('image/png,image/jpeg,image/gif,image/webp')}>
-                        <ImageIcon className="mr-2 h-4 w-4" />
-                        Image
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => triggerFileInput('application/pdf')}>
-                        <FileIcon className="mr-2 h-4 w-4" />
-                        PDF Document
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-
-                  <Button
-                    type="submit"
-                    size="icon"
-                    variant="gradient"
-                    disabled={!prompt.trim() || isGenerating}
-                    className="h-8 w-8 shrink-0"
+          <div className="relative flex-1 overflow-y-auto">
+            {error && (
+              <div className="sticky top-0 z-50 p-4">
+                <Card className="mx-auto max-w-3xl relative border-destructive bg-destructive/10 p-3 pr-10 shadow-lg">
+                  <p className="text-sm text-destructive">{error}</p>
+                  <button
+                    type="button"
+                    onClick={() => setError(null)}
+                    className="absolute right-2 top-2 rounded-md p-1 hover:bg-destructive/20"
                   >
-                    {isGenerating ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <ArrowUp className="h-4 w-4" />
-                    )}
-                    <span className="sr-only">Send prompt</span>
-                  </Button>
+                    <X className="h-4 w-4 text-destructive" />
+                  </button>
+                </Card>
+              </div>
+            )}
+
+            {!messages.length ? (
+              <WelcomeState onSelectSuggestion={setPrompt} />
+            ) : (
+              <div className="p-4">
+                <div className="mx-auto max-w-3xl space-y-4">
+                  {messages.map((message) => (
+                    <MessageBubble
+                      key={message.id}
+                      message={message}
+                      isStreaming={
+                        message.role === 'assistant' &&
+                        isGenerating &&
+                        message.content !== 'Document generated successfully. Preview it below or open it in Octree.' &&
+                        !error
+                      }
+                    />
+                  ))}
+
+                  {currentLatex && !isGenerating && (
+                    <DocumentPreview
+                      latex={currentLatex}
+                      title={currentTitle}
+                      onOpenInOctree={handleOpenInOctree}
+                      isCreatingProject={isCreatingProject}
+                    />
+                  )}
+                  
+                  <AutoScrollDiv messages={messages} />
                 </div>
-              </Card>
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                onChange={handleFileSelect}
-                className="hidden"
-                aria-hidden="true"
-              />
-            </form>
+              </div>
+            )}
           </div>
         </main>
+
+        <div className="shrink-0 border-t bg-background p-4">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              generateDocument();
+            }}
+            className="mx-auto max-w-3xl"
+          >
+            <Card
+              className={`flex flex-col gap-2 p-2 transition-colors ${isDragging ? 'border-primary ring-2 ring-primary/20 bg-muted/50' : ''
+                }`}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+            >
+              <AttachedFilesList files={attachedFiles} onRemove={handleRemoveFile} />
+
+              <Textarea
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Describe the document you want to create..."
+                className="min-h-[60px] flex-1 resize-none border-0 bg-transparent p-2 shadow-none focus-visible:ring-0"
+                disabled={isGenerating}
+              />
+
+              <div className="flex items-center justify-between">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      disabled={isGenerating}
+                    >
+                      <Paperclip className="h-4 w-4" />
+                      <span className="sr-only">Attach file</span>
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start">
+                    <DropdownMenuItem onClick={() => triggerFileInput('image/png,image/jpeg,image/gif,image/webp')}>
+                      <ImageIcon className="mr-2 h-4 w-4" />
+                      Image
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => triggerFileInput('application/pdf')}>
+                      <FileIcon className="mr-2 h-4 w-4" />
+                      PDF Document
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
+                <Button
+                  type="submit"
+                  size="icon"
+                  variant="gradient"
+                  disabled={!prompt.trim() || isGenerating}
+                  className="h-8 w-8 shrink-0"
+                >
+                  {isGenerating ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <ArrowUp className="h-4 w-4" />
+                  )}
+                  <span className="sr-only">Send prompt</span>
+                </Button>
+              </div>
+            </Card>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              onChange={handleFileSelect}
+              className="hidden"
+              aria-hidden="true"
+            />
+          </form>
+        </div>
       </SidebarInset>
     </>
   );

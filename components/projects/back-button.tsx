@@ -70,7 +70,7 @@ export function BackButton() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={handleCancel}>
+            <Button variant="gradient" onClick={handleCancel}>
               Cancel
             </Button>
             <Button onClick={handleConfirmBack}>Go back</Button>

@@ -24,6 +24,7 @@ import {
 import { cn } from '@/lib/utils';
 import type { ProjectFile } from '@/hooks/use-file-editor';
 import { useFileTreeStore, FileTreeActions } from '@/stores/file-tree';
+import { FileActions } from '@/stores/file';
 import { moveFile, moveFolder, uploadFile } from '@/lib/requests/project';
 import { useProjectFilesRevalidation } from '@/hooks/use-file-editor';
 import { toast } from 'sonner';
@@ -436,22 +437,29 @@ export function FileTree({
             ? parentId.replace('folder-', '')
             : parentId;
 
+      const type = sourceNode.data.type;
+      const sourcePath = sourceNode.data.path;
+
+      // Optimistic update
+      FileActions.optimisticMove(sourcePath, destFolderPath, type);
+
       try {
-        if (sourceNode.data.type === 'file') {
-          await moveFile(projectId, sourceNode.data.path, destFolderPath);
+        if (type === 'file') {
+          await moveFile(projectId, sourcePath, destFolderPath);
         } else {
-          await moveFolder(projectId, sourceNode.data.path, destFolderPath);
+          await moveFolder(projectId, sourcePath, destFolderPath);
         }
 
         await revalidate();
         toast.success(
-          `${sourceNode.data.type === 'file' ? 'File' : 'Folder'} moved successfully`
+          `${type === 'file' ? 'File' : 'Folder'} moved successfully`
         );
       } catch (error) {
+        await revalidate();
         toast.error(
           error instanceof Error
             ? error.message
-            : `Failed to move ${sourceNode.data.type}`
+            : `Failed to move ${type}`
         );
       }
     },

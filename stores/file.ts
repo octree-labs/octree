@@ -95,6 +95,64 @@ export const FileActions = {
     const selectedFile = selectInitialFile(files);
     setState({ projectFiles: files, selectedFile });
   },
+
+  optimisticMove: (
+    sourcePath: string,
+    destFolderPath: string | null,
+    type: 'file' | 'folder'
+  ) => {
+    const { projectFiles, selectedFile } = getState();
+    if (!projectFiles) return;
+
+    const name = sourcePath.split('/').pop();
+    if (!name) return;
+
+    const destPath = destFolderPath ? `${destFolderPath}/${name}` : name;
+    if (sourcePath === destPath) return;
+
+    const updatedFiles = projectFiles.map((pf) => {
+      let newPath = pf.file.name;
+
+      if (type === 'file' && pf.file.name === sourcePath) {
+        newPath = destPath;
+      } else if (type === 'folder') {
+        if (pf.file.name === sourcePath) {
+          newPath = destPath;
+        } else if (pf.file.name.startsWith(sourcePath + '/')) {
+          newPath = pf.file.name.replace(sourcePath, destPath);
+        }
+      }
+
+      if (newPath === pf.file.name) return pf;
+
+      return {
+        ...pf,
+        file: { ...pf.file, name: newPath },
+        document: pf.document
+          ? { ...pf.document, filename: newPath, title: newPath }
+          : null,
+      };
+    });
+
+    setState({ projectFiles: updatedFiles });
+
+    if (selectedFile) {
+      if (type === 'file' && selectedFile.name === sourcePath) {
+        setState({ selectedFile: { ...selectedFile, name: destPath } });
+      } else if (
+        type === 'folder' &&
+        (selectedFile.name === sourcePath ||
+          selectedFile.name.startsWith(sourcePath + '/'))
+      ) {
+        setState({
+          selectedFile: {
+            ...selectedFile,
+            name: selectedFile.name.replace(sourcePath, destPath),
+          },
+        });
+      }
+    }
+  },
 };
 
 const selectInitialFile = (files: ProjectFile[]): FileData | null => {

@@ -70,10 +70,14 @@ export function BackButton() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="gradient" onClick={handleCancel}>
+            <Button
+              variant="outline"
+              onClick={handleCancel}
+              className="bg-white"
+            >
               Cancel
             </Button>
-            <Button onClick={handleConfirmBack}>Go back</Button>
+            <Button onClick={handleConfirmBack} variant="gradient">Go back</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -1,9 +1,32 @@
 import { useState, useCallback, useEffect } from 'react';
-import { Eye, Code, FileText, Check, Copy, Download, Loader2, ExternalLink } from 'lucide-react';
+import { Eye, Code, FileText, Download, Loader2, ExternalLink, Lock } from 'lucide-react';
 import { MonacoEditor } from '@/components/editor/monaco-editor';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
+} from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import { FeatureList } from '@/app/onboarding/components/feature-list';
+import { createCheckoutSession } from '@/lib/requests/subscription';
 import PDFViewer from '@/components/pdf-viewer';
+import { toast } from 'sonner';
+import { CompilationError } from '@/types/compilation';
+
+interface SubscriptionData {
+    hasSubscription: boolean;
+    usage: {
+        editCount: number;
+        remainingEdits: number | null;
+        isPro: boolean;
+        hasUnlimitedEdits: boolean;
+    };
+}
 
 interface DocumentPreviewProps {
     latex: string;
@@ -12,15 +35,16 @@ interface DocumentPreviewProps {
     isCreatingProject: boolean;
 }
 
-import { CompilationError } from '@/types/compilation';
-
 export function DocumentPreview({ latex, title, onOpenInOctree, isCreatingProject }: DocumentPreviewProps) {
     const [viewMode, setViewMode] = useState<'code' | 'pdf'>('code');
-    const [copied, setCopied] = useState(false);
     const [pdfData, setPdfData] = useState<string | null>(null);
     const [pdfError, setPdfError] = useState<CompilationError | null>(null);
     const [isCompiling, setIsCompiling] = useState(false);
     const [hasCompilationWarnings, setHasCompilationWarnings] = useState(false);
+    const [subscriptionData, setSubscriptionData] = useState<SubscriptionData | null>(null);
+    const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
+    const [isMonthly, setIsMonthly] = useState(true);
+    const [isCheckoutLoading, setIsCheckoutLoading] = useState(false);
 
     useEffect(() => {
         setPdfData(null);
@@ -29,13 +53,42 @@ export function DocumentPreview({ latex, title, onOpenInOctree, isCreatingProjec
         setHasCompilationWarnings(false);
     }, [latex]);
 
-    const handleCopy = useCallback(async () => {
-        await navigator.clipboard.writeText(latex);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-    }, [latex]);
+    useEffect(() => {
+        fetch('/api/subscription-status')
+            .then((res) => (res.ok ? res.json() : null))
+            .then((data) => setSubscriptionData(data))
+            .catch(() => {});
+    }, []);
+
+    const isPro = Boolean(
+        subscriptionData?.hasSubscription ||
+        subscriptionData?.usage?.isPro ||
+        subscriptionData?.usage?.hasUnlimitedEdits
+    );
+
+    const canExport = subscriptionData !== null && isPro;
+
+    const handleSubscribe = async () => {
+        setIsCheckoutLoading(true);
+        try {
+            const checkoutUrl = await createCheckoutSession({
+                annual: isMonthly,
+                withTrial: false,
+            });
+            window.location.href = checkoutUrl;
+        } catch (error) {
+            console.error('Failed to create checkout session:', error);
+            toast.error('Failed to start checkout. Please try again.');
+            setIsCheckoutLoading(false);
+        }
+    };
 
     const handleDownload = useCallback(async () => {
+        if (!canExport) {
+            setShowUpgradeDialog(true);
+            return;
+        }
+
         let pdfToDownload = pdfData;
 
         if (!pdfToDownload && !isCompiling) {
@@ -95,7 +148,7 @@ export function DocumentPreview({ latex, title, onOpenInOctree, isCreatingProjec
         link.click();
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
-    }, [pdfData, isCompiling, latex, title]);
+    }, [pdfData, isCompiling, latex, title, canExport]);
 
     const compilePdf = useCallback(async () => {
         if (pdfData || isCompiling) return;
@@ -142,43 +195,99 @@ export function DocumentPreview({ latex, title, onOpenInOctree, isCreatingProjec
     }, [viewMode, pdfData, isCompiling, compilePdf]);
 
     return (
-        <Card className="flex flex-col overflow-hidden border bg-background">
-            <div className="flex items-center justify-between border-b px-4 py-2">
-                <div className="flex items-center gap-2">
-                    <FileText className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm font-medium">Generated Document</span>
-                </div>
-                <div className="flex items-center gap-2">
-                    <div className="flex rounded-md border">
-                        <Button
-                            variant={viewMode === 'code' ? 'secondary' : 'ghost'}
-                            size="sm"
-                            onClick={() => setViewMode('code')}
-                            className="rounded-r-none"
-                        >
-                            <Code className="mr-1.5 h-3.5 w-3.5" />
-                            LaTeX
-                        </Button>
-                        <Button
-                            variant={viewMode === 'pdf' ? 'secondary' : 'ghost'}
-                            size="sm"
-                            onClick={() => setViewMode('pdf')}
-                            className="rounded-l-none"
-                        >
-                            <Eye className="mr-1.5 h-3.5 w-3.5" />
-                            Preview
-                        </Button>
+        <>
+            <Dialog open={showUpgradeDialog} onOpenChange={setShowUpgradeDialog}>
+                <DialogContent className="max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Upgrade to Export</DialogTitle>
+                        <DialogDescription>
+                            Export features are available for Pro subscribers.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="space-y-6">
+                        <div className="flex items-center gap-2">
+                            <Switch
+                                id="monthly-switch-preview"
+                                checked={isMonthly}
+                                onCheckedChange={setIsMonthly}
+                            />
+                            <Label
+                                htmlFor="monthly-switch-preview"
+                                className="cursor-pointer text-sm font-normal"
+                            >
+                                Save 50% with monthly billing
+                            </Label>
+                        </div>
+
+                        <div className="space-y-1">
+                            <div className="flex items-baseline gap-2">
+                                <p className="text-3xl font-bold">{isMonthly ? '$2.49' : '$4.99'}</p>
+                                <p className="text-sm text-muted-foreground">per week</p>
+                            </div>
+                            {isMonthly && (
+                                <p className="text-xs text-muted-foreground">Billed monthly at $9.99/month</p>
+                            )}
+                            {!isMonthly && (
+                                <p className="text-xs text-muted-foreground">Billed weekly</p>
+                            )}
+                        </div>
+
+                        <div>
+                            <p className="mb-4 text-sm font-semibold">Octree Pro includes</p>
+                            <FeatureList />
+                        </div>
+
+                        <div className="flex gap-2">
+                            <Button
+                                variant="outline"
+                                className="flex-1"
+                                onClick={() => setShowUpgradeDialog(false)}
+                            >
+                                Cancel
+                            </Button>
+                            <Button
+                                className="flex-1"
+                                variant="gradient"
+                                onClick={handleSubscribe}
+                                disabled={isCheckoutLoading}
+                            >
+                                {isCheckoutLoading ? 'Loading...' : 'Subscribe Now'}
+                            </Button>
+                        </div>
                     </div>
-                    <Button variant="outline" size="sm" onClick={handleCopy}>
-                        {copied ? (
-                            <Check className="mr-1.5 h-3.5 w-3.5" />
-                        ) : (
-                            <Copy className="mr-1.5 h-3.5 w-3.5" />
-                        )}
-                        {copied ? 'Copied' : 'Copy'}
-                    </Button>
+                </DialogContent>
+            </Dialog>
+
+            <Card className="flex flex-col overflow-hidden border bg-background">
+                <div className="flex items-center justify-between border-b px-4 py-2">
+                    <div className="flex items-center gap-2">
+                        <FileText className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm font-medium">Generated Document</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <div className="flex rounded-md border">
+                            <Button
+                                variant={viewMode === 'code' ? 'secondary' : 'ghost'}
+                                size="sm"
+                                onClick={() => setViewMode('code')}
+                                className="rounded-r-none"
+                            >
+                                <Code className="mr-1.5 h-3.5 w-3.5" />
+                                LaTeX
+                            </Button>
+                            <Button
+                                variant={viewMode === 'pdf' ? 'secondary' : 'ghost'}
+                                size="sm"
+                                onClick={() => setViewMode('pdf')}
+                                className="rounded-l-none"
+                            >
+                                <Eye className="mr-1.5 h-3.5 w-3.5" />
+                                Preview
+                            </Button>
+                        </div>
+                    </div>
                 </div>
-            </div>
 
             <div className="h-[600px] overflow-hidden">
                 {viewMode === 'code' ? (
@@ -224,6 +333,7 @@ export function DocumentPreview({ latex, title, onOpenInOctree, isCreatingProjec
                         <Download className="h-4 w-4" />
                     )}
                     {isCompiling ? 'Compiling...' : 'Download PDF'}
+                    {!canExport && <Lock className="ml-1.5 h-3 w-3 text-amber-500" />}
                 </Button>
                 <Button
                     variant="gradient"
@@ -239,5 +349,6 @@ export function DocumentPreview({ latex, title, onOpenInOctree, isCreatingProjec
                 </Button>
             </div>
         </Card>
+        </>
     );
 }

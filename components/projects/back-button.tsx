@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -13,9 +13,26 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 
+function pushHistoryState() {
+  const url = window.location.pathname + window.location.search;
+  window.history.pushState({ backConfirm: true }, '', url);
+}
+
 export function BackButton() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    pushHistoryState();
+
+    const handlePopState = () => {
+      setOpen(true);
+      pushHistoryState();
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   const handleBackClick = (e: React.MouseEvent) => {
     e.preventDefault();

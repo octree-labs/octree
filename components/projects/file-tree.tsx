@@ -201,7 +201,7 @@ function Node({
             uploadFile(projectId, file, targetPath || null)
           )
         );
-        await revalidate();
+        await revalidate(false);
         toast.dismiss(toastId);
         toast.success('Files uploaded successfully');
       } catch (error) {
@@ -450,7 +450,7 @@ export function FileTree({
           await moveFolder(projectId, sourcePath, destFolderPath);
         }
 
-        await revalidate();
+        await revalidate(false);
         toast.success(
           `${type === 'file' ? 'File' : 'Folder'} moved successfully`
         );
@@ -496,7 +496,7 @@ export function FileTree({
         await Promise.all(
           files.map((file) => uploadFile(projectId, file, null))
         );
-        await revalidate();
+        await revalidate(false);
         toast.dismiss(toastId);
         toast.success('Files uploaded successfully');
       } catch (error) {
@@ -525,7 +525,6 @@ export function FileTree({
       ref={containerRef}
       className={cn(
         'w-full h-full transition-colors',
-        isLoading && 'pointer-events-none opacity-50',
         isRootDragOver && 'bg-sidebar-accent/50'
       )}
       onDragOver={handleRootDragOver}

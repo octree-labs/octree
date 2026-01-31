@@ -83,16 +83,20 @@ export function useFileEditor(): FileEditorState {
 }
 
 export function useProjectFilesRevalidation(projectId: string) {
-  const revalidate = async () => {
-    FileTreeActions.setLoading(true);
-    
+  const revalidate = async (shouldBlock: boolean = true) => {
+    if (shouldBlock) {
+      FileTreeActions.setLoading(true);
+    }
+
     try {
       await Promise.all([
         mutate(['project-files', projectId]),
         mutate(['files', projectId]),
       ]);
     } finally {
-      FileTreeActions.setLoading(false);
+      if (shouldBlock) {
+        FileTreeActions.setLoading(false);
+      }
     }
   };
 

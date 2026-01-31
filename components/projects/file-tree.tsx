@@ -21,11 +21,26 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { ProjectFile } from '@/hooks/use-file-editor';
 import { useFileTreeStore, FileTreeActions } from '@/stores/file-tree';
 import { FileActions } from '@/stores/file';
-import { moveFile, moveFolder, uploadFile } from '@/lib/requests/project';
+import {
+  moveFile,
+  moveFolder,
+  uploadFile,
+  checkFileExists,
+  deleteFile,
+} from '@/lib/requests/project';
 import { useProjectFilesRevalidation } from '@/hooks/use-file-editor';
 import { toast } from 'sonner';
 
@@ -149,10 +164,12 @@ function Node({
   selectedFileId,
   onFileSelect,
   projectId,
+  onUploadFiles,
 }: NodeRendererProps<FileNode> & {
   selectedFileId: string | null;
   onFileSelect: (file: ProjectFile['file']) => void;
   projectId: string;
+  onUploadFiles: (files: File[], targetPath: string | null) => Promise<void>;
 }) {
   const isRoot = node.data.path === '';
   const isSelected = node.data.file?.id === selectedFileId;
@@ -191,25 +208,8 @@ function Node({
         parts.pop();
         targetPath = parts.join('/');
       }
-      // If dropped on root node, path is empty string which is correct for uploadFile
-
-      const toastId = toast.loading(`Uploading ${files.length} file(s)...`);
-
-      try {
-        await Promise.all(
-          files.map((file) =>
-            uploadFile(projectId, file, targetPath || null)
-          )
-        );
-        await revalidate(false);
-        toast.dismiss(toastId);
-        toast.success('Files uploaded successfully');
-      } catch (error) {
-        toast.dismiss(toastId);
-        toast.error(
-          error instanceof Error ? error.message : 'Failed to upload files'
-        );
-      }
+      
+      await onUploadFiles(files, targetPath || null);
     }
   };
 
@@ -398,6 +398,12 @@ export function FileTree({
   const isLoading = useFileTreeStore((state) => state.isLoading);
   const { revalidate } = useProjectFilesRevalidation(projectId);
   const [size, setSize] = useState({ width: 300, height: 600 });
+  const [conflict, setConflict] = useState<{
+    type: 'upload' | 'move';
+    name: string;
+    onConfirm: () => Promise<void>;
+    onCancel: () => void;
+  } | null>(null);
 
   const data = buildFileTree(files, projectId, rootFolderName);
 
@@ -418,7 +424,11 @@ export function FileTree({
   }, []);
 
   const handleMove = useCallback(
-    async (args: { dragIds: string[]; parentId: string | null; index: number }) => {
+    async (args: {
+      dragIds: string[];
+      parentId: string | null;
+      index: number;
+    }) => {
       const { dragIds, parentId } = args;
       const dragId = dragIds[0];
 
@@ -434,8 +444,8 @@ export function FileTree({
         parentId === projectId
           ? null
           : parentId?.startsWith('folder-')
-            ? parentId.replace('folder-', '')
-            : parentId;
+          ? parentId.replace('folder-', '')
+          : parentId;
 
       const type = sourceNode.data.type;
       const sourcePath = sourceNode.data.path;
@@ -443,28 +453,130 @@ export function FileTree({
       // Optimistic update
       FileActions.optimisticMove(sourcePath, destFolderPath, type);
 
-      try {
-        if (type === 'file') {
-          await moveFile(projectId, sourcePath, destFolderPath);
-        } else {
-          await moveFolder(projectId, sourcePath, destFolderPath);
-        }
+      const performMove = async (overwrite = false) => {
+        try {
+          if (type === 'file') {
+            if (overwrite) {
+              const fileName = sourcePath.split('/').pop();
+              if (fileName) {
+                const destPath = destFolderPath
+                  ? `${destFolderPath}/${fileName}`
+                  : fileName;
+                // Delete the destination file before moving to simulate overwrite
+                // We pass empty string for fileId as it's not used in deleteFile implementation for storage removal
+                await deleteFile(projectId, '', destPath).catch(() => {});
+              }
+            }
+            await moveFile(projectId, sourcePath, destFolderPath);
+          } else {
+            await moveFolder(projectId, sourcePath, destFolderPath);
+          }
 
-        await revalidate(false);
-        toast.success(
-          `${type === 'file' ? 'File' : 'Folder'} moved successfully`
-        );
-      } catch (error) {
-        await revalidate();
-        toast.error(
-          error instanceof Error
-            ? error.message
-            : `Failed to move ${type}`
-        );
+          await revalidate(false);
+          toast.success(
+            `${type === 'file' ? 'File' : 'Folder'} moved successfully`
+          );
+        } catch (error) {
+          await revalidate();
+          toast.error(
+            error instanceof Error ? error.message : `Failed to move ${type}`
+          );
+        }
+      };
+
+      if (type === 'file') {
+        const fileName = sourcePath.split('/').pop();
+        if (fileName) {
+          const destPath = destFolderPath
+            ? `${destFolderPath}/${fileName}`
+            : fileName;
+            
+          // Don't check if moving to same location
+          if (sourcePath !== destPath) {
+            const exists = await checkFileExists(projectId, destPath);
+
+            if (exists) {
+              setConflict({
+                type: 'move',
+                name: fileName,
+                onConfirm: async () => {
+                  setConflict(null);
+                  await performMove(true);
+                },
+                onCancel: async () => {
+                  setConflict(null);
+                  const files = await revalidate();
+                  if (files) {
+                    FileActions.setFiles(files);
+                  }
+                },
+              });
+              return;
+            }
+          }
+        }
       }
+
+      await performMove();
     },
     [projectId, revalidate]
   );
+
+  const processUploads = useCallback(async (
+    files: File[],
+    targetPath: string | null,
+    toastId?: string | number
+  ) => {
+    if (files.length === 0) {
+      await revalidate(false);
+      if (toastId) toast.dismiss(toastId);
+      toast.success('Files processed successfully');
+      return;
+    }
+
+    const currentFile = files[0];
+    const remainingFiles = files.slice(1);
+    const path = targetPath
+      ? `${targetPath}/${currentFile.name}`
+      : currentFile.name;
+
+    const exists = await checkFileExists(projectId, path);
+
+    if (exists) {
+      setConflict({
+        type: 'upload',
+        name: currentFile.name,
+        onConfirm: async () => {
+          setConflict(null);
+          try {
+            await uploadFile(projectId, currentFile, targetPath, true);
+          } catch (error) {
+            toast.error(
+              error instanceof Error
+                ? error.message
+                : `Failed to upload ${currentFile.name}`
+            );
+          }
+          await processUploads(remainingFiles, targetPath, toastId);
+        },
+        onCancel: async () => {
+          setConflict(null);
+          await processUploads(remainingFiles, targetPath, toastId);
+        },
+      });
+    } else {
+      try {
+        await uploadFile(projectId, currentFile, targetPath, false);
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : `Failed to upload ${currentFile.name}`
+        );
+      }
+      await processUploads(remainingFiles, targetPath, toastId);
+    }
+  }, [projectId, revalidate]);
 
   const [isRootDragOver, setIsRootDragOver] = useState(false);
 
@@ -490,21 +602,10 @@ export function FileTree({
       const files = Array.from(e.dataTransfer.files);
       if (files.length === 0) return;
 
-      const toastId = toast.loading(`Uploading ${files.length} file(s)...`);
+      const toastId = toast.loading(`Processing ${files.length} file(s)...`);
 
-      try {
-        await Promise.all(
-          files.map((file) => uploadFile(projectId, file, null))
-        );
-        await revalidate(false);
-        toast.dismiss(toastId);
-        toast.success('Files uploaded successfully');
-      } catch (error) {
-        toast.dismiss(toastId);
-        toast.error(
-          error instanceof Error ? error.message : 'Failed to upload files'
-        );
-      }
+      // processUploads handles revalidation and toast dismissal
+      await processUploads(files, null, toastId);
     }
   };
 
@@ -515,56 +616,97 @@ export function FileTree({
         selectedFileId={selectedFileId}
         onFileSelect={onFileSelect}
         projectId={projectId}
+        onUploadFiles={async (files, targetPath) => {
+          // Node component starts the toast
+          const toastId = toast.loading(`Processing ${files.length} file(s)...`);
+          await processUploads(files, targetPath, toastId);
+        }}
       />
     ),
-    [selectedFileId, onFileSelect, projectId]
+    [selectedFileId, onFileSelect, projectId, processUploads]
   );
 
   return (
-    <div
-      ref={containerRef}
-      className={cn(
-        'w-full h-full transition-colors',
-        isRootDragOver && 'bg-sidebar-accent/50'
-      )}
-      onDragOver={handleRootDragOver}
-      onDragLeave={handleRootDragLeave}
-      onDrop={handleRootDrop}
-    >
-      <Tree<FileNode>
-        ref={treeRef}
-        data={data}
-        openByDefault={true}
-        width={size.width}
-        height={size.height}
-        indent={20}
-        rowHeight={32}
-        onMove={handleMove}
-        disableDrag={(data: FileNode) => !data || data.path === ''}
-        disableDrop={(args: any) => {
-          const { parentNode, dragNodes } = args;
+    <>
+      <div
+        ref={containerRef}
+        className={cn(
+          'w-full h-full transition-colors',
+          isRootDragOver && 'bg-sidebar-accent/50'
+        )}
+        onDragOver={handleRootDragOver}
+        onDragLeave={handleRootDragLeave}
+        onDrop={handleRootDrop}
+      >
+        <Tree<FileNode>
+          ref={treeRef}
+          data={data}
+          openByDefault={true}
+          width={size.width}
+          height={size.height}
+          indent={20}
+          rowHeight={32}
+          onMove={handleMove}
+          disableDrag={(data: FileNode) => !data || data.path === ''}
+          disableDrop={(args: any) => {
+            const { parentNode, dragNodes } = args;
 
-          if (!dragNodes || dragNodes.length === 0) return true;
+            if (!dragNodes || dragNodes.length === 0) return true;
 
-          const dragNode = dragNodes[0];
-          if (!dragNode?.data || !parentNode?.data) return true;
-          if (parentNode.data.type !== 'folder') return true;
+            const dragNode = dragNodes[0];
+            if (!dragNode?.data || !parentNode?.data) return true;
+            if (parentNode.data.type !== 'folder') return true;
 
-          // If dragging a folder, prevent dropping into its own children
-          if (
-            dragNode.data.type === 'folder' &&
-            parentNode.data.path !== '' &&
-            (parentNode.data.path === dragNode.data.path ||
-              parentNode.data.path.startsWith(dragNode.data.path + '/'))
-          ) {
-            return true;
+            // If dragging a folder, prevent dropping into its own children
+            if (
+              dragNode.data.type === 'folder' &&
+              parentNode.data.path !== '' &&
+              (parentNode.data.path === dragNode.data.path ||
+                parentNode.data.path.startsWith(dragNode.data.path + '/'))
+            ) {
+              return true;
+            }
+
+            return false;
+          }}
+        >
+          {NodeRenderer}
+        </Tree>
+      </div>
+
+      <Dialog
+        open={!!conflict}
+        onOpenChange={(open) => {
+          if (!open && conflict) {
+            conflict.onCancel();
           }
-
-          return false;
         }}
       >
-        {NodeRenderer}
-      </Tree>
-    </div>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>File already exists</DialogTitle>
+            <DialogDescription>
+              {conflict?.type === 'upload'
+                ? `A file named "${conflict?.name}" already exists in this location. Do you want to replace it?`
+                : `A file named "${conflict?.name}" already exists in the destination folder. Do you want to replace it?`}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => conflict?.onCancel()}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => conflict?.onConfirm()}
+            >
+              Replace
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

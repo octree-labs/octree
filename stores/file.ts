@@ -96,6 +96,25 @@ export const FileActions = {
     setState({ projectFiles: files, selectedFile });
   },
 
+  setFiles: (files: ProjectFile[]) => {
+    const { selectedFile } = getState();
+    let newSelectedFile = selectedFile;
+
+    if (selectedFile) {
+      const exists = files.find((f) => f.file.id === selectedFile.id);
+      if (!exists) {
+        newSelectedFile = selectInitialFile(files);
+      } else {
+        // Update selected file data with new data (in case name changed back etc)
+        newSelectedFile = exists.file;
+      }
+    } else {
+      newSelectedFile = selectInitialFile(files);
+    }
+
+    setState({ projectFiles: files, selectedFile: newSelectedFile });
+  },
+
   optimisticMove: (
     sourcePath: string,
     destFolderPath: string | null,

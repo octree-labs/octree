@@ -541,10 +541,43 @@ export const deleteFolder = async (
   }
 };
 
+export const checkFileExists = async (
+  projectId: string,
+  filePath: string
+): Promise<boolean> => {
+  const supabase = createClient();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (!session?.user) {
+    throw new Error('User not authenticated');
+  }
+
+  const parts = filePath.split('/');
+  const fileName = parts.pop();
+  const folderPath = parts.join('/');
+
+  const searchPath = folderPath
+    ? `projects/${projectId}/${folderPath}`
+    : `projects/${projectId}`;
+
+  const { data, error } = await supabase.storage
+    .from('octree')
+    .list(searchPath, {
+      search: fileName,
+    });
+
+  if (error || !data) return false;
+
+  return data.some((f) => f.name === fileName);
+};
+
 export const uploadFile = async (
   projectId: string,
   file: File,
-  folderPath: string | null
+  folderPath: string | null,
+  upsert: boolean = false
 ): Promise<void> => {
   const supabase = createClient();
 
@@ -564,7 +597,7 @@ export const uploadFile = async (
     .from('octree')
     .upload(filePath, file, {
       cacheControl: '3600',
-      upsert: false,
+      upsert: upsert,
     });
 
   if (uploadError) {

@@ -20,6 +20,7 @@ import { cn } from '@/lib/utils';
 import { createClient } from '@/lib/supabase/client';
 import { useProjectFilesRevalidation } from '@/hooks/use-file-editor';
 import { FileActions } from '@/stores/file';
+import { checkFileExists } from '@/lib/requests/project';
 import {
   ALL_SUPPORTED_FILE_TYPES,
   MAX_BINARY_FILE_SIZE,
@@ -97,6 +98,12 @@ export function AddFileDialog({
       }
 
       const fullPath = targetFolder ? `${targetFolder}/${fileName}` : fileName;
+      
+      const exists = await checkFileExists(projectId, fullPath);
+      if (exists) {
+        throw new Error('A file with this name already exists');
+      }
+
       const mimeType = getContentTypeByFilename(fileName);
       const { error: uploadError } = await supabase.storage
         .from('octree')
@@ -160,6 +167,12 @@ export function AddFileDialog({
       }
 
       const fullPath = targetFolder ? `${targetFolder}/${fileName}` : fileName;
+      
+      const exists = await checkFileExists(projectId, fullPath);
+      if (exists) {
+        throw new Error('A file with this name already exists');
+      }
+
       const content = fileContent || '';
       const mimeType = getContentTypeByFilename(fileName);
       const blob = new Blob([content], { type: mimeType });

@@ -89,11 +89,11 @@ export function useProjectFilesRevalidation(projectId: string) {
     }
 
     try {
-      const [projectFiles] = await Promise.all([
+      const [unusedProjectFiles, files] = await Promise.all([
         mutate(['project-files', projectId]),
         mutate(['files', projectId]),
       ]);
-      return projectFiles as ProjectFile[] | undefined;
+      return (files || unusedProjectFiles) as ProjectFile[] | undefined;
     } finally {
       if (shouldBlock) {
         FileTreeActions.setLoading(false);

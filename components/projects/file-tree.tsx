@@ -450,10 +450,9 @@ export function FileTree({
       const type = sourceNode.data.type;
       const sourcePath = sourceNode.data.path;
 
-      // Optimistic update
-      FileActions.optimisticMove(sourcePath, destFolderPath, type);
+      const executeMove = async (overwrite = false) => {
+        FileActions.optimisticMove(sourcePath, destFolderPath, type);
 
-      const performMove = async (overwrite = false) => {
         try {
           if (type === 'file') {
             if (overwrite) {
@@ -462,8 +461,6 @@ export function FileTree({
                 const destPath = destFolderPath
                   ? `${destFolderPath}/${fileName}`
                   : fileName;
-                // Delete the destination file before moving to simulate overwrite
-                // We pass empty string for fileId as it's not used in deleteFile implementation for storage removal
                 await deleteFile(projectId, '', destPath).catch(() => {});
               }
             }
@@ -490,8 +487,7 @@ export function FileTree({
           const destPath = destFolderPath
             ? `${destFolderPath}/${fileName}`
             : fileName;
-            
-          // Don't check if moving to same location
+
           if (sourcePath !== destPath) {
             const exists = await checkFileExists(projectId, destPath);
 
@@ -501,14 +497,10 @@ export function FileTree({
                 name: fileName,
                 onConfirm: async () => {
                   setConflict(null);
-                  await performMove(true);
+                  await executeMove(true);
                 },
-                onCancel: async () => {
+                onCancel: () => {
                   setConflict(null);
-                  const files = await revalidate();
-                  if (files) {
-                    FileActions.setFiles(files);
-                  }
                 },
               });
               return;
@@ -517,7 +509,7 @@ export function FileTree({
         }
       }
 
-      await performMove();
+      await executeMove();
     },
     [projectId, revalidate]
   );

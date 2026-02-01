@@ -13,6 +13,11 @@ import { Badge } from '@/components/ui/badge';
 import { CreditCard, AlertCircle, CheckCircle, Zap } from 'lucide-react';
 import { PRO_MONTHLY_EDIT_LIMIT } from '@/data/constants';
 import { CancelSubscriptionDialog } from '@/components/subscription/cancel-subscription-dialog';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
+import { FeatureList } from '@/app/onboarding/components/feature-list';
+import { createCheckoutSession } from '@/lib/requests/subscription';
+import { toast } from 'sonner';
 
 interface SubscriptionData {
   hasSubscription: boolean;
@@ -54,6 +59,7 @@ export function SubscriptionStatus() {
   const [isCheckoutLoading, setIsCheckoutLoading] = useState(false);
   const [isManageLoading, setIsManageLoading] = useState(false);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
+  const [isMonthly, setIsMonthly] = useState(true);
 
   useEffect(() => {
     fetchSubscriptionStatus();
@@ -78,16 +84,14 @@ export function SubscriptionStatus() {
     setIsCheckoutLoading(true);
 
     try {
-      const response = await fetch('/api/checkout-session', {
-        method: 'POST',
+      const checkoutUrl = await createCheckoutSession({
+        annual: isMonthly,
+        withTrial: false,
       });
-
-      if (response.ok) {
-        window.location.href = await response.text();
-      }
+      window.location.href = checkoutUrl;
     } catch (error) {
       console.error('Error creating checkout session:', error);
-    } finally {
+      toast.error('Failed to start checkout. Please try again.');
       setIsCheckoutLoading(false);
     }
   };
@@ -367,7 +371,7 @@ export function SubscriptionStatus() {
         </CardTitle>
         <CardDescription>You don't have an active subscription</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-6">
         {/* Usage Summary */}
         <div className="rounded-lg bg-neutral-50 p-4">
           <div className="mb-2 flex items-center justify-between">
@@ -391,39 +395,52 @@ export function SubscriptionStatus() {
           </p>
         </div>
 
-        <div className="text-sm text-neutral-600">
-          {usage.limitReached ? (
-            <>
-              You have reached your free edit limit. Upgrade to Pro for{' '}
-              <span className="font-bold">{PRO_MONTHLY_EDIT_LIMIT}</span> edits
-              per month!
-            </>
-          ) : (
-            <>
-              Upgrade to unlock{' '}
-              <span className="font-bold">{PRO_MONTHLY_EDIT_LIMIT}</span> edits
-              per month and remove daily limitations.
-            </>
+        {/* Billing Toggle */}
+        <div className="flex items-center gap-2">
+          <Switch
+            id="monthly-switch"
+            checked={isMonthly}
+            onCheckedChange={setIsMonthly}
+          />
+          <Label
+            htmlFor="monthly-switch"
+            className="cursor-pointer text-sm font-normal"
+          >
+            Save 50% with monthly billing
+          </Label>
+        </div>
+
+        {/* Pricing */}
+        <div className="space-y-1">
+          <div className="flex items-baseline gap-2">
+            <p className="text-3xl font-bold">{isMonthly ? '$2.49' : '$4.99'}</p>
+            <p className="text-sm text-muted-foreground">per week</p>
+          </div>
+          {isMonthly && (
+            <p className="text-xs text-muted-foreground">Billed monthly at $9.99/month</p>
+          )}
+          {!isMonthly && (
+            <p className="text-xs text-muted-foreground">Billed weekly</p>
           )}
         </div>
 
-        <div className="flex gap-2">
-          <form onSubmit={handleCheckout}>
-            <Button
-              type="submit"
-              size="sm"
-              disabled={isCheckoutLoading}
-              className="bg-gradient-to-b from-primary-light to-primary hover:bg-gradient-to-b hover:from-primary-light/90 hover:to-primary/90"
-            >
-              <CreditCard className="mr-2 h-4 w-4" />
-              {isCheckoutLoading
-                ? 'Loading...'
-                : usage.limitReached
-                  ? 'Upgrade Now'
-                  : 'Subscribe Now'}
-            </Button>
-          </form>
+        {/* Features */}
+        <div>
+          <p className="mb-4 text-sm font-semibold">Octree Pro includes</p>
+          <FeatureList />
         </div>
+
+        {/* Subscribe Button */}
+        <form onSubmit={handleCheckout}>
+          <Button
+            type="submit"
+            className="w-full"
+            variant="gradient"
+            disabled={isCheckoutLoading}
+          >
+            {isCheckoutLoading ? 'Loading...' : 'Subscribe Now'}
+          </Button>
+        </form>
       </CardContent>
     </Card>
   );

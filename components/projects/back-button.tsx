@@ -42,6 +42,7 @@ export function BackButton() {
   const handleConfirmBack = () => {
     setOpen(false);
     router.push('/');
+    router.refresh();
   };
 
   const handleCancel = () => {

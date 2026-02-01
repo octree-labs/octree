@@ -129,7 +129,15 @@ export const FileActions = {
     const destPath = destFolderPath ? `${destFolderPath}/${name}` : name;
     if (sourcePath === destPath) return;
 
-    const updatedFiles = projectFiles.map((pf) => {
+    // Remove any existing file at the destination path (optimistic overwrite)
+    const filteredFiles = projectFiles.filter((pf) => {
+      if (type === 'file' && pf.file.name === destPath && pf.file.name !== sourcePath) {
+        return false;
+      }
+      return true;
+    });
+
+    const updatedFiles = filteredFiles.map((pf) => {
       let newPath = pf.file.name;
 
       if (type === 'file' && pf.file.name === sourcePath) {

@@ -16,7 +16,7 @@ export interface AttachedFile {
   type: 'image' | 'document';
 }
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const MAX_FILE_SIZE = 5 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
 const ALLOWED_DOC_TYPES = new Set(['application/pdf']);
 

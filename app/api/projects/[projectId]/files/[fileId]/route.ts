@@ -1,6 +1,8 @@
 import { createClient } from '@/lib/supabase/server';
 import { NextRequest, NextResponse } from 'next/server';
 import { revalidatePath } from 'next/cache';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Database } from '@/database.types';
 import {
   getContentTypeByFilename,
   isBinaryFile,
@@ -160,6 +162,15 @@ export async function PUT(
       );
     }
 
+    // Update project's updated_at so it moves up in the projects list
+    const typedSupabase = supabase as unknown as SupabaseClient<Database>;
+    await typedSupabase
+      .from('projects')
+      .update({ updated_at: new Date().toISOString() })
+      .eq('id', projectId)
+      .eq('user_id', user.id);
+
+    revalidatePath('/');
     revalidatePath(`/projects/${projectId}`);
 
     return NextResponse.json({

@@ -50,12 +50,27 @@ export function ProjectsTable({ data }: { data: Project[] }) {
   };
 
   const handleRenameSuccess = (id: string, newTitle: string) => {
-    setRows((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, title: newTitle } : p))
-    );
-    setFilteredRows((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, title: newTitle } : p))
-    );
+    const now = new Date().toISOString();
+    setRows((prev) => {
+      const updated = prev.map((p) =>
+        p.id === id ? { ...p, title: newTitle, updated_at: now } : p
+      );
+      return updated.sort(
+        (a, b) =>
+          new Date(b.updated_at ?? 0).getTime() -
+          new Date(a.updated_at ?? 0).getTime()
+      );
+    });
+    setFilteredRows((prev) => {
+      const updated = prev.map((p) =>
+        p.id === id ? { ...p, title: newTitle, updated_at: now } : p
+      );
+      return updated.sort(
+        (a, b) =>
+          new Date(b.updated_at ?? 0).getTime() -
+          new Date(a.updated_at ?? 0).getTime()
+      );
+    });
     refreshProjects();
   };
 

@@ -61,7 +61,7 @@ export async function renameProject(
     const typedSupabase = supabase as unknown as SupabaseClient<Database>;
     const { error: updateError } = await typedSupabase
       .from('projects')
-      .update({ title })
+      .update({ title, updated_at: new Date().toISOString() })
       .eq('id', projectId)
       .eq('user_id', user.id);
 

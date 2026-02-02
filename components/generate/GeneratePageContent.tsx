@@ -32,6 +32,7 @@ import { WelcomeState } from '@/components/generate/WelcomeState';
 import { MessageBubble, type Message, type MessageAttachment } from '@/components/generate/MessageBubble';
 import { DocumentPreview } from '@/components/generate/DocumentPreview';
 import { useGenerate, type AttachedFile } from '@/hooks/use-generate';
+import { useAutoScroll } from '@/hooks/use-auto-scroll';
 
 const AutoScrollDiv = memo(function AutoScrollDiv({ messages }: { messages: Message[] }) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -104,6 +105,7 @@ export function GeneratePageContent() {
     resetState,
   } = useGenerate();
 
+  const scrollRef = useAutoScroll<HTMLDivElement>();
   const [isCreatingProject, setIsCreatingProject] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
 
@@ -210,7 +212,7 @@ export function GeneratePageContent() {
         </header>
 
         <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-muted/30">
-          <div className="relative flex-1 overflow-y-auto">
+          <div ref={scrollRef} className="relative flex-1 overflow-y-auto">
             {error && (
               <div className="sticky top-0 z-50 p-4">
                 <Card className="mx-auto max-w-3xl relative border-destructive bg-destructive/10 p-3 pr-10 shadow-lg">

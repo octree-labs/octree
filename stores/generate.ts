@@ -101,6 +101,32 @@ export const GenerateActions = {
     return true;
   },
 
+  renameDocument: async (id: string, newTitle: string) => {
+    const supabase = createClient();
+    
+    // Optimistic update
+    setState((state) => ({
+      documents: state.documents.map((d) => 
+        d.id === id ? { ...d, title: newTitle } : d
+      ),
+    }));
+
+    const { error } = await (supabase as any)
+      .from('generated_documents')
+      .update({ title: newTitle })
+      .eq('id', id);
+
+    if (error) {
+      console.error('Failed to rename document:', error);
+      // Revert on error (would require fetching or keeping previous state, 
+      // but for now simple logging is okay, or we could re-fetch)
+      GenerateActions.fetchDocuments();
+      return false;
+    }
+
+    return true;
+  },
+
   reset: () => {
     setState({ activeDocumentId: null });
   },

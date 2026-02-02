@@ -109,3 +109,6 @@ export const useTargetFolder = () =>
 
 export const useRenameProjectDialog = () =>
   useFileTreeStore((state) => state.renameProjectDialog);
+
+export const useFileTreeLoading = () =>
+  useFileTreeStore((state) => state.isLoading);

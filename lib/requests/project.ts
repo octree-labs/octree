@@ -301,6 +301,91 @@ export const deleteFile = async (
   }
 };
 
+export const moveFile = async (
+  projectId: string,
+  sourcePath: string,
+  destFolderPath: string | null
+): Promise<void> => {
+  const supabase = createClient();
+
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (!session?.user) {
+    throw new Error('User not authenticated');
+  }
+
+  const fileName = sourcePath.split('/').pop();
+  if (!fileName) {
+    throw new Error('Invalid source path');
+  }
+
+  const destPath = destFolderPath ? `${destFolderPath}/${fileName}` : fileName;
+
+  if (sourcePath === destPath) {
+    return;
+  }
+
+  const { error: moveError } = await supabase.storage
+    .from('octree')
+    .move(
+      `projects/${projectId}/${sourcePath}`,
+      `projects/${projectId}/${destPath}`
+    );
+
+  if (moveError) {
+    throw new Error('Failed to move file');
+  }
+};
+
+export const moveFolder = async (
+  projectId: string,
+  sourcePath: string,
+  destFolderPath: string | null
+): Promise<void> => {
+  const supabase = createClient();
+
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (!session?.user) {
+    throw new Error('User not authenticated');
+  }
+
+  const folderName = sourcePath.split('/').pop();
+  if (!folderName) {
+    throw new Error('Invalid source path');
+  }
+
+  const destPath = destFolderPath
+    ? `${destFolderPath}/${folderName}`
+    : folderName;
+
+  if (sourcePath === destPath) {
+    return;
+  }
+
+  const filePaths = await listFolderFiles(supabase, projectId, sourcePath);
+
+  for (const filePath of filePaths) {
+    const relativePath = filePath.replace(
+      `projects/${projectId}/${sourcePath}/`,
+      ''
+    );
+    const newPath = `projects/${projectId}/${destPath}/${relativePath}`;
+
+    const { error: moveError } = await supabase.storage
+      .from('octree')
+      .move(filePath, newPath);
+
+    if (moveError) {
+      throw new Error(`Failed to move file: ${relativePath}`);
+    }
+  }
+};
+
 export const createFolder = async (
   projectId: string,
   folderPath: string
@@ -453,5 +538,69 @@ export const deleteFolder = async (
 
   if (deleteError) {
     throw new Error('Failed to delete folder contents');
+  }
+};
+
+export const checkFileExists = async (
+  projectId: string,
+  filePath: string
+): Promise<boolean> => {
+  const supabase = createClient();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (!session?.user) {
+    throw new Error('User not authenticated');
+  }
+
+  const parts = filePath.split('/');
+  const fileName = parts.pop();
+  const folderPath = parts.join('/');
+
+  const searchPath = folderPath
+    ? `projects/${projectId}/${folderPath}`
+    : `projects/${projectId}`;
+
+  const { data, error } = await supabase.storage
+    .from('octree')
+    .list(searchPath, {
+      search: fileName,
+    });
+
+  if (error || !data) return false;
+
+  return data.some((f) => f.name === fileName);
+};
+
+export const uploadFile = async (
+  projectId: string,
+  file: File,
+  folderPath: string | null,
+  upsert: boolean = false
+): Promise<void> => {
+  const supabase = createClient();
+
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (!session?.user) {
+    throw new Error('User not authenticated');
+  }
+
+  const filePath = folderPath
+    ? `projects/${projectId}/${folderPath}/${file.name}`
+    : `projects/${projectId}/${file.name}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from('octree')
+    .upload(filePath, file, {
+      cacheControl: '3600',
+      upsert: upsert,
+    });
+
+  if (uploadError) {
+    throw new Error(`Failed to upload file: ${file.name}`);
   }
 };

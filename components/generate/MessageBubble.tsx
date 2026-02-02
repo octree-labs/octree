@@ -1,5 +1,5 @@
-import { useRef, useEffect } from 'react';
-import { FileText, Check, Loader2 } from 'lucide-react';
+import { useRef, useEffect, useState } from 'react';
+import { FileText, Check, Loader2, Copy } from 'lucide-react';
 import { MonacoEditor } from '@/components/editor/monaco-editor';
 import { Card } from '@/components/ui/card';
 
@@ -25,12 +25,19 @@ interface MessageBubbleProps {
 export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
     const isUser = message.role === 'user';
     const isCompletionMessage = message.content === 'Document generated successfully. Preview it below or open it in Octree.';
+    const [isCopied, setIsCopied] = useState(false);
 
     // Refs for auto-scrolling
     const editorRef = useRef<any>(null);
 
     const handleEditorDidMount = (editor: any) => {
         editorRef.current = editor;
+    };
+
+    const handleCopy = async () => {
+        await navigator.clipboard.writeText(message.content);
+        setIsCopied(true);
+        setTimeout(() => setIsCopied(false), 2000);
     };
 
     useEffect(() => {
@@ -70,6 +77,23 @@ export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
                 <Card className="max-w-[85%] bg-gradient-to-t from-primary to-primary/85 text-primary-foreground border border-zinc-950/25 shadow-md shadow-zinc-950/20 ring-1 ring-inset ring-white/20 dark:border-white/20 dark:ring-transparent px-4 py-3">
                     <p className="whitespace-pre-wrap text-sm">{message.content}</p>
                 </Card>
+                <button
+                    onClick={handleCopy}
+                    className="flex items-center gap-1.5 px-1 py-0.5 text-[10px] font-medium text-muted-foreground hover:text-foreground transition-colors"
+                    aria-label="Copy text"
+                >
+                    {isCopied ? (
+                        <>
+                            <Check className="h-3 w-3" />
+                            <span>Copied</span>
+                        </>
+                    ) : (
+                        <>
+                            <Copy className="h-3 w-3" />
+                            <span>Copy</span>
+                        </>
+                    )}
+                </button>
             </div>
         );
     }

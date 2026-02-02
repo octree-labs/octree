@@ -101,6 +101,29 @@ export const GenerateActions = {
     return true;
   },
 
+  renameDocument: async (id: string, newTitle: string) => {
+    const supabase = createClient();
+    
+    setState((state) => ({
+      documents: state.documents.map((d) => 
+        d.id === id ? { ...d, title: newTitle } : d
+      ),
+    }));
+
+    const { error } = await (supabase as any)
+      .from('generated_documents')
+      .update({ title: newTitle })
+      .eq('id', id);
+
+    if (error) {
+      console.error('Failed to rename document:', error);
+      GenerateActions.fetchDocuments();
+      return false;
+    }
+
+    return true;
+  },
+
   reset: () => {
     setState({ activeDocumentId: null });
   },

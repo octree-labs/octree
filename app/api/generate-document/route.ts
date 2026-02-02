@@ -210,7 +210,17 @@ export async function POST(request: Request) {
             return;
           }
 
-          const title = extractTitle(latex) || 'Untitled Document';
+          let title = extractTitle(latex);
+          
+          if (!title) {
+            // Try to use the first sentence of the prompt or a truncated version
+            const cleanPrompt = prompt.replace(/\s+/g, ' ').trim();
+            title = cleanPrompt.length > 50 
+              ? cleanPrompt.slice(0, 50) + '...' 
+              : cleanPrompt;
+              
+            if (!title) title = 'Untitled Document';
+          }
 
           write('complete', {
             latex,

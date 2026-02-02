@@ -212,7 +212,6 @@ export async function POST(request: Request) {
 
           let title = extractTitle(latex);
           
-          // Fallback title strategies
           if (!title) {
             // Try to use the first sentence of the prompt or a truncated version
             const cleanPrompt = prompt.replace(/\s+/g, ' ').trim();
@@ -220,7 +219,6 @@ export async function POST(request: Request) {
               ? cleanPrompt.slice(0, 50) + '...' 
               : cleanPrompt;
               
-            // Final fallback
             if (!title) title = 'Untitled Document';
           }
 

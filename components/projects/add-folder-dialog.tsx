@@ -90,11 +90,11 @@ export function AddFolderDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
-          <DialogTitle>Add Folder to {projectTitle}</DialogTitle>
+          <DialogTitle className="break-all pr-8 leading-normal">Add Folder to {projectTitle}</DialogTitle>
           <DialogDescription>
             Create a new folder in this project.
             {targetFolder && (
-              <span className="mt-1 block text-xs">
+              <span className="mt-1 block text-xs break-all">
                 Location: {targetFolder}
               </span>
             )}

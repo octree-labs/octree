@@ -244,7 +244,7 @@ export function AddFileDialog({
       )}
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
-          <DialogTitle>Add File to {projectTitle}</DialogTitle>
+          <DialogTitle className="break-all pr-8 leading-normal">Add File to {projectTitle}</DialogTitle>
           <DialogDescription>
             Create a new LaTeX file or upload files (PDFs, images, etc.) to this
             project.

@@ -450,6 +450,12 @@ export function FileTree({
       const type = sourceNode.data.type;
       const sourcePath = sourceNode.data.path;
 
+      const lastSlashIndex = sourcePath.lastIndexOf('/');
+      const sourceParentPath =
+        lastSlashIndex === -1 ? null : sourcePath.substring(0, lastSlashIndex);
+
+      if (sourceParentPath === destFolderPath) return;
+
       const executeMove = async (overwrite = false) => {
         FileActions.optimisticMove(sourcePath, destFolderPath, type);
 

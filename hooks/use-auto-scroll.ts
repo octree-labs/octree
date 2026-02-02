@@ -4,7 +4,7 @@ export function useAutoScroll<T extends HTMLElement>(enabled: boolean = true) {
   const elementRef = useRef<T>(null);
   const mouseCoords = useRef({ x: 0, y: 0 });
   const isDragging = useRef(false);
-  const animationFrame = useRef<number>();
+  const animationFrame = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     if (!enabled) return;

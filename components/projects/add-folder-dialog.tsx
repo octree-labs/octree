@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useProjectFilesRevalidation } from '@/hooks/use-file-editor';
+import { FileTreeActions } from '@/stores/file-tree';
 import { createFolder } from '@/lib/requests/project';
 import { toast } from 'sonner';
 
@@ -57,6 +58,7 @@ export function AddFolderDialog({
     }
 
     setIsLoading(true);
+    FileTreeActions.setLoading(true);
 
     try {
       const folderPath = targetFolder
@@ -71,6 +73,7 @@ export function AddFolderDialog({
         toast.success('Folder created successfully');
       });
     } catch (err) {
+      FileTreeActions.setLoading(false);
       console.error('Error creating folder:', err);
       setError(err instanceof Error ? err.message : 'Failed to create folder');
     } finally {

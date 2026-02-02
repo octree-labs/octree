@@ -32,6 +32,7 @@ import {
   useDeleteFolderPath,
   useTargetFolder,
   useRenameProjectDialog,
+  useFileTreeLoading,
 } from '@/stores/file-tree';
 
 interface AppSidebarProps {
@@ -51,6 +52,7 @@ export function AppSidebar({ userName }: AppSidebarProps) {
   const deleteFolderPath = useDeleteFolderPath();
   const targetFolder = useTargetFolder();
   const renameProjectDialog = useRenameProjectDialog();
+  const isLoading = useFileTreeLoading();
 
   if (!project) return null;
 
@@ -66,7 +68,7 @@ export function AppSidebar({ userName }: AppSidebarProps) {
           <X className="h-4 w-4 text-gray-500" />
         </button>
       </SidebarHeader>
-      <SidebarContent>
+      <SidebarContent className={isLoading ? 'pointer-events-none opacity-50' : ''}>
         <SidebarGroup>
           <SidebarGroupContent>
             {!projectFiles ? (

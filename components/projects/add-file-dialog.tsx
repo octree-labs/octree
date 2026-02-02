@@ -20,6 +20,7 @@ import { cn } from '@/lib/utils';
 import { createClient } from '@/lib/supabase/client';
 import { useProjectFilesRevalidation } from '@/hooks/use-file-editor';
 import { FileActions } from '@/stores/file';
+import { FileTreeActions } from '@/stores/file-tree';
 import { checkFileExists } from '@/lib/requests/project';
 import {
   ALL_SUPPORTED_FILE_TYPES,
@@ -85,6 +86,7 @@ export function AddFileDialog({
     if (!selectedFile || !fileName.trim()) return;
 
     setIsLoading(true);
+    FileTreeActions.setLoading(true);
     setError(null);
 
     try {
@@ -141,6 +143,7 @@ export function AddFileDialog({
         toast.success('File uploaded successfully');
       });
     } catch (error) {
+      FileTreeActions.setLoading(false);
       setError(
         error instanceof Error ? error.message : 'Failed to upload file'
       );
@@ -154,6 +157,7 @@ export function AddFileDialog({
     if (!fileName.trim()) return;
 
     setIsLoading(true);
+    FileTreeActions.setLoading(true);
     setError(null);
 
     try {
@@ -210,6 +214,7 @@ export function AddFileDialog({
         });
       }
     } catch (error) {
+      FileTreeActions.setLoading(false);
       setError(error instanceof Error ? error.message : 'Failed to add file');
     } finally {
       setIsLoading(false);

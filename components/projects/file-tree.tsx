@@ -478,9 +478,6 @@ export function FileTree({
           }
 
           await revalidate(false);
-          toast.success(
-            `${type === 'file' ? 'File' : 'Folder'} moved successfully`
-          );
         } catch (error) {
           await revalidate();
           toast.error(

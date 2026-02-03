@@ -68,7 +68,10 @@ export function AppSidebar({ userName }: AppSidebarProps) {
           <X className="h-4 w-4 text-gray-500" />
         </button>
       </SidebarHeader>
-      <SidebarContent className={isLoading ? 'pointer-events-none opacity-50' : ''}>
+      <SidebarContent
+        className={isLoading ? 'pointer-events-none opacity-50' : ''}
+        data-onboarding-target="fileSidebar"
+      >
         <SidebarGroup>
           <SidebarGroupContent>
             {!projectFiles ? (
@@ -149,7 +152,10 @@ export function AppSidebar({ userName }: AppSidebarProps) {
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter className="border-t border-gray-100 p-4">
+      <SidebarFooter
+        className="border-t border-gray-100 p-4"
+        data-onboarding-target="userProfile"
+      >
         <UserProfileDropdown userName={userName} />
       </SidebarFooter>
 

@@ -38,7 +38,11 @@ export async function POST(request: Request) {
     }
 
     const body: SummaryRequest = await request.json();
-    const { currentSummary, lastExchanges, interactionCount } = body;
+    const { documentId, currentSummary, lastExchanges, interactionCount } = body;
+
+    if (!documentId) {
+      return NextResponse.json({ error: 'Document ID required' }, { status: 400 });
+    }
 
     const exchangesText = lastExchanges
       .map((e, i) => `Exchange ${i + 1}:\nUser: ${e.userPrompt}\nAssistant: ${e.assistantResponse}`)
@@ -94,6 +98,17 @@ export async function POST(request: Request) {
           interaction_count: interactionCount,
         };
       }
+    }
+
+    const { error: updateError } = await (supabase as any)
+      .from('generated_documents')
+      .update({ conversation_summary: summary })
+      .eq('id', documentId)
+      .eq('user_id', user.id);
+
+    if (updateError) {
+      console.error('Failed to save summary:', updateError);
+      return NextResponse.json({ error: 'Failed to save summary' }, { status: 500 });
     }
 
     return NextResponse.json({ success: true, summary });

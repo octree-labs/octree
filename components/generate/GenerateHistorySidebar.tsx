@@ -79,6 +79,7 @@ export function GenerateHistorySidebar({
 
     const handleSelect = (doc: GeneratedDocument) => {
         if (editingId) return;
+        GenerateActions.setActiveDocument(doc.id);
         onSelectDocument(doc);
     };
 

@@ -9,11 +9,6 @@ import {
 } from '@/stores/generate';
 import { Message, MessageAttachment } from '@/components/generate/MessageBubble';
 import type { ConversationSummary } from '@/types/conversation';
-import {
-  getDocumentSession,
-  updateDocumentSession,
-  type DocumentSession,
-} from '@/lib/document-session';
 
 export interface AttachedFile {
   id: string;
@@ -26,7 +21,12 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
 const ALLOWED_DOC_TYPES = new Set(['application/pdf']);
 
-export function useGenerate() {
+interface UseGenerateOptions {
+  onDocumentCreated?: (documentId: string) => void;
+}
+
+export function useGenerate(options: UseGenerateOptions = {}) {
+  const { onDocumentCreated } = options;
   const supabase = createClient();
   const activeDocument = useActiveDocument();
 
@@ -124,28 +124,38 @@ export function useGenerate() {
   const restoreSession = useCallback((doc: GeneratedDocument) => {
     GenerateActions.setActiveDocument(doc.id);
 
-    const restoredAttachments: MessageAttachment[] = (doc.attachments || []).map((att) => ({
-      id: att.id,
-      name: att.name,
-      type: att.type,
-      preview: att.url,
-    }));
+    if (doc.message_history && doc.message_history.length > 0) {
+      const restoredMessages: Message[] = doc.message_history.map((msg) => ({
+        id: msg.id,
+        role: msg.role,
+        content: msg.content,
+        attachments: msg.attachments,
+      }));
+      setMessages(restoredMessages);
+    } else {
+      const restoredAttachments: MessageAttachment[] = (doc.attachments || []).map((att) => ({
+        id: att.id,
+        name: att.name,
+        type: att.type,
+        preview: att.url,
+      }));
 
-    const restoredMessages: Message[] = [
-      {
-        id: `user-${doc.id}`,
-        role: 'user',
-        content: doc.prompt,
-        attachments: restoredAttachments.length > 0 ? restoredAttachments : undefined,
-      },
-      {
-        id: `assistant-${doc.id}`,
-        role: 'assistant',
-        content: 'Document generated successfully. Preview it below or open it in Octree.',
-      },
-    ];
+      const restoredMessages: Message[] = [
+        {
+          id: `user-${doc.id}`,
+          role: 'user',
+          content: doc.prompt,
+          attachments: restoredAttachments.length > 0 ? restoredAttachments : undefined,
+        },
+        {
+          id: `assistant-${doc.id}`,
+          role: 'assistant',
+          content: 'Document generated successfully. Preview it below or open it in Octree.',
+        },
+      ];
+      setMessages(restoredMessages);
+    }
 
-    setMessages(restoredMessages);
     setError(null);
     setPrompt('');
   }, []);
@@ -200,13 +210,7 @@ export function useGenerate() {
       content: '',
     };
 
-    if (isContinuation) {
-      setMessages((prev) => [...prev, userMessage, assistantMessage]);
-    } else {
-      setMessages([userMessage, assistantMessage]);
-      GenerateActions.reset();
-    }
-
+    setMessages((prev) => [...prev, userMessage, assistantMessage]);
     setPrompt('');
     setIsGenerating(true);
     setError(null);
@@ -226,12 +230,11 @@ export function useGenerate() {
       };
 
       if (isContinuation) {
-        const session = getDocumentSession(activeDocument.id);
         requestBody.documentId = activeDocument.id;
         requestBody.currentLatex = activeDocument.latex;
-        requestBody.conversationSummary = session?.conversationSummary ?? null;
-        requestBody.lastUserPrompt = session?.lastUserPrompt ?? null;
-        requestBody.lastAssistantResponse = session?.lastAssistantResponse ?? null;
+        requestBody.conversationSummary = activeDocument.conversation_summary;
+        requestBody.lastUserPrompt = activeDocument.last_user_prompt;
+        requestBody.lastAssistantResponse = activeDocument.last_assistant_response;
       }
 
       const response = await fetch('/api/generate-document', {
@@ -293,18 +296,38 @@ export function useGenerate() {
 
         filesToSend.forEach((f) => f.preview && URL.revokeObjectURL(f.preview));
 
+        const successMessage = 'Document generated successfully. Preview it below or open it in Octree.';
+        
+        const newUserMessage = {
+          id: `user-${documentId}-${Date.now()}`,
+          role: 'user' as const,
+          content: userPrompt,
+          attachments: messageAttachments.length > 0 ? messageAttachments : undefined,
+        };
+        
+        const newAssistantMessage = {
+          id: `assistant-${documentId}-${Date.now()}`,
+          role: 'assistant' as const,
+          content: successMessage,
+        };
+
         if (isContinuation) {
           const existingAttachments = activeDocument.attachments || [];
           const mergedAttachments = [...existingAttachments, ...newAttachments];
+          const newInteractionCount = (activeDocument.interaction_count || 1) + 1;
           
-          const currentSession = getDocumentSession(activeDocument.id);
-          const newInteractionCount = (currentSession?.interactionCount || 1) + 1;
+          const existingHistory = activeDocument.message_history || [];
+          const updatedHistory = [...existingHistory, newUserMessage, newAssistantMessage];
 
           const { error: updateError } = await (supabase as any)
             .from('generated_documents')
             .update({
               latex: finalLatex,
               attachments: mergedAttachments,
+              last_user_prompt: userPrompt,
+              last_assistant_response: successMessage,
+              interaction_count: newInteractionCount,
+              message_history: updatedHistory,
             })
             .eq('id', documentId);
 
@@ -314,27 +337,27 @@ export function useGenerate() {
             GenerateActions.updateDocument(documentId, {
               latex: finalLatex,
               attachments: mergedAttachments,
-            });
-
-            const updatedSession = updateDocumentSession(documentId, {
-              lastUserPrompt: userPrompt,
-              lastAssistantResponse: 'Document updated successfully.',
-              interactionCount: newInteractionCount,
+              last_user_prompt: userPrompt,
+              last_assistant_response: successMessage,
+              interaction_count: newInteractionCount,
+              message_history: updatedHistory,
             });
 
             if (newInteractionCount % 2 === 0) {
               triggerSummaryGeneration(
                 documentId,
-                updatedSession.conversationSummary,
-                currentSession?.lastUserPrompt ?? null,
-                currentSession?.lastAssistantResponse ?? null,
+                activeDocument.conversation_summary,
+                activeDocument.last_user_prompt,
+                activeDocument.last_assistant_response,
                 userPrompt,
                 newInteractionCount
               );
             }
           }
         } else {
-          const { data: doc, error: dbError } = await supabase
+          const initialHistory = [newUserMessage, newAssistantMessage];
+          
+          const { data: doc, error: dbError } = await (supabase as any)
             .from('generated_documents')
             .insert({
               user_id: userId,
@@ -343,7 +366,11 @@ export function useGenerate() {
               latex: finalLatex,
               status: 'complete',
               attachments: newAttachments,
-            } as any)
+              last_user_prompt: userPrompt,
+              last_assistant_response: successMessage,
+              interaction_count: 1,
+              message_history: initialHistory,
+            })
             .select()
             .single();
 
@@ -351,13 +378,7 @@ export function useGenerate() {
           if (doc) {
             const createdDoc = doc as GeneratedDocument;
             GenerateActions.addDocument(createdDoc);
-            
-            updateDocumentSession(createdDoc.id, {
-              conversationSummary: null,
-              lastUserPrompt: userPrompt,
-              lastAssistantResponse: 'Document created successfully.',
-              interactionCount: 1,
-            });
+            onDocumentCreated?.(createdDoc.id);
           }
         }
       }
@@ -380,6 +401,7 @@ export function useGenerate() {
     supabase,
     resetState,
     updateLastMessage,
+    onDocumentCreated,
   ]);
 
   return {
@@ -437,8 +459,8 @@ function triggerSummaryGeneration(
     .then((res) => res.json())
     .then((data) => {
       if (data.summary) {
-        updateDocumentSession(documentId, {
-          conversationSummary: data.summary,
+        GenerateActions.updateDocument(documentId, {
+          conversation_summary: data.summary,
         });
       }
     })

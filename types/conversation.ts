@@ -6,8 +6,9 @@ export interface ConversationSummary {
 }
 
 export interface ConversationContext {
-  currentLatex: string;
+  current_latex: string;
   summary: ConversationSummary | null;
-  lastUserPrompt: string | null;
-  lastAssistantResponse: string | null;
+  last_user_prompt: string | null;
+  last_assistant_response: string | null;
+  new_prompt: string;
 }

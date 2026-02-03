@@ -93,6 +93,11 @@ interface GeneratePageContentProps {
 export function GeneratePageContent({ initialDocument }: GeneratePageContentProps) {
   const router = useRouter();
   const activeDocument = useActiveDocument();
+
+  const handleDocumentCreated = useCallback((documentId: string) => {
+    router.replace(`/generate/${documentId}`, { scroll: false });
+  }, [router]);
+
   const {
     prompt,
     setPrompt,
@@ -109,7 +114,7 @@ export function GeneratePageContent({ initialDocument }: GeneratePageContentProp
     generateDocument,
     resetState,
     restoreSession,
-  } = useGenerate();
+  } = useGenerate({ onDocumentCreated: handleDocumentCreated });
 
   const scrollRef = useAutoScroll<HTMLDivElement>();
   const [isCreatingProject, setIsCreatingProject] = useState(false);

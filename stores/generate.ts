@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { createClient } from '@/lib/supabase/client';
+import type { ConversationSummary } from '@/types/conversation';
 
 export type DocumentStatus = 'pending' | 'generating' | 'complete' | 'error';
 
@@ -8,6 +9,18 @@ export interface StoredAttachment {
   name: string;
   type: 'image' | 'document';
   url: string;
+}
+
+export interface StoredMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  attachments?: Array<{
+    id: string;
+    name: string;
+    type: 'image' | 'document';
+    preview: string | null;
+  }>;
 }
 
 export interface GeneratedDocument {
@@ -20,6 +33,11 @@ export interface GeneratedDocument {
   error: string | null;
   created_at: string;
   attachments: StoredAttachment[];
+  conversation_summary: ConversationSummary | null;
+  last_user_prompt: string | null;
+  last_assistant_response: string | null;
+  interaction_count: number;
+  message_history: StoredMessage[];
 }
 
 type GenerateStoreState = {
@@ -54,7 +72,7 @@ export const GenerateActions = {
     const supabase = createClient();
     setState({ isLoading: true });
 
-    const { data, error } = await supabase
+    const { data, error } = await (supabase as any)
       .from('generated_documents')
       .select('*')
       .order('created_at', { ascending: false })
@@ -66,7 +84,7 @@ export const GenerateActions = {
       return;
     }
 
-    setState({ documents: data ?? [], isLoading: false });
+    setState({ documents: (data ?? []) as GeneratedDocument[], isLoading: false });
   },
 
   fetchDocument: async (id: string): Promise<GeneratedDocument | null> => {

@@ -8,6 +8,12 @@ import {
   type StoredAttachment,
 } from '@/stores/generate';
 import { Message, MessageAttachment } from '@/components/generate/MessageBubble';
+import type { ConversationSummary } from '@/types/conversation';
+import {
+  getDocumentSession,
+  updateDocumentSession,
+  type DocumentSession,
+} from '@/lib/document-session';
 
 export interface AttachedFile {
   id: string;
@@ -115,6 +121,35 @@ export function useGenerate() {
     setAttachedFiles([]);
   }, []);
 
+  const restoreSession = useCallback((doc: GeneratedDocument) => {
+    GenerateActions.setActiveDocument(doc.id);
+
+    const restoredAttachments: MessageAttachment[] = (doc.attachments || []).map((att) => ({
+      id: att.id,
+      name: att.name,
+      type: att.type,
+      preview: att.url,
+    }));
+
+    const restoredMessages: Message[] = [
+      {
+        id: `user-${doc.id}`,
+        role: 'user',
+        content: doc.prompt,
+        attachments: restoredAttachments.length > 0 ? restoredAttachments : undefined,
+      },
+      {
+        id: `assistant-${doc.id}`,
+        role: 'assistant',
+        content: 'Document generated successfully. Preview it below or open it in Octree.',
+      },
+    ];
+
+    setMessages(restoredMessages);
+    setError(null);
+    setPrompt('');
+  }, []);
+
   const updateLastMessage = useCallback((updater: (msg: Message) => void) => {
     setMessages((prev) => {
       if (prev.length === 0) return prev;
@@ -129,10 +164,14 @@ export function useGenerate() {
   const generateDocument = useCallback(async () => {
     if (!prompt.trim() || isGenerating) return;
 
-    if (activeDocument) resetState();
+    const isContinuation = !!activeDocument?.id && !!activeDocument?.latex;
+
+    if (!isContinuation && activeDocument) {
+      resetState();
+    }
 
     const userPrompt = prompt.trim();
-    const documentId = crypto.randomUUID();
+    const documentId = isContinuation ? activeDocument.id : crypto.randomUUID();
     const filesToSend = [...attachedFiles];
 
     const totalSize = filesToSend.reduce((sum, f) => sum + f.file.size, 0);
@@ -149,24 +188,29 @@ export function useGenerate() {
     }));
 
     const userMessage: Message = {
-      id: `user-${documentId}`,
+      id: `user-${documentId}-${Date.now()}`,
       role: 'user',
       content: userPrompt,
       attachments: messageAttachments.length > 0 ? messageAttachments : undefined,
     };
 
     const assistantMessage: Message = {
-      id: `assistant-${documentId}`,
+      id: `assistant-${documentId}-${Date.now()}`,
       role: 'assistant',
       content: '',
     };
 
-    setMessages([userMessage, assistantMessage]);
+    if (isContinuation) {
+      setMessages((prev) => [...prev, userMessage, assistantMessage]);
+    } else {
+      setMessages([userMessage, assistantMessage]);
+      GenerateActions.reset();
+    }
+
     setPrompt('');
     setIsGenerating(true);
     setError(null);
     setAttachedFiles([]);
-    GenerateActions.reset();
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
@@ -176,10 +220,24 @@ export function useGenerate() {
         ? await convertFilesToBase64(filesToSend)
         : undefined;
 
+      const requestBody: Record<string, unknown> = {
+        prompt: userPrompt,
+        files: filePayload,
+      };
+
+      if (isContinuation) {
+        const session = getDocumentSession(activeDocument.id);
+        requestBody.documentId = activeDocument.id;
+        requestBody.currentLatex = activeDocument.latex;
+        requestBody.conversationSummary = session?.conversationSummary ?? null;
+        requestBody.lastUserPrompt = session?.lastUserPrompt ?? null;
+        requestBody.lastAssistantResponse = session?.lastAssistantResponse ?? null;
+      }
+
       const response = await fetch('/api/generate-document', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: userPrompt, files: filePayload }),
+        body: JSON.stringify(requestBody),
         signal: controller.signal,
       });
 
@@ -226,7 +284,7 @@ export function useGenerate() {
       });
 
       if (finalLatex && userId) {
-        const attachments = await uploadFilesToStorage(
+        const newAttachments = await uploadFilesToStorage(
           supabase,
           filesToSend,
           documentId,
@@ -235,21 +293,73 @@ export function useGenerate() {
 
         filesToSend.forEach((f) => f.preview && URL.revokeObjectURL(f.preview));
 
-        const { data: doc, error: dbError } = await supabase
-          .from('generated_documents')
-          .insert({
-            user_id: userId,
-            title: docTitle,
-            prompt: userPrompt,
-            latex: finalLatex,
-            status: 'complete',
-            attachments,
-          } as any)
-          .select()
-          .single();
+        if (isContinuation) {
+          const existingAttachments = activeDocument.attachments || [];
+          const mergedAttachments = [...existingAttachments, ...newAttachments];
+          
+          const currentSession = getDocumentSession(activeDocument.id);
+          const newInteractionCount = (currentSession?.interactionCount || 1) + 1;
 
-        if (dbError) console.error('DB Error:', dbError);
-        if (doc) GenerateActions.addDocument(doc as GeneratedDocument);
+          const { error: updateError } = await (supabase as any)
+            .from('generated_documents')
+            .update({
+              latex: finalLatex,
+              attachments: mergedAttachments,
+            })
+            .eq('id', documentId);
+
+          if (updateError) {
+            console.error('DB Update Error:', updateError);
+          } else {
+            GenerateActions.updateDocument(documentId, {
+              latex: finalLatex,
+              attachments: mergedAttachments,
+            });
+
+            const updatedSession = updateDocumentSession(documentId, {
+              lastUserPrompt: userPrompt,
+              lastAssistantResponse: 'Document updated successfully.',
+              interactionCount: newInteractionCount,
+            });
+
+            if (newInteractionCount % 2 === 0) {
+              triggerSummaryGeneration(
+                documentId,
+                updatedSession.conversationSummary,
+                currentSession?.lastUserPrompt ?? null,
+                currentSession?.lastAssistantResponse ?? null,
+                userPrompt,
+                newInteractionCount
+              );
+            }
+          }
+        } else {
+          const { data: doc, error: dbError } = await supabase
+            .from('generated_documents')
+            .insert({
+              user_id: userId,
+              title: docTitle,
+              prompt: userPrompt,
+              latex: finalLatex,
+              status: 'complete',
+              attachments: newAttachments,
+            } as any)
+            .select()
+            .single();
+
+          if (dbError) console.error('DB Error:', dbError);
+          if (doc) {
+            const createdDoc = doc as GeneratedDocument;
+            GenerateActions.addDocument(createdDoc);
+            
+            updateDocumentSession(createdDoc.id, {
+              conversationSummary: null,
+              lastUserPrompt: userPrompt,
+              lastAssistantResponse: 'Document created successfully.',
+              interactionCount: 1,
+            });
+          }
+        }
       }
     } catch (err) {
       if ((err as Error).name === 'AbortError') return;
@@ -288,7 +398,53 @@ export function useGenerate() {
     handleRemoveFile,
     generateDocument,
     resetState,
+    restoreSession,
   };
+}
+
+function triggerSummaryGeneration(
+  documentId: string,
+  currentSummary: ConversationSummary | null,
+  prevUserPrompt: string | null,
+  prevAssistantResponse: string | null,
+  newUserPrompt: string,
+  interactionCount: number
+) {
+  const exchanges: Array<{ userPrompt: string; assistantResponse: string }> = [];
+
+  if (prevUserPrompt && prevAssistantResponse) {
+    exchanges.push({
+      userPrompt: prevUserPrompt,
+      assistantResponse: prevAssistantResponse,
+    });
+  }
+
+  exchanges.push({
+    userPrompt: newUserPrompt,
+    assistantResponse: 'Document updated successfully.',
+  });
+
+  fetch('/api/generate-summary', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      documentId,
+      currentSummary,
+      lastExchanges: exchanges,
+      interactionCount,
+    }),
+  })
+    .then((res) => res.json())
+    .then((data) => {
+      if (data.summary) {
+        updateDocumentSession(documentId, {
+          conversationSummary: data.summary,
+        });
+      }
+    })
+    .catch((err) => {
+      console.error('Summary generation failed:', err);
+    });
 }
 
 async function readStream(

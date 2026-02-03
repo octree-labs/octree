@@ -69,6 +69,34 @@ export const GenerateActions = {
     setState({ documents: data ?? [], isLoading: false });
   },
 
+  fetchDocument: async (id: string): Promise<GeneratedDocument | null> => {
+    const supabase = createClient();
+    const { data, error } = await (supabase as any)
+      .from('generated_documents')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error || !data) {
+      console.error('Failed to fetch document:', error);
+      return null;
+    }
+
+    const doc = data as GeneratedDocument;
+
+    setState((state) => {
+      const exists = state.documents.some((d) => d.id === doc.id);
+      return {
+        documents: exists
+          ? state.documents.map((d) => (d.id === doc.id ? doc : d))
+          : [doc, ...state.documents],
+        activeDocumentId: doc.id,
+      };
+    });
+
+    return doc;
+  },
+
   setActiveDocument: (id: string | null) => {
     setState({ activeDocumentId: id });
   },
@@ -77,6 +105,14 @@ export const GenerateActions = {
     setState((state) => ({
       documents: [doc, ...state.documents],
       activeDocumentId: doc.id,
+    }));
+  },
+
+  updateDocument: (id: string, updates: Partial<GeneratedDocument>) => {
+    setState((state) => ({
+      documents: state.documents.map((d) =>
+        d.id === id ? { ...d, ...updates } : d
+      ),
     }));
   },
 

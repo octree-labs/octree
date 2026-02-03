@@ -78,8 +78,7 @@ export function GenerateHistorySidebar({
     };
 
     const handleSelect = (doc: GeneratedDocument) => {
-        if (editingId) return; // Prevent selection while editing
-        GenerateActions.setActiveDocument(doc.id);
+        if (editingId) return;
         onSelectDocument(doc);
     };
 

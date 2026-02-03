@@ -24,7 +24,7 @@ interface MessageBubbleProps {
 
 export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
     const isUser = message.role === 'user';
-    const isCompletionMessage = message.content.startsWith('Document generated successfully.');
+    const isCompletionMessage = message.content === 'Document generated successfully. Preview it below or open it in Octree.';
     const [isCopied, setIsCopied] = useState(false);
 
     // Refs for auto-scrolling

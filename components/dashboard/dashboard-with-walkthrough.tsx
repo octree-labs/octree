@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -8,22 +8,40 @@ import Navbar from '@/components/navbar';
 import { CreateProjectDialog } from '@/components/projects/create-project-dialog';
 import { ProjectsTable } from '@/components/projects/projects-table';
 import { DashboardOnboarding } from '@/components/dashboard/dashboard-onboarding';
+import { markDashboardWalkthroughSeen } from '@/lib/requests/walkthrough';
 import type { Project } from '@/types/project';
 
 interface DashboardWithWalkthroughProps {
   data: Project[];
   userName: string | null;
+  userId: string;
+  shouldShowWalkthrough: boolean;
 }
 
 export function DashboardWithWalkthrough({
   data,
   userName,
+  userId,
+  shouldShowWalkthrough,
 }: DashboardWithWalkthroughProps) {
   const [walkthroughOpen, setWalkthroughOpen] = useState(false);
+  const markedRef = useRef(false);
 
   useEffect(() => {
-    setWalkthroughOpen(true);
-  }, []);
+    if (shouldShowWalkthrough) {
+      setWalkthroughOpen(true);
+    }
+  }, [shouldShowWalkthrough]);
+
+  const handleWalkthroughComplete = useCallback(async () => {
+    if (markedRef.current) return;
+    markedRef.current = true;
+    try {
+      await markDashboardWalkthroughSeen(userId);
+    } catch (error) {
+      console.error('Failed to mark walkthrough as seen:', error);
+    }
+  }, [userId]);
 
   const handleWalkthroughClose = (open: boolean) => {
     setWalkthroughOpen(open);
@@ -64,6 +82,7 @@ export function DashboardWithWalkthrough({
       <DashboardOnboarding
         open={walkthroughOpen}
         onOpenChange={handleWalkthroughClose}
+        onComplete={handleWalkthroughComplete}
       />
     </>
   );

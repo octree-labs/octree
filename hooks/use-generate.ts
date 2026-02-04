@@ -68,7 +68,7 @@ export function useGenerate(options: UseGenerateOptions = {}) {
 
     for (const file of filesToCheck) {
       if (file.size > MAX_FILE_SIZE) {
-        errors.push(`${file.name} is too large (max 10MB)`);
+        errors.push(`${file.name} is too large (max 5MB)`);
         continue;
       }
 
@@ -320,8 +320,7 @@ export function useGenerate(options: UseGenerateOptions = {}) {
           const existingHistory = currentDocument.message_history || [];
           const updatedHistory = [...existingHistory, newUserMessage, newAssistantMessage];
 
-          const { error: updateError } = await (supabase as any)
-            .from('generated_documents')
+          const { error: updateError } = await (supabase.from('generated_documents') as ReturnType<typeof supabase.from>)
             .update({
               latex: finalLatex,
               attachments: mergedAttachments,
@@ -360,8 +359,7 @@ export function useGenerate(options: UseGenerateOptions = {}) {
         } else {
           const initialHistory = [newUserMessage, newAssistantMessage];
           
-          const { data: doc, error: dbError } = await (supabase as any)
-            .from('generated_documents')
+          const { data: doc, error: dbError } = await (supabase.from('generated_documents') as ReturnType<typeof supabase.from>)
             .insert({
               user_id: userId,
               title: docTitle,

@@ -72,8 +72,7 @@ export const GenerateActions = {
     const supabase = createClient();
     setState({ isLoading: true });
 
-    const { data, error } = await (supabase as any)
-      .from('generated_documents')
+    const { data, error } = await (supabase.from('generated_documents') as ReturnType<typeof supabase.from>)
       .select('*')
       .order('created_at', { ascending: false })
       .limit(50);
@@ -89,8 +88,7 @@ export const GenerateActions = {
 
   fetchDocument: async (id: string): Promise<GeneratedDocument | null> => {
     const supabase = createClient();
-    const { data, error } = await (supabase as any)
-      .from('generated_documents')
+    const { data, error } = await (supabase.from('generated_documents') as ReturnType<typeof supabase.from>)
       .select('*')
       .eq('id', id)
       .single();
@@ -172,8 +170,7 @@ export const GenerateActions = {
       ),
     }));
 
-    const { error } = await (supabase as any)
-      .from('generated_documents')
+    const { error } = await (supabase.from('generated_documents') as ReturnType<typeof supabase.from>)
       .update({ title: newTitle })
       .eq('id', id);
 

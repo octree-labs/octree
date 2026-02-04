@@ -100,8 +100,7 @@ export async function POST(request: Request) {
       }
     }
 
-    const { error: updateError } = await (supabase as any)
-      .from('generated_documents')
+    const { error: updateError } = await (supabase.from('generated_documents') as ReturnType<typeof supabase.from>)
       .update({ conversation_summary: summary })
       .eq('id', documentId)
       .eq('user_id', user.id);

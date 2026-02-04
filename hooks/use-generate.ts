@@ -1,5 +1,5 @@
 
-import { useState, useRef, useEffect, useCallback, ChangeEvent } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo, ChangeEvent } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import {
   GenerateActions,
@@ -8,12 +8,6 @@ import {
   type StoredAttachment,
 } from '@/stores/generate';
 import { Message, MessageAttachment } from '@/components/generate/MessageBubble';
-import type { ConversationSummary } from '@/types/conversation';
-import {
-  getDocumentSession,
-  updateDocumentSession,
-  type DocumentSession,
-} from '@/lib/document-session';
 import { markGeneratedFirst } from '@/lib/requests/walkthrough';
 
 export interface AttachedFile {
@@ -28,7 +22,7 @@ const ALLOWED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'im
 const ALLOWED_DOC_TYPES = new Set(['application/pdf']);
 
 export function useGenerate() {
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const activeDocument = useActiveDocument();
 
   const [prompt, setPrompt] = useState('');
@@ -242,75 +236,26 @@ export function useGenerate() {
 
         filesToSend.forEach((f) => f.preview && URL.revokeObjectURL(f.preview));
 
-        if (isContinuation) {
-          const existingAttachments = activeDocument.attachments || [];
-          const mergedAttachments = [...existingAttachments, ...newAttachments];
-          
-          const currentSession = getDocumentSession(activeDocument.id);
-          const newInteractionCount = (currentSession?.interactionCount || 1) + 1;
+        const { data: doc, error: dbError } = await (supabase as any)
+          .from('generated_documents')
+          .insert({
+            user_id: userId,
+            title: docTitle,
+            prompt: userPrompt,
+            latex: finalLatex,
+            status: 'complete',
+            attachments,
+          })
+          .select()
+          .single();
 
-          const { error: updateError } = await (supabase as any)
-            .from('generated_documents')
-            .update({
-              latex: finalLatex,
-              attachments: mergedAttachments,
-            })
-            .eq('id', documentId);
-
-          if (updateError) {
-            console.error('DB Update Error:', updateError);
-          } else {
-            GenerateActions.updateDocument(documentId, {
-              latex: finalLatex,
-              attachments: mergedAttachments,
-            });
-
-            const updatedSession = updateDocumentSession(documentId, {
-              lastUserPrompt: userPrompt,
-              lastAssistantResponse: 'Document updated successfully.',
-              interactionCount: newInteractionCount,
-            });
-
-            if (newInteractionCount % 2 === 0) {
-              triggerSummaryGeneration(
-                documentId,
-                updatedSession.conversationSummary,
-                currentSession?.lastUserPrompt ?? null,
-                currentSession?.lastAssistantResponse ?? null,
-                userPrompt,
-                newInteractionCount
-              );
-            }
-          }
-        } else {
-          const { data: doc, error: dbError } = await supabase
-            .from('generated_documents')
-            .insert({
-              user_id: userId,
-              title: docTitle,
-              prompt: userPrompt,
-              latex: finalLatex,
-              status: 'complete',
-              attachments: newAttachments,
-            } as any)
-            .select()
-            .single();
-
-          if (dbError) console.error('DB Error:', dbError);
-          if (doc) {
-            markGeneratedFirst(userId).catch((err) => {
-              console.error('Failed to mark first generation:', err);
-            });
-            const createdDoc = doc as GeneratedDocument;
-            GenerateActions.addDocument(createdDoc);
-            
-            updateDocumentSession(createdDoc.id, {
-              conversationSummary: null,
-              lastUserPrompt: userPrompt,
-              lastAssistantResponse: 'Document created successfully.',
-              interactionCount: 1,
-            });
-          }
+        if (dbError) console.error('DB Error:', dbError);
+        if (doc) {
+          markGeneratedFirst(userId).catch((err) => {
+            console.error('Failed to mark first generation:', err);
+          });
+          const createdDoc = doc as GeneratedDocument;
+          GenerateActions.addDocument(createdDoc);
         }
       }
     } catch (err) {

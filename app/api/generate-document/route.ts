@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createSSEHeaders } from '@/lib/octra-agent/stream-handling';
+import type { ConversationSummary } from '@/types/conversation';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -31,6 +32,20 @@ STRICT COMPILATION CONSTRAINTS (MUST FOLLOW):
 For research papers: include abstract, sections, subsections, and a bibliography section.
 For other documents: use appropriate structure.`;
 
+const CONTINUATION_PROMPT = `You are an expert LaTeX document editor. You will receive an existing LaTeX document along with context about previous modifications, and a new user request.
+
+Your task is to modify the existing document according to the user's new request while maintaining:
+1. Document consistency and style
+2. All existing content unless explicitly asked to remove it
+3. Valid pdflatex-compatible LaTeX
+
+STRICT COMPILATION CONSTRAINTS (MUST FOLLOW):
+1. **Engine**: pdflatex only. No XeTeX/LuaTeX packages.
+2. **Fonts**: Standard Type 1 fonts only (lmodern, mathptmx, helvet, courier).
+3. **Packages**: Use standard packages (amsmath, amssymb, graphicx, geometry, hyperref, xcolor, fancyhdr, enumitem, booktabs, caption, listings).
+4. **Output**: Complete, compilable document from \\documentclass to \\end{document}.
+5. **Format**: Output ONLY valid LaTeX code. NO markdown, NO code fences, NO explanations.`;
+
 interface FileData {
   mimeType: string;
   data: string;
@@ -41,6 +56,11 @@ interface GenerateRequest {
   prompt: string;
   documentType?: 'research' | 'article' | 'report' | 'letter' | 'general';
   files?: FileData[];
+  documentId?: string;
+  currentLatex?: string;
+  conversationSummary?: ConversationSummary | null;
+  lastUserPrompt?: string | null;
+  lastAssistantResponse?: string | null;
 }
 
 export async function POST(request: Request) {
@@ -67,7 +87,16 @@ export async function POST(request: Request) {
     }
 
     const body: GenerateRequest = await request.json();
-    const { prompt, documentType = 'general', files } = body;
+    const {
+      prompt,
+      documentType = 'general',
+      files,
+      documentId,
+      currentLatex,
+      conversationSummary,
+      lastUserPrompt,
+      lastAssistantResponse,
+    } = body;
 
     if (!prompt?.trim()) {
       return NextResponse.json(
@@ -76,20 +105,44 @@ export async function POST(request: Request) {
       );
     }
 
-    const sessionId = crypto.randomUUID();
+    const isContinuation = !!(documentId && currentLatex);
+    const sessionId = documentId || crypto.randomUUID();
 
-    const documentTypeHint =
-      documentType === 'research'
-        ? 'This should be a formal research paper with abstract, introduction, methodology, results, discussion, and conclusion sections.'
-        : documentType === 'article'
-          ? 'This should be a well-structured article with clear sections.'
-          : documentType === 'report'
-            ? 'This should be a formal report with executive summary and detailed sections.'
-            : documentType === 'letter'
-              ? 'This should be a formal letter with appropriate formatting.'
-              : '';
+    let systemPrompt: string;
+    let userContent: string;
 
-    const fullPrompt = `${prompt}\n\n${documentTypeHint}`.trim();
+    if (isContinuation) {
+      systemPrompt = CONTINUATION_PROMPT;
+
+      const contextParts: string[] = [];
+      contextParts.push(`CURRENT DOCUMENT:\n\`\`\`latex\n${currentLatex}\n\`\`\``);
+
+      if (conversationSummary) {
+        contextParts.push(`\nCONVERSATION CONTEXT:\n- Original intent: ${conversationSummary.original_intent}\n- Modifications made: ${conversationSummary.modifications_made.join(', ') || 'None yet'}\n- Current state: ${conversationSummary.current_state}`);
+      }
+
+      if (lastUserPrompt && lastAssistantResponse) {
+        contextParts.push(`\nLAST EXCHANGE:\nUser asked: ${lastUserPrompt}\nResult: Document was updated accordingly.`);
+      }
+
+      contextParts.push(`\nNEW REQUEST:\n${prompt}`);
+      userContent = contextParts.join('\n');
+    } else {
+      systemPrompt = DOCUMENT_GENERATION_PROMPT;
+
+      const documentTypeHint =
+        documentType === 'research'
+          ? 'This should be a formal research paper with abstract, introduction, methodology, results, discussion, and conclusion sections.'
+          : documentType === 'article'
+            ? 'This should be a well-structured article with clear sections.'
+            : documentType === 'report'
+              ? 'This should be a formal report with executive summary and detailed sections.'
+              : documentType === 'letter'
+                ? 'This should be a formal letter with appropriate formatting.'
+                : '';
+
+      userContent = `${prompt}\n\n${documentTypeHint}`.trim();
+    }
 
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
@@ -134,7 +187,7 @@ export async function POST(request: Request) {
             }
           }
 
-          messageContent.push({ type: 'text', text: fullPrompt });
+          messageContent.push({ type: 'text', text: userContent });
 
           const response = await fetch('https://api.anthropic.com/v1/messages', {
             method: 'POST',
@@ -146,7 +199,7 @@ export async function POST(request: Request) {
             body: JSON.stringify({
               model: 'claude-sonnet-4-20250514',
               max_tokens: 8192,
-              system: DOCUMENT_GENERATION_PROMPT,
+              system: systemPrompt,
               messages: [{ role: 'user', content: messageContent }],
               stream: true,
             }),
@@ -213,7 +266,6 @@ export async function POST(request: Request) {
           let title = extractTitle(latex);
           
           if (!title) {
-            // Try to use the first sentence of the prompt or a truncated version
             const cleanPrompt = prompt.replace(/\s+/g, ' ').trim();
             title = cleanPrompt.length > 50 
               ? cleanPrompt.slice(0, 50) + '...' 
@@ -226,6 +278,7 @@ export async function POST(request: Request) {
             latex,
             title,
             sessionId,
+            isContinuation,
           });
 
           controller.close();

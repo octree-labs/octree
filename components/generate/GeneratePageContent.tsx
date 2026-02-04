@@ -20,16 +20,16 @@ import {
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Card } from '@/components/ui/card';
-import { SidebarInset, SidebarTrigger } from '@/components/ui/sidebar';
+import { Skeleton } from '@/components/ui/skeleton';
+import { SidebarTrigger } from '@/components/ui/sidebar';
 import { BackButton } from '@/components/projects/back-button';
 import { createProjectFromLatex } from '@/actions/create-project-from-latex';
-import { GenerateHistorySidebar } from '@/components/generate/GenerateHistorySidebar';
 import {
-  useActiveDocument,
+  GenerateActions,
   type GeneratedDocument,
 } from '@/stores/generate';
 import { WelcomeState } from '@/components/generate/WelcomeState';
-import { MessageBubble, type Message, type MessageAttachment } from '@/components/generate/MessageBubble';
+import { MessageBubble, type Message } from '@/components/generate/MessageBubble';
 import { DocumentPreview } from '@/components/generate/DocumentPreview';
 import { useGenerate, type AttachedFile } from '@/hooks/use-generate';
 import { useAutoScroll } from '@/hooks/use-auto-scroll';
@@ -40,6 +40,38 @@ const AutoScrollDiv = memo(function AutoScrollDiv({ messages }: { messages: Mess
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length, messages[messages.length - 1]?.content]);
   return <div ref={messagesEndRef} />;
+});
+
+const ChatSkeleton = memo(function ChatSkeleton() {
+  return (
+    <div className="p-4">
+      <div className="mx-auto max-w-3xl space-y-4">
+        <div className="flex justify-end">
+          <div className="max-w-[80%] space-y-2">
+            <Skeleton className="h-4 w-64" />
+            <Skeleton className="h-4 w-48" />
+          </div>
+        </div>
+        <div className="flex justify-start">
+          <div className="max-w-[80%] space-y-2">
+            <Skeleton className="h-4 w-72" />
+            <Skeleton className="h-4 w-56" />
+            <Skeleton className="h-4 w-64" />
+          </div>
+        </div>
+        <Card className="overflow-hidden">
+          <div className="p-4 space-y-3">
+            <Skeleton className="h-5 w-48" />
+            <Skeleton className="h-[200px] w-full" />
+            <div className="flex gap-2">
+              <Skeleton className="h-9 w-32" />
+              <Skeleton className="h-9 w-24" />
+            </div>
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
 });
 
 interface AttachedFilesListProps {
@@ -85,14 +117,21 @@ const AttachedFilesList = memo(function AttachedFilesList({ files, onRemove }: A
   );
 });
 
-export function GeneratePageContent() {
+interface GeneratePageContentProps {
+  initialDocument?: GeneratedDocument;
+}
+
+export function GeneratePageContent({ initialDocument }: GeneratePageContentProps) {
   const router = useRouter();
-  const activeDocument = useActiveDocument();
+
+  const handleDocumentCreated = useCallback((documentId: string) => {
+    router.replace(`/generate/${documentId}`, { scroll: false });
+  }, [router]);
+
   const {
     prompt,
     setPrompt,
     messages,
-    setMessages,
     isGenerating,
     error,
     setError,
@@ -102,15 +141,25 @@ export function GeneratePageContent() {
     addFiles,
     handleRemoveFile,
     generateDocument,
-    resetState,
-  } = useGenerate();
+    restoreSession,
+    currentDocument,
+  } = useGenerate({ onDocumentCreated: handleDocumentCreated });
 
   const scrollRef = useAutoScroll<HTMLDivElement>();
   const [isCreatingProject, setIsCreatingProject] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const currentSessionId = useRef<string | null>(null);
+  const isInitialLoad = initialDocument && currentSessionId.current !== initialDocument.id;
 
-  const currentLatex = activeDocument?.latex ?? null;
-  const currentTitle = activeDocument?.title ?? 'Untitled Document';
+  useEffect(() => {
+    if (initialDocument && currentSessionId.current !== initialDocument.id) {
+      currentSessionId.current = initialDocument.id;
+      restoreSession(initialDocument);
+    }
+  }, [initialDocument, restoreSession]);
+
+  const currentLatex = currentDocument?.latex ?? null;
+  const currentTitle = currentDocument?.title ?? 'Untitled Document';
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -160,32 +209,6 @@ export function GeneratePageContent() {
     }
   }, [currentLatex, currentTitle, isCreatingProject, router, setError]);
 
-  const handleDocumentSelect = useCallback((doc: GeneratedDocument) => {
-    if (!doc.latex) return;
-    setError(null);
-
-    const restoredAttachments: MessageAttachment[] = (doc.attachments || []).map((att) => ({
-      id: att.id,
-      name: att.name,
-      type: att.type,
-      preview: att.url,
-    }));
-
-    setMessages([
-      {
-        id: `user-${doc.id}`,
-        role: 'user',
-        content: doc.prompt,
-        attachments: restoredAttachments.length > 0 ? restoredAttachments : undefined,
-      },
-      {
-        id: `assistant-${doc.id}`,
-        role: 'assistant',
-        content: 'Document generated successfully. Preview it below or open it in Octree.',
-      },
-    ]);
-  }, [setError, setMessages]);
-
   const triggerFileInput = useCallback((accept: string) => {
     if (fileInputRef.current) {
       fileInputRef.current.accept = accept;
@@ -195,11 +218,6 @@ export function GeneratePageContent() {
 
   return (
     <>
-      <GenerateHistorySidebar
-        onNewChat={resetState}
-        onSelectDocument={handleDocumentSelect}
-      />
-      <SidebarInset className="flex h-screen flex-col overflow-hidden">
         <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b px-4 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12">
           <div className="flex items-center gap-2">
             <SidebarTrigger className="-ml-1" />
@@ -228,7 +246,9 @@ export function GeneratePageContent() {
               </div>
             )}
 
-            {!messages.length ? (
+            {isInitialLoad ? (
+              <ChatSkeleton />
+            ) : !messages.length ? (
               <WelcomeState onSelectSuggestion={setPrompt} />
             ) : (
               <div className="p-4">
@@ -240,7 +260,7 @@ export function GeneratePageContent() {
                       isStreaming={
                         message.role === 'assistant' &&
                         isGenerating &&
-                        message.content !== 'Document generated successfully. Preview it below or open it in Octree.' &&
+                        !message.content.startsWith('Document generated successfully.') &&
                         !error
                       }
                     />
@@ -340,7 +360,6 @@ export function GeneratePageContent() {
             />
           </form>
         </div>
-      </SidebarInset>
     </>
   );
 }

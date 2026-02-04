@@ -161,6 +161,57 @@ export type Database = {
           },
         ]
       }
+      generated_documents: {
+        Row: {
+          attachments: Json | null
+          conversation_summary: Json | null
+          created_at: string | null
+          error: string | null
+          id: string
+          interaction_count: number | null
+          last_assistant_response: string | null
+          last_user_prompt: string | null
+          latex: string | null
+          message_history: Json | null
+          prompt: string
+          status: string
+          title: string
+          user_id: string
+        }
+        Insert: {
+          attachments?: Json | null
+          conversation_summary?: Json | null
+          created_at?: string | null
+          error?: string | null
+          id?: string
+          interaction_count?: number | null
+          last_assistant_response?: string | null
+          last_user_prompt?: string | null
+          latex?: string | null
+          message_history?: Json | null
+          prompt: string
+          status?: string
+          title: string
+          user_id: string
+        }
+        Update: {
+          attachments?: Json | null
+          conversation_summary?: Json | null
+          created_at?: string | null
+          error?: string | null
+          id?: string
+          interaction_count?: number | null
+          last_assistant_response?: string | null
+          last_user_prompt?: string | null
+          latex?: string | null
+          message_history?: Json | null
+          prompt?: string
+          status?: string
+          title?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       project_collaborators: {
         Row: {
           created_at: string | null

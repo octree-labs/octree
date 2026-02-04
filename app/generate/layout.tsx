@@ -1,7 +1,8 @@
 import type React from 'react';
-import { SidebarProvider } from '@/components/ui/sidebar';
+import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
 import { getCurrentUser, getUserUsageStatus } from '@/actions/get-user';
 import { PaywallDialog } from '@/components/subscription/paywall-dialog';
+import { GenerateHistorySidebar } from '@/components/generate/GenerateHistorySidebar';
 
 export default async function GenerateLayout({
     children,
@@ -15,8 +16,11 @@ export default async function GenerateLayout({
 
     return (
         <SidebarProvider defaultOpen={true}>
+            <GenerateHistorySidebar />
             {/* {showPaywall && user?.email && <PaywallDialog userEmail={user.email} />} */}
-            {children}
+            <SidebarInset className="flex h-screen flex-col overflow-hidden">
+                {children}
+            </SidebarInset>
         </SidebarProvider>
     );
 }

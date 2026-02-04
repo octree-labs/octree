@@ -17,6 +17,11 @@ export async function compileLatex(
     'Content-Type': 'application/json',
   };
 
+  const authToken = process.env.COMPILE_SERVICE_AUTH_TOKEN;
+  if (authToken) {
+    requestHeaders['Authorization'] = `Bearer ${authToken}`;
+  }
+
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), COMPILE_TIMEOUT_MS);

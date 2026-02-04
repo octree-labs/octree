@@ -15,8 +15,6 @@ export function GenerateSessionContent({ initialDocument }: GenerateSessionConte
     if (!exists) {
       GenerateActions.addDocumentWithoutActivating(initialDocument);
     }
-
-    GenerateActions.fetchDocuments();
   }, [initialDocument]);
 
   return <GeneratePageContent initialDocument={initialDocument} />;

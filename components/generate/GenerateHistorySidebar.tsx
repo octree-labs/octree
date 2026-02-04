@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { Plus, Loader2, X, MoreHorizontal, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,15 +28,8 @@ import {
     type GeneratedDocument,
 } from '@/stores/generate';
 
-interface GenerateHistorySidebarProps {
-    onNewChat: () => void;
-    onSelectDocument: (doc: GeneratedDocument) => void;
-}
-
-export function GenerateHistorySidebar({
-    onNewChat,
-    onSelectDocument,
-}: GenerateHistorySidebarProps) {
+export function GenerateHistorySidebar() {
+    const router = useRouter();
     const { toggleSidebar } = useSidebar();
     const documents = useDocuments();
     const activeDocumentId = useActiveDocumentId();
@@ -79,7 +73,18 @@ export function GenerateHistorySidebar({
 
     const handleSelect = (doc: GeneratedDocument) => {
         if (editingId) return;
-        onSelectDocument(doc);
+        if (!doc.latex) return;
+        
+        // Optimistically update active state if needed, though URL change will eventually trigger it
+        if (activeDocumentId !== doc.id) {
+            GenerateActions.setActiveDocument(doc.id);
+            router.push(`/generate/${doc.id}`);
+        }
+    };
+
+    const handleNewChat = () => {
+        GenerateActions.setActiveDocument(null);
+        router.push('/generate');
     };
 
     return (
@@ -88,7 +93,7 @@ export function GenerateHistorySidebar({
                 <Button
                     variant="ghost"
                     size="sm"
-                    onClick={onNewChat}
+                    onClick={handleNewChat}
                     className="flex-1 gap-1.5"
                 >
                     <Plus className="h-4 w-4" />

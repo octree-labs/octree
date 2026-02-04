@@ -21,10 +21,9 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { SidebarInset, SidebarTrigger } from '@/components/ui/sidebar';
+import { SidebarTrigger } from '@/components/ui/sidebar';
 import { BackButton } from '@/components/projects/back-button';
 import { createProjectFromLatex } from '@/actions/create-project-from-latex';
-import { GenerateHistorySidebar } from '@/components/generate/GenerateHistorySidebar';
 import {
   GenerateActions,
   type GeneratedDocument,
@@ -142,7 +141,6 @@ export function GeneratePageContent({ initialDocument }: GeneratePageContentProp
     addFiles,
     handleRemoveFile,
     generateDocument,
-    resetState,
     restoreSession,
     currentDocument,
   } = useGenerate({ onDocumentCreated: handleDocumentCreated });
@@ -211,20 +209,6 @@ export function GeneratePageContent({ initialDocument }: GeneratePageContentProp
     }
   }, [currentLatex, currentTitle, isCreatingProject, router, setError]);
 
-  const handleDocumentSelect = useCallback((doc: GeneratedDocument) => {
-    if (!doc.latex) return;
-    if (currentSessionId.current === doc.id) return;
-    currentSessionId.current = doc.id;
-    restoreSession(doc);
-    router.push(`/generate/${doc.id}`);
-  }, [router, restoreSession]);
-
-  const handleNewChat = useCallback(() => {
-    currentSessionId.current = null;
-    resetState();
-    router.push('/generate');
-  }, [resetState, router]);
-
   const triggerFileInput = useCallback((accept: string) => {
     if (fileInputRef.current) {
       fileInputRef.current.accept = accept;
@@ -234,11 +218,6 @@ export function GeneratePageContent({ initialDocument }: GeneratePageContentProp
 
   return (
     <>
-      <GenerateHistorySidebar
-        onNewChat={handleNewChat}
-        onSelectDocument={handleDocumentSelect}
-      />
-      <SidebarInset className="flex h-screen flex-col overflow-hidden">
         <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b px-4 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12">
           <div className="flex items-center gap-2">
             <SidebarTrigger className="-ml-1" />
@@ -381,7 +360,6 @@ export function GeneratePageContent({ initialDocument }: GeneratePageContentProp
             />
           </form>
         </div>
-      </SidebarInset>
     </>
   );
 }

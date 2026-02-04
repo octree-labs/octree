@@ -51,8 +51,12 @@ export function DashboardOnboarding({
   const isFirst = step === 0;
 
   const measureTarget = useCallback(() => {
-    if (typeof document === 'undefined' || !current) return;
-    const el = document.querySelector(`[data-onboarding-target="${current.target}"]`);
+    if (typeof document === 'undefined') return;
+    const stepConfig = DASHBOARD_STEPS[step];
+    if (!stepConfig) return;
+    const el = document.querySelector(
+      `[data-onboarding-target="${stepConfig.target}"]`
+    );
     if (el) {
       const rect = el.getBoundingClientRect();
       setTargetRect(rect);
@@ -75,7 +79,7 @@ export function DashboardOnboarding({
       setTargetRect(null);
       setCardPosition(null);
     }
-  }, [current?.target, step]);
+  }, [step]);
 
   useEffect(() => {
     if (open) setStep(0);
@@ -83,8 +87,11 @@ export function DashboardOnboarding({
 
   useEffect(() => {
     if (!open) return;
-    const el = current
-      ? document.querySelector(`[data-onboarding-target="${current.target}"]`)
+    const stepConfig = DASHBOARD_STEPS[step];
+    const el = stepConfig
+      ? document.querySelector(
+          `[data-onboarding-target="${stepConfig.target}"]`
+        )
       : null;
     if (el) {
       el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
@@ -98,7 +105,7 @@ export function DashboardOnboarding({
       window.removeEventListener('resize', onResizeOrScroll);
       window.removeEventListener('scroll', onResizeOrScroll, true);
     };
-  }, [open, step, measureTarget, current?.target]);
+  }, [open, step, measureTarget]);
 
   const handleNext = () => {
     if (isLast) {

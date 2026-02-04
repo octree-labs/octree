@@ -122,35 +122,6 @@ export function useGenerate() {
     setAttachedFiles([]);
   }, []);
 
-  const restoreSession = useCallback((doc: GeneratedDocument) => {
-    GenerateActions.setActiveDocument(doc.id);
-
-    const restoredAttachments: MessageAttachment[] = (doc.attachments || []).map((att) => ({
-      id: att.id,
-      name: att.name,
-      type: att.type,
-      preview: att.url,
-    }));
-
-    const restoredMessages: Message[] = [
-      {
-        id: `user-${doc.id}`,
-        role: 'user',
-        content: doc.prompt,
-        attachments: restoredAttachments.length > 0 ? restoredAttachments : undefined,
-      },
-      {
-        id: `assistant-${doc.id}`,
-        role: 'assistant',
-        content: 'Document generated successfully. Preview it below or open it in Octree.',
-      },
-    ];
-
-    setMessages(restoredMessages);
-    setError(null);
-    setPrompt('');
-  }, []);
-
   const updateLastMessage = useCallback((updater: (msg: Message) => void) => {
     setMessages((prev) => {
       if (prev.length === 0) return prev;
@@ -165,14 +136,10 @@ export function useGenerate() {
   const generateDocument = useCallback(async () => {
     if (!prompt.trim() || isGenerating) return;
 
-    const isContinuation = !!activeDocument?.id && !!activeDocument?.latex;
-
-    if (!isContinuation && activeDocument) {
-      resetState();
-    }
+    if (activeDocument) resetState();
 
     const userPrompt = prompt.trim();
-    const documentId = isContinuation ? activeDocument.id : crypto.randomUUID();
+    const documentId = crypto.randomUUID();
     const filesToSend = [...attachedFiles];
 
     const totalSize = filesToSend.reduce((sum, f) => sum + f.file.size, 0);
@@ -189,29 +156,24 @@ export function useGenerate() {
     }));
 
     const userMessage: Message = {
-      id: `user-${documentId}-${Date.now()}`,
+      id: `user-${documentId}`,
       role: 'user',
       content: userPrompt,
       attachments: messageAttachments.length > 0 ? messageAttachments : undefined,
     };
 
     const assistantMessage: Message = {
-      id: `assistant-${documentId}-${Date.now()}`,
+      id: `assistant-${documentId}`,
       role: 'assistant',
       content: '',
     };
 
-    if (isContinuation) {
-      setMessages((prev) => [...prev, userMessage, assistantMessage]);
-    } else {
-      setMessages([userMessage, assistantMessage]);
-      GenerateActions.reset();
-    }
-
+    setMessages([userMessage, assistantMessage]);
     setPrompt('');
     setIsGenerating(true);
     setError(null);
     setAttachedFiles([]);
+    GenerateActions.reset();
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
@@ -221,24 +183,10 @@ export function useGenerate() {
         ? await convertFilesToBase64(filesToSend)
         : undefined;
 
-      const requestBody: Record<string, unknown> = {
-        prompt: userPrompt,
-        files: filePayload,
-      };
-
-      if (isContinuation) {
-        const session = getDocumentSession(activeDocument.id);
-        requestBody.documentId = activeDocument.id;
-        requestBody.currentLatex = activeDocument.latex;
-        requestBody.conversationSummary = session?.conversationSummary ?? null;
-        requestBody.lastUserPrompt = session?.lastUserPrompt ?? null;
-        requestBody.lastAssistantResponse = session?.lastAssistantResponse ?? null;
-      }
-
       const response = await fetch('/api/generate-document', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody),
+        body: JSON.stringify({ prompt: userPrompt, files: filePayload }),
         signal: controller.signal,
       });
 
@@ -285,7 +233,7 @@ export function useGenerate() {
       });
 
       if (finalLatex && userId) {
-        const newAttachments = await uploadFilesToStorage(
+        const attachments = await uploadFilesToStorage(
           supabase,
           filesToSend,
           documentId,
@@ -402,53 +350,7 @@ export function useGenerate() {
     handleRemoveFile,
     generateDocument,
     resetState,
-    restoreSession,
   };
-}
-
-function triggerSummaryGeneration(
-  documentId: string,
-  currentSummary: ConversationSummary | null,
-  prevUserPrompt: string | null,
-  prevAssistantResponse: string | null,
-  newUserPrompt: string,
-  interactionCount: number
-) {
-  const exchanges: Array<{ userPrompt: string; assistantResponse: string }> = [];
-
-  if (prevUserPrompt && prevAssistantResponse) {
-    exchanges.push({
-      userPrompt: prevUserPrompt,
-      assistantResponse: prevAssistantResponse,
-    });
-  }
-
-  exchanges.push({
-    userPrompt: newUserPrompt,
-    assistantResponse: 'Document updated successfully.',
-  });
-
-  fetch('/api/generate-summary', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      documentId,
-      currentSummary,
-      lastExchanges: exchanges,
-      interactionCount,
-    }),
-  })
-    .then((res) => res.json())
-    .then((data) => {
-      if (data.summary) {
-        updateDocumentSession(documentId, {
-          conversationSummary: data.summary,
-        });
-      }
-    })
-    .catch((err) => {
-      console.error('Summary generation failed:', err);
-    });
 }
 
 async function readStream(

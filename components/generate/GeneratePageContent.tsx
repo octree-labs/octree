@@ -26,7 +26,6 @@ import { createProjectFromLatex } from '@/actions/create-project-from-latex';
 import { GenerateHistorySidebar } from '@/components/generate/GenerateHistorySidebar';
 import {
   useActiveDocument,
-  GenerateActions,
   type GeneratedDocument,
 } from '@/stores/generate';
 import { WelcomeState } from '@/components/generate/WelcomeState';
@@ -86,11 +85,7 @@ const AttachedFilesList = memo(function AttachedFilesList({ files, onRemove }: A
   );
 });
 
-interface GeneratePageContentProps {
-  initialDocument?: GeneratedDocument;
-}
-
-export function GeneratePageContent({ initialDocument }: GeneratePageContentProps) {
+export function GeneratePageContent() {
   const router = useRouter();
   const activeDocument = useActiveDocument();
   const {
@@ -108,20 +103,11 @@ export function GeneratePageContent({ initialDocument }: GeneratePageContentProp
     handleRemoveFile,
     generateDocument,
     resetState,
-    restoreSession,
   } = useGenerate();
 
   const scrollRef = useAutoScroll<HTMLDivElement>();
   const [isCreatingProject, setIsCreatingProject] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
-  const initializedRef = useRef(false);
-
-  useEffect(() => {
-    if (initialDocument && !initializedRef.current) {
-      initializedRef.current = true;
-      restoreSession(initialDocument);
-    }
-  }, [initialDocument, restoreSession]);
 
   const currentLatex = activeDocument?.latex ?? null;
   const currentTitle = activeDocument?.title ?? 'Untitled Document';
@@ -176,14 +162,29 @@ export function GeneratePageContent({ initialDocument }: GeneratePageContentProp
 
   const handleDocumentSelect = useCallback((doc: GeneratedDocument) => {
     if (!doc.latex) return;
-    router.push(`/generate/${doc.id}`);
-  }, [router]);
+    setError(null);
 
-  const handleNewChat = useCallback(() => {
-    resetState();
-    initializedRef.current = false;
-    router.push('/generate');
-  }, [resetState, router]);
+    const restoredAttachments: MessageAttachment[] = (doc.attachments || []).map((att) => ({
+      id: att.id,
+      name: att.name,
+      type: att.type,
+      preview: att.url,
+    }));
+
+    setMessages([
+      {
+        id: `user-${doc.id}`,
+        role: 'user',
+        content: doc.prompt,
+        attachments: restoredAttachments.length > 0 ? restoredAttachments : undefined,
+      },
+      {
+        id: `assistant-${doc.id}`,
+        role: 'assistant',
+        content: 'Document generated successfully. Preview it below or open it in Octree.',
+      },
+    ]);
+  }, [setError, setMessages]);
 
   const triggerFileInput = useCallback((accept: string) => {
     if (fileInputRef.current) {
@@ -195,7 +196,7 @@ export function GeneratePageContent({ initialDocument }: GeneratePageContentProp
   return (
     <>
       <GenerateHistorySidebar
-        onNewChat={handleNewChat}
+        onNewChat={resetState}
         onSelectDocument={handleDocumentSelect}
       />
       <SidebarInset className="flex h-screen flex-col overflow-hidden">
@@ -239,7 +240,7 @@ export function GeneratePageContent({ initialDocument }: GeneratePageContentProp
                       isStreaming={
                         message.role === 'assistant' &&
                         isGenerating &&
-                        !message.content.startsWith('Document generated successfully.') &&
+                        message.content !== 'Document generated successfully. Preview it below or open it in Octree.' &&
                         !error
                       }
                     />

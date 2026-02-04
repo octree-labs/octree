@@ -14,6 +14,7 @@ import {
   updateDocumentSession,
   type DocumentSession,
 } from '@/lib/document-session';
+import { markGeneratedFirst } from '@/lib/requests/walkthrough';
 
 export interface AttachedFile {
   id: string;
@@ -349,6 +350,9 @@ export function useGenerate() {
 
           if (dbError) console.error('DB Error:', dbError);
           if (doc) {
+            markGeneratedFirst(userId).catch((err) => {
+              console.error('Failed to mark first generation:', err);
+            });
             const createdDoc = doc as GeneratedDocument;
             GenerateActions.addDocument(createdDoc);
             

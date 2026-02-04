@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react';
 import { GeneratePageContent } from '@/components/generate/GeneratePageContent';
-import { GenerateActions, type GeneratedDocument } from '@/stores/generate';
+import { GenerateActions, type GeneratedDocument, useGenerateStore } from '@/stores/generate';
 
 interface GenerateSessionContentProps {
   initialDocument: GeneratedDocument;
@@ -10,14 +10,13 @@ interface GenerateSessionContentProps {
 
 export function GenerateSessionContent({ initialDocument }: GenerateSessionContentProps) {
   useEffect(() => {
-    GenerateActions.setActiveDocument(initialDocument.id);
+    const state = useGenerateStore.getState();
+    const exists = state.documents.some((d) => d.id === initialDocument.id);
+    if (!exists) {
+      GenerateActions.addDocumentWithoutActivating(initialDocument);
+    }
 
-    GenerateActions.fetchDocuments().then(() => {
-      const state = GenerateActions.fetchDocument(initialDocument.id);
-      if (!state) {
-        GenerateActions.addDocument(initialDocument);
-      }
-    });
+    GenerateActions.fetchDocuments();
   }, [initialDocument]);
 
   return <GeneratePageContent initialDocument={initialDocument} />;

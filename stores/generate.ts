@@ -126,6 +126,14 @@ export const GenerateActions = {
     }));
   },
 
+  addDocumentWithoutActivating: (doc: GeneratedDocument) => {
+    setState((state) => {
+      const exists = state.documents.some((d) => d.id === doc.id);
+      if (exists) return state;
+      return { documents: [doc, ...state.documents] };
+    });
+  },
+
   updateDocument: (id: string, updates: Partial<GeneratedDocument>) => {
     setState((state) => ({
       documents: state.documents.map((d) =>

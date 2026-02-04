@@ -20,17 +20,17 @@ import {
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Card } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 import { SidebarInset, SidebarTrigger } from '@/components/ui/sidebar';
 import { BackButton } from '@/components/projects/back-button';
 import { createProjectFromLatex } from '@/actions/create-project-from-latex';
 import { GenerateHistorySidebar } from '@/components/generate/GenerateHistorySidebar';
 import {
-  useActiveDocument,
   GenerateActions,
   type GeneratedDocument,
 } from '@/stores/generate';
 import { WelcomeState } from '@/components/generate/WelcomeState';
-import { MessageBubble, type Message, type MessageAttachment } from '@/components/generate/MessageBubble';
+import { MessageBubble, type Message } from '@/components/generate/MessageBubble';
 import { DocumentPreview } from '@/components/generate/DocumentPreview';
 import { useGenerate, type AttachedFile } from '@/hooks/use-generate';
 import { useAutoScroll } from '@/hooks/use-auto-scroll';
@@ -41,6 +41,38 @@ const AutoScrollDiv = memo(function AutoScrollDiv({ messages }: { messages: Mess
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length, messages[messages.length - 1]?.content]);
   return <div ref={messagesEndRef} />;
+});
+
+const ChatSkeleton = memo(function ChatSkeleton() {
+  return (
+    <div className="p-4">
+      <div className="mx-auto max-w-3xl space-y-4">
+        <div className="flex justify-end">
+          <div className="max-w-[80%] space-y-2">
+            <Skeleton className="h-4 w-64" />
+            <Skeleton className="h-4 w-48" />
+          </div>
+        </div>
+        <div className="flex justify-start">
+          <div className="max-w-[80%] space-y-2">
+            <Skeleton className="h-4 w-72" />
+            <Skeleton className="h-4 w-56" />
+            <Skeleton className="h-4 w-64" />
+          </div>
+        </div>
+        <Card className="overflow-hidden">
+          <div className="p-4 space-y-3">
+            <Skeleton className="h-5 w-48" />
+            <Skeleton className="h-[200px] w-full" />
+            <div className="flex gap-2">
+              <Skeleton className="h-9 w-32" />
+              <Skeleton className="h-9 w-24" />
+            </div>
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
 });
 
 interface AttachedFilesListProps {
@@ -92,7 +124,6 @@ interface GeneratePageContentProps {
 
 export function GeneratePageContent({ initialDocument }: GeneratePageContentProps) {
   const router = useRouter();
-  const activeDocument = useActiveDocument();
 
   const handleDocumentCreated = useCallback((documentId: string) => {
     router.replace(`/generate/${documentId}`, { scroll: false });
@@ -102,7 +133,6 @@ export function GeneratePageContent({ initialDocument }: GeneratePageContentProp
     prompt,
     setPrompt,
     messages,
-    setMessages,
     isGenerating,
     error,
     setError,
@@ -114,22 +144,24 @@ export function GeneratePageContent({ initialDocument }: GeneratePageContentProp
     generateDocument,
     resetState,
     restoreSession,
+    currentDocument,
   } = useGenerate({ onDocumentCreated: handleDocumentCreated });
 
   const scrollRef = useAutoScroll<HTMLDivElement>();
   const [isCreatingProject, setIsCreatingProject] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
-  const initializedRef = useRef(false);
+  const currentSessionId = useRef<string | null>(null);
+  const isInitialLoad = initialDocument && currentSessionId.current !== initialDocument.id;
 
   useEffect(() => {
-    if (initialDocument && !initializedRef.current) {
-      initializedRef.current = true;
+    if (initialDocument && currentSessionId.current !== initialDocument.id) {
+      currentSessionId.current = initialDocument.id;
       restoreSession(initialDocument);
     }
   }, [initialDocument, restoreSession]);
 
-  const currentLatex = activeDocument?.latex ?? null;
-  const currentTitle = activeDocument?.title ?? 'Untitled Document';
+  const currentLatex = currentDocument?.latex ?? null;
+  const currentTitle = currentDocument?.title ?? 'Untitled Document';
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -181,12 +213,15 @@ export function GeneratePageContent({ initialDocument }: GeneratePageContentProp
 
   const handleDocumentSelect = useCallback((doc: GeneratedDocument) => {
     if (!doc.latex) return;
+    if (currentSessionId.current === doc.id) return;
+    currentSessionId.current = doc.id;
+    restoreSession(doc);
     router.push(`/generate/${doc.id}`);
-  }, [router]);
+  }, [router, restoreSession]);
 
   const handleNewChat = useCallback(() => {
+    currentSessionId.current = null;
     resetState();
-    initializedRef.current = false;
     router.push('/generate');
   }, [resetState, router]);
 
@@ -232,7 +267,9 @@ export function GeneratePageContent({ initialDocument }: GeneratePageContentProp
               </div>
             )}
 
-            {!messages.length ? (
+            {isInitialLoad ? (
+              <ChatSkeleton />
+            ) : !messages.length ? (
               <WelcomeState onSelectSuggestion={setPrompt} />
             ) : (
               <div className="p-4">

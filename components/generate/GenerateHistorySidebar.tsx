@@ -84,7 +84,7 @@ export function GenerateHistorySidebar({
     };
 
     return (
-        <Sidebar collapsible="offcanvas">
+        <Sidebar collapsible="offcanvas" data-onboarding-target="generate-sidebar">
             <SidebarHeader className="flex-row items-center justify-between border-b border-gray-200 py-3">
                 <Button
                     variant="ghost"

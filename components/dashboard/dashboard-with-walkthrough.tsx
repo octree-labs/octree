@@ -63,13 +63,15 @@ export function DashboardWithWalkthrough({
             </p>
           </div>
 
-          <div className="flex items-center gap-2" data-onboarding-target="dashboard-actions">
-            <Link href="/generate">
-              <Button variant="outline-gradient" size="sm">
-                <Sparkles className="h-4 w-4" />
-                Generate with AI
-              </Button>
-            </Link>
+          <div className="flex items-center gap-2">
+            <span data-onboarding-target="dashboard-generate-button">
+              <Link href="/generate">
+                <Button variant="outline-gradient" size="sm">
+                  <Sparkles className="h-4 w-4" />
+                  Generate with AI
+                </Button>
+              </Link>
+            </span>
             <CreateProjectDialog />
           </div>
         </div>

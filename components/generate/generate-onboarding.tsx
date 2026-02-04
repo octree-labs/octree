@@ -5,43 +5,67 @@ import { createPortal } from 'react-dom';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
-const DASHBOARD_STEPS = [
+const GENERATE_STEPS = [
   {
-    target: 'dashboard-generate-button',
-    title: 'Create documents with AI',
+    target: 'generate-welcome',
+    title: 'AI document generator',
     description:
-      'Click the "Generate with AI" button below to open the generator. There you can describe what you want and get a LaTeX document in seconds.',
+      'Describe the document you want and the AI will generate LaTeX for you. You can get resumes, homework, letters, or any structured document in seconds.',
   },
   {
-    target: 'dashboard-header',
-    title: 'Your dashboard',
+    target: 'generate-prompt',
+    title: 'Describe what you want',
     description:
-      'You can also create empty projects or open existing ones from this page anytime.',
+      'Type your request in this box. For example: "A one-page academic CV", "Math homework with 3 algebra problems", or "A cover letter for a software job".',
+  },
+  {
+    target: 'generate-attach',
+    title: 'Attach files (optional)',
+    description:
+      'Click the paperclip to add images or PDFs. The AI can use them as reference—e.g. a photo of a worksheet or a PDF template.',
+  },
+  {
+    target: 'generate-send',
+    title: 'Send to generate',
+    description:
+      'Press this button or hit Enter to start. The AI will stream the LaTeX document. When it’s done, you’ll see a preview below and can open it in the full editor.',
+  },
+  {
+    target: 'generate-sidebar',
+    title: 'Your generated documents',
+    description:
+      'Past generations appear here. Click any document to view it again or copy its content. Use "New chat" to start a fresh request.',
+  },
+  {
+    target: 'generate-preview',
+    title: 'Preview and open in editor',
+    description:
+      'After generating, the document preview appears here. You can open it in the full Octree editor to edit, compile to PDF, and use AI chat for changes.',
   },
 ] as const;
 
-interface DashboardOnboardingProps {
+interface GenerateOnboardingProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onComplete?: () => void;
 }
 
-export function DashboardOnboarding({
+export function GenerateOnboarding({
   open,
   onOpenChange,
   onComplete,
-}: DashboardOnboardingProps) {
+}: GenerateOnboardingProps) {
   const [step, setStep] = useState(0);
   const [targetRect, setTargetRect] = useState<DOMRect | null>(null);
   const [cardPosition, setCardPosition] = useState<{ top: number; left: number } | null>(null);
 
-  const current = DASHBOARD_STEPS[step];
-  const isLast = step === DASHBOARD_STEPS.length - 1;
+  const current = GENERATE_STEPS[step];
+  const isLast = step === GENERATE_STEPS.length - 1;
   const isFirst = step === 0;
 
   const measureTarget = useCallback(() => {
     if (typeof document === 'undefined') return;
-    const stepConfig = DASHBOARD_STEPS[step];
+    const stepConfig = GENERATE_STEPS[step];
     if (!stepConfig) return;
     const el = document.querySelector(
       `[data-onboarding-target="${stepConfig.target}"]`
@@ -51,10 +75,18 @@ export function DashboardOnboarding({
       setTargetRect(rect);
       const padding = 12;
       const cardWidth = 320;
-      const cardHeight = 200;
+      const cardHeight = 220;
       const viewportPadding = 16;
+      const targetCenterX = rect.left + rect.width / 2;
+      const viewportMid = window.innerWidth / 2;
+
       let top = rect.bottom + padding;
-      let left = rect.left + rect.width / 2 - cardWidth / 2;
+      let left: number;
+      if (targetCenterX < viewportMid && rect.right + padding + cardWidth <= window.innerWidth - viewportPadding) {
+        left = rect.right + padding;
+      } else {
+        left = rect.left + rect.width / 2 - cardWidth / 2;
+      }
       if (top + cardHeight > window.innerHeight - viewportPadding) {
         top = rect.top - cardHeight - padding;
       }
@@ -76,7 +108,7 @@ export function DashboardOnboarding({
 
   useEffect(() => {
     if (!open) return;
-    const stepConfig = DASHBOARD_STEPS[step];
+    const stepConfig = GENERATE_STEPS[step];
     const el = stepConfig
       ? document.querySelector(
           `[data-onboarding-target="${stepConfig.target}"]`
@@ -122,32 +154,30 @@ export function DashboardOnboarding({
 
   const overlay = (
     <div
-      className="pointer-events-none fixed inset-0 z-[100]"
+      className="fixed inset-0 z-[100]"
       role="dialog"
       aria-modal="true"
-      aria-labelledby="onboarding-title"
-      aria-describedby="onboarding-desc"
+      aria-labelledby="generate-onboarding-title"
+      aria-describedby="generate-onboarding-desc"
     >
-      {/* Backdrop: full-page dim when no target; pointer-events-auto so clicks close */}
       {!targetRect && (
         <div
-          className="pointer-events-auto absolute inset-0 bg-black/50 transition-opacity duration-200"
+          className="absolute inset-0 bg-black/50 transition-opacity duration-200"
           onClick={() => handleClose(false)}
           aria-hidden
         />
       )}
 
-      {/* When spotlight: 4 strips around the hole; pointer-events-auto so dimmed-area clicks close, hole stays click-through to page */}
       {targetRect && (
         <>
           <div
-            className="pointer-events-auto absolute left-0 top-0 bg-transparent"
+            className="absolute left-0 top-0 bg-transparent"
             style={{ width: '100%', height: targetRect.top }}
             onClick={() => handleClose(false)}
             aria-hidden
           />
           <div
-            className="pointer-events-auto absolute left-0 bg-transparent"
+            className="absolute left-0 bg-transparent"
             style={{
               top: targetRect.bottom,
               width: '100%',
@@ -157,7 +187,7 @@ export function DashboardOnboarding({
             aria-hidden
           />
           <div
-            className="pointer-events-auto absolute top-0 bg-transparent"
+            className="absolute top-0 bg-transparent"
             style={{
               left: 0,
               top: targetRect.top,
@@ -168,7 +198,7 @@ export function DashboardOnboarding({
             aria-hidden
           />
           <div
-            className="pointer-events-auto absolute top-0 bg-transparent"
+            className="absolute top-0 bg-transparent"
             style={{
               left: targetRect.right,
               top: targetRect.top,
@@ -181,7 +211,6 @@ export function DashboardOnboarding({
         </>
       )}
 
-      {/* Spotlight: hole-sized div with huge box-shadow = dim everywhere except hole. No pointer-events so hole is click-through. */}
       {targetRect && (
         <>
           <div
@@ -207,25 +236,27 @@ export function DashboardOnboarding({
         </>
       )}
 
-      {/* Floating card - pointer-events-auto so Skip/Back/Next work */}
       {cardPosition && current && (
         <div
-          className="pointer-events-auto absolute z-[110] w-80 rounded-lg border border-slate-200 bg-white p-4 shadow-xl"
-          style={{
-            top: cardPosition.top,
-            left: cardPosition.left,
-          }}
+          className="absolute z-[110] w-80 rounded-lg border border-slate-200 bg-white p-4 shadow-xl"
+          style={{ top: cardPosition.top, left: cardPosition.left }}
           onClick={(e) => e.stopPropagation()}
         >
-          <h2 id="onboarding-title" className="mb-2 text-sm font-semibold text-neutral-900">
+          <h2
+            id="generate-onboarding-title"
+            className="mb-2 text-sm font-semibold text-neutral-900"
+          >
             {current.title}
           </h2>
-          <p id="onboarding-desc" className="mb-4 text-sm text-neutral-600">
+          <p
+            id="generate-onboarding-desc"
+            className="mb-4 text-sm text-neutral-600"
+          >
             {current.description}
           </p>
           <div className="flex items-center justify-between">
             <div className="flex gap-1">
-              {DASHBOARD_STEPS.map((_, i) => (
+              {GENERATE_STEPS.map((_, i) => (
                 <div
                   key={i}
                   className={cn(
@@ -258,21 +289,26 @@ export function DashboardOnboarding({
         </div>
       )}
 
-      {/* Fallback when target not found: show card in center */}
       {current && !targetRect && (
         <div
-          className="pointer-events-auto absolute left-1/2 top-1/2 z-[110] w-80 -translate-x-1/2 -translate-y-1/2 rounded-lg border border-slate-200 bg-white p-4 shadow-xl"
+          className="absolute left-1/2 top-1/2 z-[110] w-80 -translate-x-1/2 -translate-y-1/2 rounded-lg border border-slate-200 bg-white p-4 shadow-xl"
           onClick={(e) => e.stopPropagation()}
         >
-          <h2 id="onboarding-title" className="mb-2 text-sm font-semibold text-neutral-900">
+          <h2
+            id="generate-onboarding-title"
+            className="mb-2 text-sm font-semibold text-neutral-900"
+          >
             {current.title}
           </h2>
-          <p id="onboarding-desc" className="mb-4 text-sm text-neutral-600">
+          <p
+            id="generate-onboarding-desc"
+            className="mb-4 text-sm text-neutral-600"
+          >
             {current.description}
           </p>
           <div className="flex items-center justify-between">
             <div className="flex gap-1">
-              {DASHBOARD_STEPS.map((_, i) => (
+              {GENERATE_STEPS.map((_, i) => (
                 <div
                   key={i}
                   className={cn(
@@ -305,15 +341,24 @@ export function DashboardOnboarding({
         </div>
       )}
 
-      {/* Close button - top right; pointer-events-auto so it's clickable */}
       <button
         type="button"
         onClick={() => handleClose(false)}
-        className="pointer-events-auto absolute right-4 top-4 z-[110] rounded-md p-1.5 text-slate-400 hover:bg-white/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-white"
+        className="absolute right-4 top-4 z-[110] rounded-md p-1.5 text-slate-400 hover:bg-white/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-white"
         aria-label="Close tour"
       >
-        <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+        <svg
+          className="h-5 w-5"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M6 18L18 6M6 6l12 12"
+          />
         </svg>
       </button>
     </div>

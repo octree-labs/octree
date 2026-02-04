@@ -335,6 +335,10 @@ export type Database = {
           created_at: string
           dashboard_seen: boolean
           dashboard_seen_at: string | null
+          editor_seen: boolean
+          editor_seen_at: string | null
+          generate_seen: boolean
+          generate_seen_at: string | null
           generated_first_at: string | null
           user_id: string
         }
@@ -342,6 +346,10 @@ export type Database = {
           created_at?: string
           dashboard_seen?: boolean
           dashboard_seen_at?: string | null
+          editor_seen?: boolean
+          editor_seen_at?: string | null
+          generate_seen?: boolean
+          generate_seen_at?: string | null
           generated_first_at?: string | null
           user_id: string
         }
@@ -349,6 +357,10 @@ export type Database = {
           created_at?: string
           dashboard_seen?: boolean
           dashboard_seen_at?: string | null
+          editor_seen?: boolean
+          editor_seen_at?: string | null
+          generate_seen?: boolean
+          generate_seen_at?: string | null
           generated_first_at?: string | null
           user_id?: string
         }

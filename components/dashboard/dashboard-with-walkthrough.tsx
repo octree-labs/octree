@@ -16,6 +16,7 @@ interface DashboardWithWalkthroughProps {
   userName: string | null;
   userId: string;
   shouldShowWalkthrough: boolean;
+  generateWalkthroughCompleted?: boolean;
 }
 
 export function DashboardWithWalkthrough({
@@ -23,6 +24,7 @@ export function DashboardWithWalkthrough({
   userName,
   userId,
   shouldShowWalkthrough,
+  generateWalkthroughCompleted = false,
 }: DashboardWithWalkthroughProps) {
   const [walkthroughOpen, setWalkthroughOpen] = useState(false);
   const markedRef = useRef(false);
@@ -72,7 +74,9 @@ export function DashboardWithWalkthrough({
                 </Button>
               </Link>
             </span>
-            <CreateProjectDialog />
+            <span data-onboarding-target="dashboard-new-project">
+              <CreateProjectDialog />
+            </span>
           </div>
         </div>
 
@@ -85,6 +89,7 @@ export function DashboardWithWalkthrough({
         open={walkthroughOpen}
         onOpenChange={handleWalkthroughClose}
         onComplete={handleWalkthroughComplete}
+        initialStep={generateWalkthroughCompleted ? 1 : 0}
       />
     </>
   );

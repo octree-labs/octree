@@ -16,6 +16,38 @@ export async function markDashboardWalkthroughSeen(userId: string) {
   }
 }
 
+export async function markGenerateWalkthroughSeen(userId: string) {
+  const supabase = createClient();
+  const { error } = await (supabase.from('user_walkthroughs') as any).upsert(
+    {
+      user_id: userId,
+      generate_seen: true,
+      generate_seen_at: new Date().toISOString(),
+    },
+    { onConflict: 'user_id' }
+  );
+
+  if (error) {
+    throw error;
+  }
+}
+
+export async function markEditorWalkthroughSeen(userId: string) {
+  const supabase = createClient();
+  const { error } = await (supabase.from('user_walkthroughs') as any).upsert(
+    {
+      user_id: userId,
+      editor_seen: true,
+      editor_seen_at: new Date().toISOString(),
+    },
+    { onConflict: 'user_id' }
+  );
+
+  if (error) {
+    throw error;
+  }
+}
+
 export async function markGeneratedFirst(userId: string) {
   const supabase = createClient();
   const { error } = await (supabase.from('user_walkthroughs') as any).upsert(

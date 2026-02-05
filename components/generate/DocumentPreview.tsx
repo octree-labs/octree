@@ -17,6 +17,7 @@ import { createCheckoutSession } from '@/lib/requests/subscription';
 import PDFViewer from '@/components/pdf-viewer';
 import { toast } from 'sonner';
 import { CompilationError } from '@/types/compilation';
+import { makeCompilationRequest } from '@/lib/utils/compilation';
 
 interface SubscriptionData {
     hasSubscription: boolean;
@@ -96,13 +97,11 @@ export function DocumentPreview({ latex, title, onOpenInOctree, isCreatingProjec
             setPdfError(null);
 
             try {
-                const response = await fetch('/api/compile-pdf', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ content: latex }),
-                });
+                const { response, data } = await makeCompilationRequest(
+                    [{ path: 'main.tex', content: latex }],
+                    'main.tex'
+                );
 
-                const data = await response.json();
                 const pdf = data.pdf || data.error?.pdf;
 
                 if (pdf) {
@@ -157,13 +156,11 @@ export function DocumentPreview({ latex, title, onOpenInOctree, isCreatingProjec
         setPdfError(null);
 
         try {
-            const response = await fetch('/api/compile-pdf', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ content: latex }),
-            });
+            const { response, data } = await makeCompilationRequest(
+                [{ path: 'main.tex', content: latex }],
+                'main.tex'
+            );
 
-            const data = await response.json();
             const pdf = data.pdf || data.error?.pdf;
 
             if (pdf) {

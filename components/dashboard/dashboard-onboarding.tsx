@@ -10,13 +10,26 @@ const DASHBOARD_STEPS = [
     target: 'dashboard-generate-button',
     title: 'Create documents with AI',
     description:
-      'Click the "Generate with AI" button below to open the generator. There you can describe what you want and get a LaTeX document in seconds.',
+      'Click the "Generate with AI" button above to open the generator. There you can describe what you want and get a LaTeX document in seconds.',
+    hideNext: true,
   },
   {
     target: 'dashboard-header',
     title: 'Your dashboard',
     description:
-      'You can also create empty projects or open existing ones from this page anytime.',
+      'This is your projects hub. From here you can create new projects, open the AI generator, or jump into any existing project.',
+  },
+  {
+    target: 'dashboard-new-project',
+    title: 'New project',
+    description:
+      'Click "+ New Project" to create an empty LaTeX project. You can add files and folders, then open the project in the editor to start writing.',
+  },
+  {
+    target: 'dashboard-projects',
+    title: 'Your projects',
+    description:
+      'All your projects are listed here. Click a row to open it in the editor, or use the menu (⋯) to rename or delete a project.',
   },
 ] as const;
 
@@ -24,14 +37,19 @@ interface DashboardOnboardingProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onComplete?: () => void;
+  initialStep?: number;
 }
+
+const clampStep = (value: number) =>
+  Math.max(0, Math.min(value, DASHBOARD_STEPS.length - 1));
 
 export function DashboardOnboarding({
   open,
   onOpenChange,
   onComplete,
+  initialStep = 0,
 }: DashboardOnboardingProps) {
-  const [step, setStep] = useState(0);
+  const [step, setStep] = useState(() => clampStep(initialStep));
   const [targetRect, setTargetRect] = useState<DOMRect | null>(null);
   const [cardPosition, setCardPosition] = useState<{ top: number; left: number } | null>(null);
 
@@ -71,8 +89,8 @@ export function DashboardOnboarding({
   }, [step]);
 
   useEffect(() => {
-    if (open) setStep(0);
-  }, [open]);
+    if (open) setStep(clampStep(initialStep));
+  }, [open, initialStep]);
 
   useEffect(() => {
     if (!open) return;
@@ -250,9 +268,11 @@ export function DashboardOnboarding({
                   Back
                 </Button>
               )}
-              <Button variant="gradient" size="sm" onClick={handleNext}>
-                {isLast ? 'Get started' : 'Next'}
-              </Button>
+              {!('hideNext' in current && current.hideNext) && (
+                <Button variant="gradient" size="sm" onClick={handleNext}>
+                  {isLast ? 'Get started' : 'Next'}
+                </Button>
+              )}
             </div>
           </div>
         </div>
@@ -297,9 +317,11 @@ export function DashboardOnboarding({
                   Back
                 </Button>
               )}
-              <Button variant="gradient" size="sm" onClick={handleNext}>
-                {isLast ? 'Get started' : 'Next'}
-              </Button>
+              {!('hideNext' in current && current.hideNext) && (
+                <Button variant="gradient" size="sm" onClick={handleNext}>
+                  {isLast ? 'Get started' : 'Next'}
+                </Button>
+              )}
             </div>
           </div>
         </div>

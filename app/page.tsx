@@ -26,6 +26,7 @@ export default async function Dashboard() {
   const data = await getAllProjects();
   const walkthroughStatus = await getUserWalkthroughStatus(user.id);
   const shouldShowWalkthrough = !walkthroughStatus?.dashboard_seen;
+  const generateWalkthroughCompleted = !!walkthroughStatus?.generate_seen;
 
   if (!data) {
     return <div>No data</div>;
@@ -37,6 +38,7 @@ export default async function Dashboard() {
       userName={userName}
       userId={user.id}
       shouldShowWalkthrough={shouldShowWalkthrough}
+      generateWalkthroughCompleted={generateWalkthroughCompleted}
     />
   );
 }

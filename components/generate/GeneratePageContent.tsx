@@ -36,6 +36,12 @@ import { DocumentPreview } from '@/components/generate/DocumentPreview';
 import { useGenerate, type AttachedFile } from '@/hooks/use-generate';
 import { useAutoScroll } from '@/hooks/use-auto-scroll';
 import { GenerateOnboarding } from '@/components/generate/generate-onboarding';
+import { markGenerateWalkthroughSeen } from '@/lib/requests/walkthrough';
+
+interface GeneratePageContentProps {
+  userId?: string;
+  shouldShowGenerateWalkthrough?: boolean;
+}
 
 const AutoScrollDiv = memo(function AutoScrollDiv({ messages }: { messages: Message[] }) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -88,7 +94,10 @@ const AttachedFilesList = memo(function AttachedFilesList({ files, onRemove }: A
   );
 });
 
-export function GeneratePageContent() {
+export function GeneratePageContent({
+  userId,
+  shouldShowGenerateWalkthrough = false,
+}: GeneratePageContentProps = {}) {
   const router = useRouter();
   const activeDocument = useActiveDocument();
   const {
@@ -112,12 +121,15 @@ export function GeneratePageContent() {
   const [isCreatingProject, setIsCreatingProject] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [generateWalkthroughOpen, setGenerateWalkthroughOpen] = useState(false);
+  const markedGenerateWalkthroughRef = useRef(false);
 
   useEffect(() => {
-    if (!localStorage.getItem(GENERATE_ONBOARDING_STORAGE_KEY)) {
+    const fromServer = shouldShowGenerateWalkthrough;
+    const fromStorage = !localStorage.getItem(GENERATE_ONBOARDING_STORAGE_KEY);
+    if (fromServer || fromStorage) {
       setGenerateWalkthroughOpen(true);
     }
-  }, []);
+  }, [shouldShowGenerateWalkthrough]);
 
   const currentLatex = activeDocument?.latex ?? null;
   const currentTitle = activeDocument?.title ?? 'Untitled Document';
@@ -203,12 +215,28 @@ export function GeneratePageContent() {
     }
   }, [fileInputRef]);
 
-  const handleGenerateWalkthroughClose = useCallback((open: boolean) => {
-    if (!open) {
-      localStorage.setItem(GENERATE_ONBOARDING_STORAGE_KEY, 'true');
+  const handleGenerateWalkthroughComplete = useCallback(async () => {
+    if (markedGenerateWalkthroughRef.current || !userId) return;
+    markedGenerateWalkthroughRef.current = true;
+    try {
+      await markGenerateWalkthroughSeen(userId);
+    } catch (error) {
+      console.error('Failed to mark generate walkthrough as seen:', error);
     }
-    setGenerateWalkthroughOpen(open);
-  }, []);
+  }, [userId]);
+
+  const handleGenerateWalkthroughClose = useCallback(
+    (open: boolean) => {
+      if (!open) {
+        localStorage.setItem(GENERATE_ONBOARDING_STORAGE_KEY, 'true');
+        if (userId) {
+          handleGenerateWalkthroughComplete();
+        }
+      }
+      setGenerateWalkthroughOpen(open);
+    },
+    [userId, handleGenerateWalkthroughComplete]
+  );
 
   return (
     <>
@@ -371,7 +399,10 @@ export function GeneratePageContent() {
       <GenerateOnboarding
         open={generateWalkthroughOpen}
         onOpenChange={handleGenerateWalkthroughClose}
-        onComplete={() => localStorage.setItem(GENERATE_ONBOARDING_STORAGE_KEY, 'true')}
+        onComplete={() => {
+          localStorage.setItem(GENERATE_ONBOARDING_STORAGE_KEY, 'true');
+          handleGenerateWalkthroughComplete();
+        }}
       />
     </>
   );

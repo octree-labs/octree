@@ -226,6 +226,7 @@ export function EditorToolbar({
             onClick={onOpenChat}
             className="h-8 gap-1.5 border-slate-300 bg-gradient-to-b from-primary-light to-primary px-3 text-white hover:bg-gradient-to-b hover:from-primary-light/90 hover:to-primary/90"
             title="Edit with AI (⌘B)"
+            data-onboarding-target="editor-ai"
           >
             <WandSparkles className="h-3.5 w-3.5" />
             <span className="font-medium">Edit with AI</span>
@@ -246,6 +247,7 @@ export function EditorToolbar({
             onClick={onCompile}
             disabled={compiling}
             className="gap-1"
+            data-onboarding-target="editor-compile"
           >
             {compiling ? (
               <>

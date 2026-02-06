@@ -271,6 +271,7 @@ export function EditorToolbar({
                 size="sm"
                 disabled={exporting || isSaving}
                 className="gap-1"
+                data-onboarding-target="editor-export"
               >
                 {exporting ? (
                   <>

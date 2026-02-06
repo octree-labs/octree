@@ -7,12 +7,6 @@ import { cn } from '@/lib/utils';
 
 const EDITOR_STEPS = [
   {
-    target: 'sidebar',
-    title: 'Files and navigation',
-    description:
-      'Use the sidebar to switch between files, go back to your projects, or add new files and folders.',
-  },
-  {
     target: 'editor-compile',
     title: 'Compile to PDF',
     description:
@@ -23,6 +17,18 @@ const EDITOR_STEPS = [
     title: 'Edit with AI',
     description:
       'Select text and open the AI chat to get edit suggestions, fix errors, or ask questions about your document.',
+  },
+  {
+    target: 'editor-export',
+    title: 'Export',
+    description:
+      'Use the Export menu to download your project as PDF or as a ZIP of all files.',
+  },
+  {
+    target: 'editor-back',
+    title: 'Back to projects',
+    description:
+      'Click the back button to return to your projects list anytime.',
   },
 ] as const;
 

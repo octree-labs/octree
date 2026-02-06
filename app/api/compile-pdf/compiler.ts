@@ -4,7 +4,8 @@ const COMPILE_TIMEOUT_MS = 180_000;
 
 export async function compileLatex(
   body: CompileRequest,
-  compileServiceUrl: string
+  compileServiceUrl: string,
+  sessionToken: string
 ): Promise<CompilerResponse> {
   const { files, projectId, lastModifiedFile } = body;
 
@@ -15,12 +16,8 @@ export async function compileLatex(
   });
   const requestHeaders: Record<string, string> = {
     'Content-Type': 'application/json',
+    'Authorization': `Bearer ${sessionToken}`,
   };
-
-  const authToken = process.env.COMPILE_SERVICE_AUTH_TOKEN;
-  if (authToken) {
-    requestHeaders['Authorization'] = `Bearer ${authToken}`;
-  }
 
   try {
     const controller = new AbortController();

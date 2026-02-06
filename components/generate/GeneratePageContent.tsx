@@ -127,7 +127,8 @@ export function GeneratePageContent({
     const fromServer = shouldShowGenerateWalkthrough;
     const fromStorage = !localStorage.getItem(GENERATE_ONBOARDING_STORAGE_KEY);
     if (fromServer || fromStorage) {
-      setGenerateWalkthroughOpen(true);
+      const t = setTimeout(() => setGenerateWalkthroughOpen(true), 350);
+      return () => clearTimeout(t);
     }
   }, [shouldShowGenerateWalkthrough]);
 

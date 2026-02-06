@@ -58,10 +58,27 @@ export function GenerateOnboarding({
   const [step, setStep] = useState(0);
   const [targetRect, setTargetRect] = useState<DOMRect | null>(null);
   const [cardPosition, setCardPosition] = useState<{ top: number; left: number } | null>(null);
+  const [fadeIn, setFadeIn] = useState(false);
+  const [measureReady, setMeasureReady] = useState(false);
 
   const current = GENERATE_STEPS[step];
   const isLast = step === GENERATE_STEPS.length - 1;
   const isFirst = step === 0;
+
+  useEffect(() => {
+    if (open) {
+      setFadeIn(false);
+      setMeasureReady(false);
+      const id = requestAnimationFrame(() => setFadeIn(true));
+      const t = setTimeout(() => setMeasureReady(true), 400);
+      return () => {
+        cancelAnimationFrame(id);
+        clearTimeout(t);
+      };
+    } else {
+      setMeasureReady(false);
+    }
+  }, [open]);
 
   const measureTarget = useCallback(() => {
     if (typeof document === 'undefined') return;
@@ -103,11 +120,20 @@ export function GenerateOnboarding({
   }, [step]);
 
   useEffect(() => {
-    if (open) setStep(0);
+    if (open) {
+      setStep(0);
+      setTargetRect(null);
+      setCardPosition(null);
+    }
   }, [open]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || !measureReady) return;
+    if (step === 0) {
+      setTargetRect(null);
+      setCardPosition(null);
+      return;
+    }
     const stepConfig = GENERATE_STEPS[step];
     const el = stepConfig
       ? document.querySelector(
@@ -117,7 +143,7 @@ export function GenerateOnboarding({
     if (el) {
       el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
     }
-    const t = setTimeout(measureTarget, 200);
+    const t = setTimeout(measureTarget, 100);
     const onResizeOrScroll = () => measureTarget();
     window.addEventListener('resize', onResizeOrScroll);
     window.addEventListener('scroll', onResizeOrScroll, true);
@@ -126,7 +152,7 @@ export function GenerateOnboarding({
       window.removeEventListener('resize', onResizeOrScroll);
       window.removeEventListener('scroll', onResizeOrScroll, true);
     };
-  }, [open, step, measureTarget]);
+  }, [open, measureReady, step, measureTarget]);
 
   const handleNext = () => {
     if (isLast) {
@@ -154,7 +180,7 @@ export function GenerateOnboarding({
 
   const overlay = (
     <div
-      className="fixed inset-0 z-[100]"
+      className={`fixed inset-0 z-[100] transition-opacity duration-300 ${fadeIn ? 'opacity-100' : 'opacity-0'}`}
       role="dialog"
       aria-modal="true"
       aria-labelledby="generate-onboarding-title"

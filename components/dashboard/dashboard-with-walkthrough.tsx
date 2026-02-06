@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { flushSync } from 'react-dom';
 import { Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import Navbar from '@/components/navbar';
@@ -26,8 +27,20 @@ export function DashboardWithWalkthrough({
   shouldShowWalkthrough,
   generateWalkthroughCompleted = false,
 }: DashboardWithWalkthroughProps) {
+  const router = useRouter();
   const [walkthroughOpen, setWalkthroughOpen] = useState(false);
   const markedRef = useRef(false);
+
+  const handleGenerateClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (walkthroughOpen) {
+        e.preventDefault();
+        flushSync(() => setWalkthroughOpen(false));
+        router.push('/generate');
+      }
+    },
+    [walkthroughOpen, router]
+  );
 
   useEffect(() => {
     if (shouldShowWalkthrough) {
@@ -67,7 +80,10 @@ export function DashboardWithWalkthrough({
 
           <div className="flex items-center gap-2">
             <span data-onboarding-target="dashboard-generate-button">
-              <Link href="/generate">
+              <Link
+                href="/generate"
+                onClick={handleGenerateClick}
+              >
                 <Button variant="outline-gradient" size="sm">
                   <Sparkles className="h-4 w-4" />
                   Generate with AI

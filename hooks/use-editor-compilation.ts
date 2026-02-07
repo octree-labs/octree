@@ -195,7 +195,17 @@ export function useEditorCompilation({
         : [{ path: normalizedFileName, content: currentContent }];
 
       // Debug: Log files being sent for compilation
-      console.log('[Compile] Files being sent:', filesPayload.map(f => ({ path: f.path, encoding: f.encoding, size: f.content.length })));
+      const fileSizes = filesPayload.map(f => ({ 
+        path: f.path, 
+        encoding: f.encoding, 
+        contentLength: f.content.length,
+        estimatedMB: (f.content.length / 1024 / 1024).toFixed(2) + ' MB'
+      }));
+      const totalContentLength = filesPayload.reduce((sum, f) => sum + f.content.length, 0);
+      const jsonPayload = JSON.stringify({ files: filesPayload, projectId, lastModifiedFile: normalizedFileName });
+      console.log('[Compile] Files being sent:', fileSizes);
+      console.log('[Compile] Total content length:', (totalContentLength / 1024 / 1024).toFixed(2), 'MB');
+      console.log('[Compile] JSON payload size:', (jsonPayload.length / 1024 / 1024).toFixed(2), 'MB');
 
       const { response, data } = await makeCompilationRequest(
         filesPayload,

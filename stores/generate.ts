@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { createClient } from '@/lib/supabase/client';
+import type { ConversationSummary } from '@/types/conversation';
 
 export type DocumentStatus = 'pending' | 'generating' | 'complete' | 'error';
 
@@ -8,6 +9,18 @@ export interface StoredAttachment {
   name: string;
   type: 'image' | 'document';
   url: string;
+}
+
+export interface StoredMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  attachments?: Array<{
+    id: string;
+    name: string;
+    type: 'image' | 'document';
+    preview: string | null;
+  }>;
 }
 
 export interface GeneratedDocument {
@@ -20,6 +33,11 @@ export interface GeneratedDocument {
   error: string | null;
   created_at: string;
   attachments: StoredAttachment[];
+  conversation_summary: ConversationSummary | null;
+  last_user_prompt: string | null;
+  last_assistant_response: string | null;
+  interaction_count: number;
+  message_history: StoredMessage[];
 }
 
 type GenerateStoreState = {
@@ -54,8 +72,7 @@ export const GenerateActions = {
     const supabase = createClient();
     setState({ isLoading: true });
 
-    const { data, error } = await supabase
-      .from('generated_documents')
+    const { data, error } = await (supabase.from('generated_documents') as ReturnType<typeof supabase.from>)
       .select('*')
       .order('created_at', { ascending: false })
       .limit(50);
@@ -66,7 +83,34 @@ export const GenerateActions = {
       return;
     }
 
-    setState({ documents: data ?? [], isLoading: false });
+    setState({ documents: (data ?? []) as GeneratedDocument[], isLoading: false });
+  },
+
+  fetchDocument: async (id: string): Promise<GeneratedDocument | null> => {
+    const supabase = createClient();
+    const { data, error } = await (supabase.from('generated_documents') as ReturnType<typeof supabase.from>)
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error || !data) {
+      console.error('Failed to fetch document:', error);
+      return null;
+    }
+
+    const doc = data as GeneratedDocument;
+
+    setState((state) => {
+      const exists = state.documents.some((d) => d.id === doc.id);
+      return {
+        documents: exists
+          ? state.documents.map((d) => (d.id === doc.id ? doc : d))
+          : [doc, ...state.documents],
+        activeDocumentId: doc.id,
+      };
+    });
+
+    return doc;
   },
 
   setActiveDocument: (id: string | null) => {
@@ -77,6 +121,22 @@ export const GenerateActions = {
     setState((state) => ({
       documents: [doc, ...state.documents],
       activeDocumentId: doc.id,
+    }));
+  },
+
+  addDocumentWithoutActivating: (doc: GeneratedDocument) => {
+    setState((state) => {
+      const exists = state.documents.some((d) => d.id === doc.id);
+      if (exists) return state;
+      return { documents: [doc, ...state.documents] };
+    });
+  },
+
+  updateDocument: (id: string, updates: Partial<GeneratedDocument>) => {
+    setState((state) => ({
+      documents: state.documents.map((d) =>
+        d.id === id ? { ...d, ...updates } : d
+      ),
     }));
   },
 
@@ -110,8 +170,7 @@ export const GenerateActions = {
       ),
     }));
 
-    const { error } = await (supabase as any)
-      .from('generated_documents')
+    const { error } = await (supabase.from('generated_documents') as ReturnType<typeof supabase.from>)
       .update({ title: newTitle })
       .eq('id', id);
 

@@ -66,7 +66,7 @@ export const SUPPORTED_TEXT_FILE_EXTENSIONS = [
 ];
 
 export const BINARY_FILE_EXTENSIONS = [
-  // Images
+  // Images - common
   '.eps',
   '.png',
   '.jpg',
@@ -83,35 +83,83 @@ export const BINARY_FILE_EXTENSIONS = [
   '.heic',
   '.heif',
   '.avif',
-  '.raw',
   '.psd',
   '.ai',
+  // Images - additional formats
+  '.raw',
+  '.cr2',   // Canon RAW
+  '.nef',   // Nikon RAW
+  '.dng',   // Adobe Digital Negative
+  '.exr',   // OpenEXR HDR
+  '.hdr',   // HDR
+  '.jfif',  // JPEG variant
+  '.jp2',   // JPEG 2000
+  '.jpx',   // JPEG 2000 extended
+  '.jxr',   // JPEG XR
+  '.pgm',   // Portable Graymap
+  '.ppm',   // Portable Pixmap
+  '.pbm',   // Portable Bitmap
+  '.pcx',   // PC Paintbrush
+  '.tga',   // Targa
+  '.dds',   // DirectDraw Surface
+  '.emf',   // Enhanced Metafile
+  '.wmf',   // Windows Metafile
   // Fonts - TrueType, OpenType, Web fonts
   '.ttf',
+  '.ttc',   // TrueType Collection (multiple fonts in one file)
   '.otf',
+  '.otc',   // OpenType Collection
   '.woff',
   '.woff2',
   '.eot',
+  '.fon',   // Windows bitmap font
+  '.fnt',   // Windows font
+  '.dfont', // Mac data fork font
   // Fonts - PostScript Type 1
   '.pfb',
   '.pfa',
   '.afm',
   '.pfm',
-  // TeX fonts
+  // TeX fonts and binaries
   '.tfm',
   '.vf',
   '.pk',
   '.gf',
   '.mf',
-  // Archives (in case someone uploads them)
+  '.fmt',   // TeX format files
+  '.base',  // MetaFont base
+  '.mem',   // MetaPost mem
+  // SyncTeX (compressed binary)
+  '.synctex',
+  '.synctex.gz',
+  // Archives
   '.zip',
   '.tar',
   '.gz',
+  '.tgz',
   '.bz2',
+  '.tbz',
+  '.tbz2',
   '.xz',
+  '.txz',
   '.7z',
   '.rar',
-  // Audio/Video (rare but possible)
+  '.lz',
+  '.lzma',
+  '.lz4',
+  '.zst',
+  // Documents (binary office formats)
+  '.doc',
+  '.docx',
+  '.xls',
+  '.xlsx',
+  '.ppt',
+  '.pptx',
+  '.odt',
+  '.ods',
+  '.odp',
+  '.rtf',
+  // Audio/Video
   '.mp3',
   '.mp4',
   '.wav',
@@ -119,13 +167,43 @@ export const BINARY_FILE_EXTENSIONS = [
   '.webm',
   '.mov',
   '.avi',
-  // Other binary
+  '.flac',
+  '.aac',
+  '.m4a',
+  '.mkv',
+  '.flv',
+  // 3D/CAD (rare but possible)
+  '.stl',
+  '.obj',
+  '.fbx',
+  '.blend',
+  '.3ds',
+  // Database files
+  '.db',
+  '.sqlite',
+  '.sqlite3',
+  // Compiled/binary code
   '.exe',
   '.dll',
   '.so',
   '.dylib',
   '.bin',
   '.dat',
+  '.o',
+  '.a',
+  '.class',
+  '.pyc',
+  '.pyo',
+  // Other binary
+  '.swf',
+  '.iso',
+  '.dmg',
+  '.img',
+  '.msi',
+  '.deb',
+  '.rpm',
+  '.apk',
+  '.ipa',
 ] as const;
 
 export const MAX_TEXT_FILE_SIZE = 10 * 1024 * 1024;
@@ -205,16 +283,22 @@ const BINARY_FILE_MIME_TYPES: Record<string, string> = {
   '.ai': 'application/illustrator',
   // Fonts - TrueType, OpenType, Web
   '.ttf': 'font/ttf',
+  '.ttc': 'font/collection', // TrueType Collection
   '.otf': 'font/otf',
+  '.otc': 'font/collection', // OpenType Collection
   '.woff': 'font/woff',
   '.woff2': 'font/woff2',
   '.eot': 'application/vnd.ms-fontobject',
+  '.fon': 'application/x-font',
+  '.fnt': 'application/x-font',
+  '.dfont': 'application/x-dfont',
   // Fonts - PostScript Type 1
   '.pfb': 'application/x-font-type1',
   '.pfa': 'application/x-font-type1',
   '.afm': 'application/x-font-afm',
   // TeX fonts
   '.tfm': 'application/x-tex-tfm',
+  '.fmt': 'application/x-tex-fmt',
   // Archives
   '.zip': 'application/zip',
   '.tar': 'application/x-tar',

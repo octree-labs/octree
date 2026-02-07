@@ -183,40 +183,82 @@ export const importProject = async (
 ): Promise<ImportProjectResponse> => {
   const supabase = createClient();
 
+  console.log('[Import] Starting import for file:', {
+    name: file.name,
+    size: file.size,
+    sizeMB: (file.size / 1024 / 1024).toFixed(2) + ' MB',
+    type: file.type,
+  });
+
   // Check authentication
   const {
     data: { session },
   } = await supabase.auth.getSession();
 
   if (!session?.user) {
+    console.error('[Import] Not authenticated');
     return {
       success: false,
       error: 'Not authenticated',
     };
   }
 
+  console.log('[Import] Authenticated as:', session.user.email);
+
+  // Sanitize filename: remove special characters, accents, and spaces
+  const sanitizeFilename = (name: string): string => {
+    return name
+      .normalize('NFD') // Decompose accented characters (é → e + ´)
+      .replace(/[\u0300-\u036f]/g, '') // Remove diacritical marks
+      .replace(/[^a-zA-Z0-9._-]/g, '_') // Replace special chars with underscore
+      .replace(/_+/g, '_') // Collapse multiple underscores
+      .replace(/^_|_$/g, ''); // Trim leading/trailing underscores
+  };
+
+  const sanitizedFileName = sanitizeFilename(file.name);
+  console.log('[Import] Sanitized filename:', file.name, '->', sanitizedFileName);
+
   // Generate a unique temp path for the upload
   const tempId = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-  const tempPath = `temp-imports/${session.user.id}/${tempId}/${file.name}`;
+  const tempPath = `temp-imports/${session.user.id}/${tempId}/${sanitizedFileName}`;
+
+  console.log('[Import] Uploading to temp path:', tempPath);
 
   try {
     // Step 1: Upload ZIP directly to Supabase Storage (bypasses Vercel limit)
-    const { error: uploadError } = await supabase.storage
+    console.log('[Import] Step 1: Starting Supabase storage upload...');
+    const uploadStartTime = Date.now();
+    
+    const { data: uploadData, error: uploadError } = await supabase.storage
       .from('octree')
       .upload(tempPath, file, {
         cacheControl: '3600',
         upsert: false,
       });
 
+    const uploadDuration = Date.now() - uploadStartTime;
+    console.log('[Import] Upload completed in', uploadDuration, 'ms');
+
     if (uploadError) {
-      console.error('Failed to upload ZIP to storage:', uploadError);
+      console.error('[Import] Failed to upload ZIP to storage:', {
+        error: uploadError,
+        message: uploadError.message,
+        name: uploadError.name,
+        status: (uploadError as any).status,
+        statusCode: (uploadError as any).statusCode,
+      });
       return {
         success: false,
-        error: 'Failed to upload file. Please try again.',
+        error: `Failed to upload file: ${uploadError.message || 'Unknown error'}`,
       };
     }
 
+    console.log('[Import] Step 1 complete. Upload data:', uploadData);
+
     // Step 2: Call API with the storage path (small JSON payload)
+    console.log('[Import] Step 2: Calling /api/import-project...');
+    const apiStartTime = Date.now();
+    
     const response = await fetch('/api/import-project', {
       method: 'POST',
       headers: {
@@ -228,9 +270,14 @@ export const importProject = async (
       }),
     });
 
+    const apiDuration = Date.now() - apiStartTime;
+    console.log('[Import] API call completed in', apiDuration, 'ms, status:', response.status);
+
     const data = await response.json();
+    console.log('[Import] API response:', data);
 
     if (!response.ok) {
+      console.error('[Import] API returned error:', data);
       // Clean up temp file on error
       await supabase.storage.from('octree').remove([tempPath]);
       return {
@@ -239,8 +286,10 @@ export const importProject = async (
       };
     }
 
+    console.log('[Import] Import successful!', data);
     return data;
   } catch (error) {
+    console.error('[Import] Exception during import:', error);
     // Clean up temp file on error
     await supabase.storage.from('octree').remove([tempPath]).catch(() => {});
     return {

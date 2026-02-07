@@ -108,7 +108,7 @@ export function AuthMarketingSection() {
   }, []);
 
   return (
-    <div className="relative hidden w-1/2 bg-muted lg:flex lg:flex-col lg:p-12 overflow-hidden h-screen">
+    <div className="relative hidden w-1/2 bg-muted lg:flex lg:flex-col lg:items-center lg:p-12 overflow-hidden h-screen">
       <div
         className="animate-pulse-slow absolute inset-0"
         style={{

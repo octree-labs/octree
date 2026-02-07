@@ -41,6 +41,7 @@ import { markGenerateWalkthroughSeen } from '@/lib/requests/walkthrough';
 interface GeneratePageContentProps {
   userId?: string;
   shouldShowGenerateWalkthrough?: boolean;
+  initialDocument?: GeneratedDocument | null;
 }
 
 const AutoScrollDiv = memo(function AutoScrollDiv({ messages }: { messages: Message[] }) {
@@ -129,6 +130,7 @@ const AttachedFilesList = memo(function AttachedFilesList({ files, onRemove }: A
 export function GeneratePageContent({
   userId,
   shouldShowGenerateWalkthrough = false,
+  initialDocument = null,
 }: GeneratePageContentProps = {}) {
   const router = useRouter();
 
@@ -411,7 +413,6 @@ export function GeneratePageContent({
             />
           </form>
         </div>
-      </SidebarInset>
 
       <GenerateOnboarding
         open={generateWalkthroughOpen}

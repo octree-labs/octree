@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -52,6 +52,7 @@ export function DashboardOnboarding({
   const [step, setStep] = useState(() => clampStep(initialStep));
   const [targetRect, setTargetRect] = useState<DOMRect | null>(null);
   const [cardPosition, setCardPosition] = useState<{ top: number; left: number } | null>(null);
+  const [measureAttempted, setMeasureAttempted] = useState(false);
 
   const current = DASHBOARD_STEPS[step];
   const isLast = step === DASHBOARD_STEPS.length - 1;
@@ -85,12 +86,23 @@ export function DashboardOnboarding({
     } else {
       setTargetRect(null);
       setCardPosition(null);
+      setMeasureAttempted(true);
     }
   }, [step]);
 
   useEffect(() => {
-    if (open) setStep(clampStep(initialStep));
+    if (open) {
+      setStep(clampStep(initialStep));
+      setTargetRect(null);
+      setCardPosition(null);
+      setMeasureAttempted(false);
+    }
   }, [open, initialStep]);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    measureTarget();
+  }, [open, step, measureTarget]);
 
   useEffect(() => {
     if (!open) return;
@@ -103,7 +115,7 @@ export function DashboardOnboarding({
     if (el) {
       el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
     }
-    const t = setTimeout(measureTarget, 200);
+    const t = setTimeout(measureTarget, 250);
     const onResizeOrScroll = () => measureTarget();
     window.addEventListener('resize', onResizeOrScroll);
     window.addEventListener('scroll', onResizeOrScroll, true);
@@ -119,12 +131,18 @@ export function DashboardOnboarding({
       onComplete?.();
       onOpenChange(false);
     } else {
+      setTargetRect(null);
+      setCardPosition(null);
+      setMeasureAttempted(false);
       setStep((s) => s + 1);
     }
   };
 
   const handleBack = () => {
     if (isFirst) return;
+    setTargetRect(null);
+    setCardPosition(null);
+    setMeasureAttempted(false);
     setStep((s) => s - 1);
   };
 
@@ -278,8 +296,8 @@ export function DashboardOnboarding({
         </div>
       )}
 
-      {/* Fallback when target not found: show card in center */}
-      {current && !targetRect && (
+      {/* Fallback when target not found: show card in center only after measure attempted (avoids card flashing in middle then jumping) */}
+      {current && !targetRect && measureAttempted && (
         <div
           className="pointer-events-auto absolute left-1/2 top-1/2 z-[110] w-80 -translate-x-1/2 -translate-y-1/2 rounded-lg border border-slate-200 bg-white p-4 shadow-xl"
           onClick={(e) => e.stopPropagation()}

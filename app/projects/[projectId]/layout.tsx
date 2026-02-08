@@ -9,9 +9,7 @@ import { BackButton } from '@/components/projects/back-button';
 import { ProjectBreadcrumbs } from '@/components/projects/project-breadcrumbs';
 import { getProjectById } from '@/actions/get-projects';
 import { getCurrentUser, getUserUsageStatus } from '@/actions/get-user';
-import { getUserWalkthroughStatus } from '@/actions/get-walkthrough';
 import { PaywallDialog } from '@/components/subscription/paywall-dialog';
-import { EditorWalkthroughWrapper } from '@/components/editor/editor-walkthrough-wrapper';
 
 import { DragDropProvider } from '@/components/providers/dnd-provider';
 
@@ -26,9 +24,6 @@ export default async function ProjectLayout({
   const user = await getCurrentUser();
   const userName = user?.user_metadata?.name ?? user?.email ?? null;
   const project = await getProjectById(projectId);
-  const walkthroughStatus = user ? await getUserWalkthroughStatus(user.id) : null;
-  const shouldShowEditorWalkthrough = !walkthroughStatus?.editor_seen;
-
   // Check if user needs to see paywall
   // TEMPORARILY DISABLED - allowing users to enter without paywall
   // const usage = user ? await getUserUsageStatus(user.id) : null;
@@ -56,12 +51,7 @@ export default async function ProjectLayout({
           </header>
 
           <div className="min-h-0 flex-1 overflow-hidden">
-            <EditorWalkthroughWrapper
-              userId={user?.id}
-              shouldShowEditorWalkthrough={shouldShowEditorWalkthrough}
-            >
-              {children}
-            </EditorWalkthroughWrapper>
+            {children}
           </div>
         </SidebarInset>
       </SidebarProvider>

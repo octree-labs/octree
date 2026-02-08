@@ -381,6 +381,42 @@ export type Database = {
         }
         Relationships: []
       }
+      user_walkthroughs: {
+        Row: {
+          created_at: string
+          dashboard_seen: boolean
+          dashboard_seen_at: string | null
+          editor_seen: boolean
+          editor_seen_at: string | null
+          generate_seen: boolean
+          generate_seen_at: string | null
+          generated_first_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          dashboard_seen?: boolean
+          dashboard_seen_at?: string | null
+          editor_seen?: boolean
+          editor_seen_at?: string | null
+          generate_seen?: boolean
+          generate_seen_at?: string | null
+          generated_first_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          dashboard_seen?: boolean
+          dashboard_seen_at?: string | null
+          editor_seen?: boolean
+          editor_seen_at?: string | null
+          generate_seen?: boolean
+          generate_seen_at?: string | null
+          generated_first_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

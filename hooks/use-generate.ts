@@ -1,12 +1,14 @@
 
-import { useState, useRef, useEffect, useCallback, ChangeEvent } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo, ChangeEvent } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import {
   GenerateActions,
   type GeneratedDocument,
   type StoredAttachment,
+  useActiveDocument,
 } from '@/stores/generate';
 import { Message, MessageAttachment } from '@/components/generate/MessageBubble';
+import { markGeneratedFirst } from '@/lib/requests/walkthrough';
 import type { ConversationSummary } from '@/types/conversation';
 
 export interface AttachedFile {
@@ -26,7 +28,8 @@ interface UseGenerateOptions {
 
 export function useGenerate(options: UseGenerateOptions = {}) {
   const { onDocumentCreated } = options;
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
+  const activeDocument = useActiveDocument();
 
   const [prompt, setPrompt] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
@@ -298,14 +301,12 @@ export function useGenerate(options: UseGenerateOptions = {}) {
         filesToSend.forEach((f) => f.preview && URL.revokeObjectURL(f.preview));
 
         const successMessage = 'Document generated successfully. Preview it below or open it in Octree.';
-        
         const newUserMessage = {
           id: `user-${documentId}-${Date.now()}`,
           role: 'user' as const,
           content: userPrompt,
           attachments: messageAttachments.length > 0 ? messageAttachments : undefined,
         };
-        
         const newAssistantMessage = {
           id: `assistant-${documentId}-${Date.now()}`,
           role: 'assistant' as const,
@@ -377,6 +378,9 @@ export function useGenerate(options: UseGenerateOptions = {}) {
 
           if (dbError) console.error('DB Error:', dbError);
           if (doc) {
+            markGeneratedFirst(userId).catch((err) => {
+              console.error('Failed to mark first generation:', err);
+            });
             const createdDoc = doc as GeneratedDocument;
             setCurrentDocument(createdDoc);
             GenerateActions.addDocument(createdDoc);

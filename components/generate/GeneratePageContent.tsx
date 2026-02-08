@@ -2,6 +2,8 @@
 
 import { useState, useRef, useEffect, useCallback, memo } from 'react';
 import { useRouter } from 'next/navigation';
+
+const GENERATE_ONBOARDING_STORAGE_KEY = 'octree_generate_onboarding_completed';
 import {
   ArrowUp,
   Loader2,
@@ -33,6 +35,14 @@ import { MessageBubble, type Message } from '@/components/generate/MessageBubble
 import { DocumentPreview } from '@/components/generate/DocumentPreview';
 import { useGenerate, type AttachedFile } from '@/hooks/use-generate';
 import { useAutoScroll } from '@/hooks/use-auto-scroll';
+import { GenerateOnboarding } from '@/components/generate/generate-onboarding';
+import { markGenerateWalkthroughSeen } from '@/lib/requests/walkthrough';
+
+interface GeneratePageContentProps {
+  userId?: string;
+  shouldShowGenerateWalkthrough?: boolean;
+  initialDocument?: GeneratedDocument | null;
+}
 
 const AutoScrollDiv = memo(function AutoScrollDiv({ messages }: { messages: Message[] }) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -117,11 +127,11 @@ const AttachedFilesList = memo(function AttachedFilesList({ files, onRemove }: A
   );
 });
 
-interface GeneratePageContentProps {
-  initialDocument?: GeneratedDocument;
-}
-
-export function GeneratePageContent({ initialDocument }: GeneratePageContentProps) {
+export function GeneratePageContent({
+  userId,
+  shouldShowGenerateWalkthrough = false,
+  initialDocument = null,
+}: GeneratePageContentProps = {}) {
   const router = useRouter();
 
   const handleDocumentCreated = useCallback((documentId: string) => {
@@ -148,6 +158,17 @@ export function GeneratePageContent({ initialDocument }: GeneratePageContentProp
   const scrollRef = useAutoScroll<HTMLDivElement>();
   const [isCreatingProject, setIsCreatingProject] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [generateWalkthroughOpen, setGenerateWalkthroughOpen] = useState(false);
+  const markedGenerateWalkthroughRef = useRef(false);
+
+  useEffect(() => {
+    const fromServer = shouldShowGenerateWalkthrough;
+    const fromStorage = !localStorage.getItem(GENERATE_ONBOARDING_STORAGE_KEY);
+    if (fromServer || fromStorage) {
+      const t = setTimeout(() => setGenerateWalkthroughOpen(true), 350);
+      return () => clearTimeout(t);
+    }
+  }, [shouldShowGenerateWalkthrough]);
   const currentSessionId = useRef<string | null>(null);
   const isInitialLoad = initialDocument && currentSessionId.current !== initialDocument.id;
 
@@ -216,6 +237,29 @@ export function GeneratePageContent({ initialDocument }: GeneratePageContentProp
     }
   }, [fileInputRef]);
 
+  const handleGenerateWalkthroughComplete = useCallback(async () => {
+    if (markedGenerateWalkthroughRef.current || !userId) return;
+    markedGenerateWalkthroughRef.current = true;
+    try {
+      await markGenerateWalkthroughSeen(userId);
+    } catch (error) {
+      console.error('Failed to mark generate walkthrough as seen:', error);
+    }
+  }, [userId]);
+
+  const handleGenerateWalkthroughClose = useCallback(
+    (open: boolean) => {
+      if (!open) {
+        localStorage.setItem(GENERATE_ONBOARDING_STORAGE_KEY, 'true');
+        if (userId) {
+          handleGenerateWalkthroughComplete();
+        }
+      }
+      setGenerateWalkthroughOpen(open);
+    },
+    [userId, handleGenerateWalkthroughComplete]
+  );
+
   return (
     <>
         <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b px-4 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12">
@@ -230,7 +274,11 @@ export function GeneratePageContent({ initialDocument }: GeneratePageContentProp
         </header>
 
         <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-muted/30">
-          <div ref={scrollRef} className="relative flex-1 overflow-y-auto">
+          <div
+            ref={scrollRef}
+            className="relative flex-1 overflow-y-auto"
+            data-onboarding-target="generate-welcome"
+          >
             {error && (
               <div className="sticky top-0 z-50 p-4">
                 <Card className="mx-auto max-w-3xl relative border-destructive bg-destructive/10 p-3 pr-10 shadow-lg">
@@ -266,14 +314,16 @@ export function GeneratePageContent({ initialDocument }: GeneratePageContentProp
                     />
                   ))}
 
-                  {currentLatex && !isGenerating && (
-                    <DocumentPreview
-                      latex={currentLatex}
-                      title={currentTitle}
-                      onOpenInOctree={handleOpenInOctree}
-                      isCreatingProject={isCreatingProject}
-                    />
-                  )}
+                  <div data-onboarding-target="generate-preview">
+                    {currentLatex && !isGenerating && (
+                      <DocumentPreview
+                        latex={currentLatex}
+                        title={currentTitle}
+                        onOpenInOctree={handleOpenInOctree}
+                        isCreatingProject={isCreatingProject}
+                      />
+                    )}
+                  </div>
                   
                   <AutoScrollDiv messages={messages} />
                 </div>
@@ -291,6 +341,7 @@ export function GeneratePageContent({ initialDocument }: GeneratePageContentProp
             className="mx-auto max-w-3xl"
           >
             <Card
+              data-onboarding-target="generate-prompt"
               className={`flex flex-col gap-2 p-2 transition-colors ${isDragging ? 'border-primary ring-2 ring-primary/20 bg-muted/50' : ''
                 }`}
               onDragOver={handleDragOver}
@@ -317,6 +368,7 @@ export function GeneratePageContent({ initialDocument }: GeneratePageContentProp
                       size="icon"
                       className="h-8 w-8"
                       disabled={isGenerating}
+                      data-onboarding-target="generate-attach"
                     >
                       <Paperclip className="h-4 w-4" />
                       <span className="sr-only">Attach file</span>
@@ -340,6 +392,7 @@ export function GeneratePageContent({ initialDocument }: GeneratePageContentProp
                   variant="gradient"
                   disabled={!prompt.trim() || isGenerating}
                   className="h-8 w-8 shrink-0"
+                  data-onboarding-target="generate-send"
                 >
                   {isGenerating ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -360,6 +413,15 @@ export function GeneratePageContent({ initialDocument }: GeneratePageContentProp
             />
           </form>
         </div>
+
+      <GenerateOnboarding
+        open={generateWalkthroughOpen}
+        onOpenChange={handleGenerateWalkthroughClose}
+        onComplete={() => {
+          localStorage.setItem(GENERATE_ONBOARDING_STORAGE_KEY, 'true');
+          handleGenerateWalkthroughComplete();
+        }}
+      />
     </>
   );
 }

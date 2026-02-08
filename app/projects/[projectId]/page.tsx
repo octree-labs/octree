@@ -34,6 +34,7 @@ import type { EditSuggestion } from '@/types/edit';
 import { isImageFile, isPDFFile, isTextFile } from '@/lib/constants/file-types';
 import { ImageViewer } from '@/components/image-viewer';
 import { SimplePDFViewer } from '@/components/simple-pdf-viewer';
+import { EditorOnboarding } from '@/components/projects/editor-onboarding';
 
 const CHAT_WIDTH_DEFAULT = 340;
 const CHAT_WIDTH_MIN = 280;
@@ -135,6 +136,13 @@ export default function ProjectPage() {
 
   const [chatWidth, setChatWidth] = useState(CHAT_WIDTH_DEFAULT);
   const [isChatResizing, setIsChatResizing] = useState(false);
+  const [walkthroughOpen, setWalkthroughOpen] = useState(false);
+
+  useEffect(() => {
+    if (!localStorage.getItem('octree_editor_onboarding_completed')) {
+      setWalkthroughOpen(true);
+    }
+  }, []);
   const chatStartXRef = useRef(0);
   const chatStartWidthRef = useRef(0);
 
@@ -295,6 +303,7 @@ export default function ProjectPage() {
           setChatOpen(true);
         }}
         onToggleChat={() => setChatOpen(prev => !prev)}
+        onStartWalkthrough={() => setWalkthroughOpen(true)}
         chatOpen={chatOpen}
         compiling={compiling}
         exporting={exporting}
@@ -309,7 +318,10 @@ export default function ProjectPage() {
           className="flex min-h-0 flex-1 transition-all duration-300 ease-in-out"
         >
           <ResizablePanel defaultSize={50} minSize={25}>
-            <div className="relative h-full">
+            <div
+              className="relative h-full"
+              data-onboarding-target="editor"
+            >
               <div className="h-full overflow-hidden">
                 {isImage && selectedFile ? (
                   <ImageViewer
@@ -356,7 +368,10 @@ export default function ProjectPage() {
           </ResizablePanel>
           <ResizableHandle withHandle />
           <ResizablePanel defaultSize={50} minSize={30}>
-            <div className="h-full overflow-hidden border-l border-slate-200">
+            <div
+              className="h-full overflow-hidden border-l border-slate-200"
+              data-onboarding-target="pdf"
+            >
               {compilationError && !pdfData ? (
                 <div className="flex h-full items-start justify-center overflow-auto p-4">
                   <CompilationError
@@ -402,6 +417,13 @@ export default function ProjectPage() {
         </ResizablePanelGroup>
       </div>
 
+      <EditorOnboarding
+        open={walkthroughOpen}
+        onOpenChange={(open) => {
+          setWalkthroughOpen(open);
+          if (!open) localStorage.setItem('octree_editor_onboarding_completed', 'true');
+        }}
+      />
       <div
         className={cn(
           'fixed inset-y-0 right-0 z-20 border-l border-slate-200 bg-white',

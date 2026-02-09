@@ -11,12 +11,42 @@ import {
 import type { ProjectFileContext } from './lib/octra-agent';
 
 import { SessionManager } from './lib/session-manager';
+import jwt from 'jsonwebtoken';
 
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
-app.post('/agent', async (req: any, res: any) => {
+function jwtAuthMiddleware(req: any, res: any, next: any) {
+  const jwtSecret = process.env.SUPABASE_JWT_SECRET;
+  if (!jwtSecret) {
+    next();
+    return;
+  }
+
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+    res.status(401).json({ error: 'Authorization header required' });
+    return;
+  }
+
+  const prefix = 'Bearer ';
+  if (!authHeader.startsWith(prefix)) {
+    res.status(401).json({ error: 'Invalid authorization header format' });
+    return;
+  }
+
+  const token = authHeader.slice(prefix.length);
+
+  try {
+    jwt.verify(token, jwtSecret, { algorithms: ['HS256'] });
+    next();
+  } catch (err) {
+    res.status(401).json({ error: 'Invalid or expired token' });
+  }
+}
+
+app.post('/agent', jwtAuthMiddleware, async (req: any, res: any) => {
   try {
     const keyValidation = validateApiKeys();
     if (!keyValidation.isValid) return res.status(503).json({ error: keyValidation.error });

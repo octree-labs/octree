@@ -266,12 +266,15 @@ export default function OnboardingPage() {
               </div>
 
               <div className="space-y-1">
-                <p className="text-2xl font-bold">$0.00 for 3 days</p>
+                <div className="flex items-baseline gap-2">
+                  <p className="text-3xl font-bold">{isMonthly ? '$2.49' : '$4.99'}</p>
+                  <p className="text-sm text-muted-foreground">per week</p>
+                </div>
                 {isMonthly && (
-                  <p className="text-sm text-muted-foreground">$9.99 billed monthly</p>
+                  <p className="text-xs text-muted-foreground">Billed monthly at $9.99/month</p>
                 )}
                 {!isMonthly && (
-                  <p className="text-sm text-muted-foreground">$4.99 billed weekly</p>
+                  <p className="text-xs text-muted-foreground">Billed weekly at $4.99/week</p>
                 )}
               </div>
 
@@ -336,6 +339,11 @@ export default function OnboardingPage() {
                     Skip for now
                   </Button>
                 )} */}
+                {currentStep === 1 && (
+                  <p className="text-center text-xs text-muted-foreground">
+                    No charge for 3 days. Cancel anytime.
+                  </p>
+                )}
               </CardContent>
             </Card>
 

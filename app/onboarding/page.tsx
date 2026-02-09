@@ -326,7 +326,7 @@ export default function OnboardingPage() {
                       ? 'Start Free Trial →'
                       : 'Continue'}
                 </Button>
-                {currentStep === 1 && (
+                {/* {currentStep === 1 && (
                   <Button
                     className="w-full"
                     variant="ghost"
@@ -335,7 +335,7 @@ export default function OnboardingPage() {
                   >
                     Skip for now
                   </Button>
-                )}
+                )} */}
               </CardContent>
             </Card>
 

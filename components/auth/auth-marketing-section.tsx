@@ -18,47 +18,72 @@ import {
 
 function UseCaseCarousel({ useCases }: { useCases: { title: string; description: string; videoUrl: string }[] }) {
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [showFront, setShowFront] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const frontRef = useRef<HTMLVideoElement>(null);
+  const backRef = useRef<HTMLVideoElement>(null);
   const dialogVideoRef = useRef<HTMLVideoElement>(null);
+  const lockRef = useRef(false);
+
+  // On mount, set the front video source
+  useEffect(() => {
+    const front = frontRef.current;
+    if (front) {
+      front.src = useCases[0].videoUrl;
+      front.load();
+      front.play().catch(() => {});
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const changeVideo = useCallback((newIndex: number) => {
+    if (lockRef.current) return;
+    lockRef.current = true;
+
+    // Load new video on the hidden (back) element
+    const back = showFront ? backRef.current : frontRef.current;
+    if (back) {
+      back.src = useCases[newIndex].videoUrl;
+      back.load();
+      back.play().catch(() => {});
+    }
+
+    // Crossfade: hide front, show back
+    setShowFront((prev) => !prev);
+    setCurrentIndex(newIndex);
+
+    // After transition, pause old video and unlock
+    setTimeout(() => {
+      const old = showFront ? frontRef.current : backRef.current;
+      if (old) old.pause();
+      lockRef.current = false;
+    }, 400);
+  }, [showFront, useCases]);
 
   const goToNext = useCallback(() => {
-    setCurrentIndex((prev) => (prev + 1) % useCases.length);
-  }, [useCases.length]);
+    changeVideo((currentIndex + 1) % useCases.length);
+  }, [currentIndex, useCases.length, changeVideo]);
 
   const goToPrev = useCallback(() => {
-    setCurrentIndex((prev) => (prev - 1 + useCases.length) % useCases.length);
-  }, [useCases.length]);
-
-  // When the current index changes, play the new video
-  useEffect(() => {
-    const video = videoRef.current;
-    if (video) {
-      video.load();
-      video.play().catch(() => {});
-    }
-  }, [currentIndex]);
+    changeVideo((currentIndex - 1 + useCases.length) % useCases.length);
+  }, [currentIndex, useCases.length, changeVideo]);
 
   // Pause inline video when dialog opens, play dialog video
   const handleDialogChange = useCallback((open: boolean) => {
     setDialogOpen(open);
+    const active = showFront ? frontRef.current : backRef.current;
     if (open) {
-      videoRef.current?.pause();
+      active?.pause();
       setTimeout(() => {
         const dialogVideo = dialogVideoRef.current;
-        if (dialogVideo) {
-          dialogVideo.currentTime = videoRef.current?.currentTime ?? 0;
+        if (dialogVideo && active) {
+          dialogVideo.currentTime = active.currentTime ?? 0;
           dialogVideo.play().catch(() => {});
         }
       }, 50);
     } else {
-      // Resume inline video where dialog left off
-      const inlineVideo = videoRef.current;
-      if (inlineVideo) {
-        inlineVideo.play().catch(() => {});
-      }
+      active?.play().catch(() => {});
     }
-  }, []);
+  }, [showFront]);
 
   const current = useCases[currentIndex];
 
@@ -77,17 +102,28 @@ function UseCaseCarousel({ useCases }: { useCases: { title: string; description:
         <Dialog open={dialogOpen} onOpenChange={handleDialogChange}>
           <DialogTrigger asChild>
             <div className="relative overflow-hidden shadow-md bg-black aspect-video w-full cursor-pointer group">
+              {/* Front video */}
               <video
-                ref={videoRef}
-                src={current.videoUrl}
-                autoPlay
+                ref={frontRef}
                 muted
                 playsInline
                 onEnded={goToNext}
-                className="w-full h-full object-cover"
+                className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
+                  showFront ? 'opacity-100 z-[1]' : 'opacity-0 z-0'
+                }`}
+              />
+              {/* Back video */}
+              <video
+                ref={backRef}
+                muted
+                playsInline
+                onEnded={goToNext}
+                className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
+                  showFront ? 'opacity-0 z-0' : 'opacity-100 z-[1]'
+                }`}
               />
               {/* Play overlay on hover */}
-              <div className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity z-10">
                 <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/90 shadow-lg">
                   <Play className="h-5 w-5 fill-current text-black ml-0.5" />
                 </div>

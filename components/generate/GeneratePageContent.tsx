@@ -12,6 +12,7 @@ import {
   X,
   Image as ImageIcon,
   File as FileIcon,
+  Square,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -151,6 +152,7 @@ export function GeneratePageContent({
     addFiles,
     handleRemoveFile,
     generateDocument,
+    stopGeneration,
     restoreSession,
     currentDocument,
   } = useGenerate({ onDocumentCreated: handleDocumentCreated });
@@ -387,19 +389,22 @@ export function GeneratePageContent({
                 </DropdownMenu>
 
                 <Button
-                  type="submit"
+                  type={isGenerating ? 'button' : 'submit'}
                   size="icon"
                   variant="gradient"
-                  disabled={!prompt.trim() || isGenerating}
+                  disabled={!isGenerating && !prompt.trim()}
+                  onClick={isGenerating ? stopGeneration : undefined}
                   className="h-8 w-8 shrink-0"
                   data-onboarding-target="generate-send"
                 >
                   {isGenerating ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <Square className="h-4 w-4 fill-current" />
                   ) : (
                     <ArrowUp className="h-4 w-4" />
                   )}
-                  <span className="sr-only">Send prompt</span>
+                  <span className="sr-only">
+                    {isGenerating ? 'Stop generating' : 'Send prompt'}
+                  </span>
                 </Button>
               </div>
             </Card>

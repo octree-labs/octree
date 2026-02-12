@@ -115,6 +115,13 @@ export function useGenerate(options: UseGenerateOptions = {}) {
     });
   }, []);
 
+  const stopGeneration = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+  }, []);
+
   const resetState = useCallback(() => {
     GenerateActions.reset();
     setCurrentDocument(null);
@@ -425,6 +432,7 @@ export function useGenerate(options: UseGenerateOptions = {}) {
     addFiles,
     handleRemoveFile,
     generateDocument,
+    stopGeneration,
     resetState,
     restoreSession,
     currentDocument,

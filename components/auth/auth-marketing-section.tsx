@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import LogoCloud from '@/components/ui/logo-cloud';
 import { TestimonialCarousel } from './testimonial-carousel';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Play, X, ArrowRight } from 'lucide-react';
+import { Play, X, ArrowRight, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Dialog, DialogContent, DialogTrigger, DialogTitle, DialogClose } from '@/components/ui/dialog';
 import {
   VideoPlayer,
@@ -24,6 +24,10 @@ function UseCaseCarousel({ useCases }: { useCases: { title: string; description:
 
   const goToNext = useCallback(() => {
     setCurrentIndex((prev) => (prev + 1) % useCases.length);
+  }, [useCases.length]);
+
+  const goToPrev = useCallback(() => {
+    setCurrentIndex((prev) => (prev - 1 + useCases.length) % useCases.length);
   }, [useCases.length]);
 
   // When the current index changes, play the new video
@@ -60,27 +64,36 @@ function UseCaseCarousel({ useCases }: { useCases: { title: string; description:
 
   return (
     <div className="flex flex-col gap-4 w-full">
-      <Dialog open={dialogOpen} onOpenChange={handleDialogChange}>
-        <DialogTrigger asChild>
-          <div className="relative rounded-xl overflow-hidden border border-zinc-950/25 shadow-md shadow-zinc-950/20 ring-1 ring-inset ring-white/20 bg-black aspect-video cursor-pointer group">
-            <video
-              ref={videoRef}
-              key={currentIndex}
-              src={current.videoUrl}
-              autoPlay
-              muted
-              playsInline
-              onEnded={goToNext}
-              className="w-full h-full object-contain"
-            />
-            {/* Play overlay on hover */}
-            <div className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/90 shadow-lg">
-                <Play className="h-5 w-5 fill-current text-black ml-0.5" />
+      {/* Video with arrows on left and right */}
+      <div className="relative w-full">
+        <button
+          onClick={goToPrev}
+          className="absolute -left-8 top-1/2 -translate-y-1/2 z-10 p-1 text-muted-foreground hover:text-foreground transition-colors"
+          aria-label="Previous use case"
+        >
+          <ChevronLeft className="h-5 w-5" />
+        </button>
+
+        <Dialog open={dialogOpen} onOpenChange={handleDialogChange}>
+          <DialogTrigger asChild>
+            <div className="relative overflow-hidden shadow-md bg-black aspect-video w-full cursor-pointer group">
+              <video
+                ref={videoRef}
+                src={current.videoUrl}
+                autoPlay
+                muted
+                playsInline
+                onEnded={goToNext}
+                className="w-full h-full object-cover"
+              />
+              {/* Play overlay on hover */}
+              <div className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/90 shadow-lg">
+                  <Play className="h-5 w-5 fill-current text-black ml-0.5" />
+                </div>
               </div>
             </div>
-          </div>
-        </DialogTrigger>
+          </DialogTrigger>
         <DialogContent className="sm:max-w-5xl w-[95vw] p-0 overflow-visible border-none bg-transparent shadow-none" showCloseButton={false}>
           <DialogTitle className="sr-only">{current.title}</DialogTitle>
           <div className="relative group/modal">
@@ -118,26 +131,23 @@ function UseCaseCarousel({ useCases }: { useCases: { title: string; description:
         </DialogContent>
       </Dialog>
 
+        <button
+          onClick={goToNext}
+          className="absolute -right-8 top-1/2 -translate-y-1/2 z-10 p-1 text-muted-foreground hover:text-foreground transition-colors"
+          aria-label="Next use case"
+        >
+          <ChevronRight className="h-5 w-5" />
+        </button>
+      </div>
+
+      {/* Title and description below */}
       <div className="text-center px-2">
         <h3 className="font-semibold text-foreground text-sm">
           {current.title}
         </h3>
-        <p className="text-xs text-muted-foreground mt-1 leading-snug">
+        <p className="text-xs text-muted-foreground mt-0.5 leading-snug">
           {current.description}
         </p>
-      </div>
-
-      <div className="flex justify-center gap-2">
-        {useCases.map((_, index) => (
-          <button
-            key={index}
-            onClick={() => setCurrentIndex(index)}
-            className={`h-2 w-2 rounded-full transition-colors ${
-              index === currentIndex ? 'bg-primary' : 'bg-muted-foreground/30'
-            }`}
-            aria-label={`Go to use case ${index + 1}`}
-          />
-        ))}
       </div>
     </div>
   );
@@ -205,16 +215,16 @@ export function AuthMarketingSection() {
         }}
       />
 
-      <div className="relative z-10 flex flex-col h-full w-full max-w-md mx-auto justify-between py-12">
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col w-full">
+      <div className="relative z-10 flex flex-col h-full w-full max-w-2xl mx-auto justify-between py-12">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col w-full flex-1">
           {/* Tabs header - fixed at top */}
           <TabsList className="grid w-full grid-cols-2 shrink-0">
             <TabsTrigger value="testimonials">Testimonials</TabsTrigger>
             <TabsTrigger value="use-cases">Use Cases</TabsTrigger>
           </TabsList>
 
-          {/* Content area - Fixed height to prevent any layout shift */}
-          <div className="h-[450px] mt-8 flex flex-col">
+          {/* Content area */}
+          <div className="flex-1 mt-8 flex flex-col">
             <TabsContent 
               value="testimonials" 
               className="m-0 flex-1 data-[state=active]:flex flex-col items-center justify-center animate-in fade-in duration-300"
@@ -224,7 +234,7 @@ export function AuthMarketingSection() {
 
             <TabsContent 
               value="use-cases" 
-              className="m-0 flex-1 data-[state=active]:flex flex-col justify-center animate-in fade-in duration-300"
+              className="m-0 flex-1 data-[state=active]:flex flex-col items-center justify-center animate-in fade-in duration-300"
             >
               <UseCaseCarousel useCases={useCases} />
 
@@ -306,8 +316,8 @@ export function AuthMarketingSection() {
         </Tabs>
 
         {/* Logo cloud - pinned to bottom */}
-        <div className="shrink-0 mt-4">
-          <p className="mb-4 text-center text-muted-foreground text-[10px] font-bold uppercase tracking-[0.2em] opacity-60">
+        <div className="shrink-0 mt-8">
+          <p className="mb-1.5 text-center text-muted-foreground text-[10px] font-bold uppercase tracking-[0.2em] opacity-60">
             Used by researchers at
           </p>
           <LogoCloud />

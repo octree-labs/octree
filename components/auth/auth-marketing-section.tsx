@@ -16,6 +16,133 @@ import {
   VideoPlayerTimeRange,
 } from '@/components/ui/video-player';
 
+function UseCaseCarousel({ useCases }: { useCases: { title: string; description: string; videoUrl: string }[] }) {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const dialogVideoRef = useRef<HTMLVideoElement>(null);
+
+  const goToNext = useCallback(() => {
+    setCurrentIndex((prev) => (prev + 1) % useCases.length);
+  }, [useCases.length]);
+
+  // When the current index changes, play the new video
+  useEffect(() => {
+    const video = videoRef.current;
+    if (video) {
+      video.load();
+      video.play().catch(() => {});
+    }
+  }, [currentIndex]);
+
+  // Pause inline video when dialog opens, play dialog video
+  const handleDialogChange = useCallback((open: boolean) => {
+    setDialogOpen(open);
+    if (open) {
+      videoRef.current?.pause();
+      setTimeout(() => {
+        const dialogVideo = dialogVideoRef.current;
+        if (dialogVideo) {
+          dialogVideo.currentTime = videoRef.current?.currentTime ?? 0;
+          dialogVideo.play().catch(() => {});
+        }
+      }, 50);
+    } else {
+      // Resume inline video where dialog left off
+      const inlineVideo = videoRef.current;
+      if (inlineVideo) {
+        inlineVideo.play().catch(() => {});
+      }
+    }
+  }, []);
+
+  const current = useCases[currentIndex];
+
+  return (
+    <div className="flex flex-col gap-4 w-full">
+      <Dialog open={dialogOpen} onOpenChange={handleDialogChange}>
+        <DialogTrigger asChild>
+          <div className="relative rounded-xl overflow-hidden border border-zinc-950/25 shadow-md shadow-zinc-950/20 ring-1 ring-inset ring-white/20 bg-black aspect-video cursor-pointer group">
+            <video
+              ref={videoRef}
+              key={currentIndex}
+              src={current.videoUrl}
+              autoPlay
+              muted
+              playsInline
+              onEnded={goToNext}
+              className="w-full h-full object-contain"
+            />
+            {/* Play overlay on hover */}
+            <div className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/90 shadow-lg">
+                <Play className="h-5 w-5 fill-current text-black ml-0.5" />
+              </div>
+            </div>
+          </div>
+        </DialogTrigger>
+        <DialogContent className="sm:max-w-5xl w-[95vw] p-0 overflow-visible border-none bg-transparent shadow-none" showCloseButton={false}>
+          <DialogTitle className="sr-only">{current.title}</DialogTitle>
+          <div className="relative group/modal">
+            <VideoPlayer className="w-full overflow-hidden rounded-xl shadow-2xl bg-black aspect-video">
+              <VideoPlayerContent
+                ref={dialogVideoRef}
+                src={current.videoUrl}
+                playsInline
+                preload="auto"
+                autoPlay
+                muted
+                loop
+                slot="media"
+                className="w-full h-full"
+                style={{
+                  objectFit: 'contain',
+                  objectPosition: '50% 50%',
+                  transform: 'translateZ(0)',
+                  imageRendering: 'auto',
+                }}
+              />
+              <VideoPlayerControlBar>
+                <VideoPlayerPlayButton />
+                <VideoPlayerTimeRange />
+                <VideoPlayerTimeDisplay showDuration />
+                <VideoPlayerMuteButton />
+              </VideoPlayerControlBar>
+            </VideoPlayer>
+
+            <DialogClose className="absolute -top-12 right-0 rounded-full bg-white/10 p-2 ring-offset-background transition-opacity hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground">
+              <X className="h-5 w-5 text-white" />
+              <span className="sr-only">Close</span>
+            </DialogClose>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <div className="text-center px-2">
+        <h3 className="font-semibold text-foreground text-sm">
+          {current.title}
+        </h3>
+        <p className="text-xs text-muted-foreground mt-1 leading-snug">
+          {current.description}
+        </p>
+      </div>
+
+      <div className="flex justify-center gap-2">
+        {useCases.map((_, index) => (
+          <button
+            key={index}
+            onClick={() => setCurrentIndex(index)}
+            className={`h-2 w-2 rounded-full transition-colors ${
+              index === currentIndex ? 'bg-primary' : 'bg-muted-foreground/30'
+            }`}
+            aria-label={`Go to use case ${index + 1}`}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 const testimonials = [
   {
     quote:
@@ -66,46 +193,6 @@ const useCases = [
 
 export function AuthMarketingSection() {
   const [activeTab, setActiveTab] = useState('use-cases');
-  const [openDialogIndex, setOpenDialogIndex] = useState<number | null>(null);
-  const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
-  const preloadedVideos = useRef<Set<string>>(new Set());
-
-  // Preload all videos when Use Cases tab becomes active
-  useEffect(() => {
-    if (activeTab === 'use-cases') {
-      useCases.forEach((useCase) => {
-        if (!preloadedVideos.current.has(useCase.videoUrl)) {
-          // Create a video element to preload the video
-          const video = document.createElement('video');
-          video.preload = 'auto';
-          video.muted = true;
-          video.src = useCase.videoUrl;
-          // Start loading immediately
-          video.load();
-          preloadedVideos.current.add(useCase.videoUrl);
-        }
-      });
-    }
-  }, [activeTab]);
-
-  // Play video immediately when dialog opens
-  const handleDialogChange = useCallback((open: boolean, index: number) => {
-    if (open) {
-      setOpenDialogIndex(index);
-      // Small timeout to ensure the video element is mounted
-      setTimeout(() => {
-        const videoEl = videoRefs.current[index];
-        if (videoEl) {
-          videoEl.currentTime = 0;
-          videoEl.play().catch(() => {
-            // Autoplay might be blocked, user can click play
-          });
-        }
-      }, 50);
-    } else {
-      setOpenDialogIndex(null);
-    }
-  }, []);
 
   return (
     <div className="relative hidden w-1/2 bg-muted lg:flex lg:flex-col lg:items-center lg:p-12 overflow-hidden h-screen">
@@ -117,19 +204,6 @@ export function AuthMarketingSection() {
           backgroundPosition: 'center',
         }}
       />
-
-      {/* Hidden preload video elements - renders actual videos offscreen for faster playback */}
-      <div className="sr-only" aria-hidden="true">
-        {activeTab === 'use-cases' && useCases.map((useCase, index) => (
-          <video
-            key={`preload-${index}`}
-            src={useCase.videoUrl}
-            preload="auto"
-            muted
-            playsInline
-          />
-        ))}
-      </div>
 
       <div className="relative z-10 flex flex-col h-full w-full max-w-md mx-auto justify-between py-12">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col w-full">
@@ -152,7 +226,10 @@ export function AuthMarketingSection() {
               value="use-cases" 
               className="m-0 flex-1 data-[state=active]:flex flex-col justify-center animate-in fade-in duration-300"
             >
-              <div className="space-y-3 w-full">
+              <UseCaseCarousel useCases={useCases} />
+
+              {/* Old card-based use cases list */}
+              {/* <div className="space-y-3 w-full">
                 {useCases.map((useCase, index) => (
                   <Dialog 
                     key={index} 
@@ -179,7 +256,6 @@ export function AuthMarketingSection() {
                           </div>
                         </div>
                         
-                        {/* Hidden indicator arrow that appears on hover */}
                         <div className="absolute right-4 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 group-hover:translate-x-0 translate-x-2 transition-all duration-300">
                           <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm shadow-zinc-950/20 ring-1 ring-inset ring-white/20">
                             <ArrowRight className="size-3.5" />
@@ -216,7 +292,6 @@ export function AuthMarketingSection() {
                           </VideoPlayerControlBar>
                         </VideoPlayer>
                         
-                        {/* Exact close button from marketing site */}
                         <DialogClose className="absolute -top-12 right-0 rounded-full bg-white/10 p-2 ring-offset-background transition-opacity hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground">
                           <X className="h-5 w-5 text-white" />
                           <span className="sr-only">Close</span>
@@ -225,7 +300,7 @@ export function AuthMarketingSection() {
                     </DialogContent>
                   </Dialog>
                 ))}
-              </div>
+              </div> */}
             </TabsContent>
           </div>
         </Tabs>

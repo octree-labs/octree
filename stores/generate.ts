@@ -1,8 +1,15 @@
 import { create } from 'zustand';
 import { createClient } from '@/lib/supabase/client';
 import type { ConversationSummary } from '@/types/conversation';
+import { Tables } from '@/database.types';
 
-export type DocumentStatus = 'pending' | 'generating' | 'complete' | 'error';
+export type GeneratedDocument = Tables<'generated_documents'> & {
+  attachments: StoredAttachment[];
+  message_history: StoredMessage[];
+  conversation_summary: ConversationSummary | null;
+};
+
+export type DocumentStatus = GeneratedDocument['status'];
 
 export interface StoredAttachment {
   id: string;
@@ -23,21 +30,12 @@ export interface StoredMessage {
   }>;
 }
 
-export interface GeneratedDocument {
-  id: string;
-  user_id: string;
-  title: string;
-  prompt: string;
-  latex: string | null;
-  status: DocumentStatus;
-  error: string | null;
-  created_at: string;
+export interface GeneratedDocument extends Omit<Tables<'generated_documents'>, 'attachments' | 'message_history' | 'conversation_summary' | 'status'> {
   attachments: StoredAttachment[];
-  conversation_summary: ConversationSummary | null;
-  last_user_prompt: string | null;
-  last_assistant_response: string | null;
-  interaction_count: number;
   message_history: StoredMessage[];
+  conversation_summary: ConversationSummary | null;
+  status: Tables<'generated_documents'>['status'];
+  created_at: string;
 }
 
 type GenerateStoreState = {
@@ -72,7 +70,7 @@ export const GenerateActions = {
     const supabase = createClient();
     setState({ isLoading: true });
 
-    const { data, error } = await (supabase.from('generated_documents') as ReturnType<typeof supabase.from>)
+    const { data, error } = await supabase.from('generated_documents')
       .select('*')
       .order('created_at', { ascending: false })
       .limit(50);
@@ -83,12 +81,12 @@ export const GenerateActions = {
       return;
     }
 
-    setState({ documents: (data ?? []) as GeneratedDocument[], isLoading: false });
+    setState({ documents: (data ?? []) as unknown as GeneratedDocument[], isLoading: false });
   },
 
   fetchDocument: async (id: string): Promise<GeneratedDocument | null> => {
     const supabase = createClient();
-    const { data, error } = await (supabase.from('generated_documents') as ReturnType<typeof supabase.from>)
+    const { data, error } = await supabase.from('generated_documents')
       .select('*')
       .eq('id', id)
       .single();
@@ -98,7 +96,7 @@ export const GenerateActions = {
       return null;
     }
 
-    const doc = data as GeneratedDocument;
+    const doc = data as unknown as GeneratedDocument;
 
     setState((state) => {
       const exists = state.documents.some((d) => d.id === doc.id);
@@ -170,7 +168,7 @@ export const GenerateActions = {
       ),
     }));
 
-    const { error } = await (supabase.from('generated_documents') as ReturnType<typeof supabase.from>)
+    const { error } = await supabase.from('generated_documents')
       .update({ title: newTitle })
       .eq('id', id);
 

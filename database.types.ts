@@ -174,7 +174,7 @@ export type Database = {
           latex: string | null
           message_history: Json | null
           prompt: string
-          status: string
+          status: 'pending' | 'generating' | 'complete' | 'error'
           title: string
           user_id: string
         }
@@ -190,7 +190,7 @@ export type Database = {
           latex?: string | null
           message_history?: Json | null
           prompt: string
-          status?: string
+          status?: 'pending' | 'generating' | 'complete' | 'error'
           title: string
           user_id: string
         }
@@ -206,7 +206,7 @@ export type Database = {
           latex?: string | null
           message_history?: Json | null
           prompt?: string
-          status?: string
+          status?: 'pending' | 'generating' | 'complete' | 'error'
           title?: string
           user_id?: string
         }

@@ -10,6 +10,7 @@ import {
 import { Message, MessageAttachment } from '@/components/generate/MessageBubble';
 import { markGeneratedFirst } from '@/lib/requests/walkthrough';
 import type { ConversationSummary } from '@/types/conversation';
+import type { Json } from '@/database.types';
 
 export interface AttachedFile {
   id: string;
@@ -273,14 +274,13 @@ export function useGenerate(options: UseGenerateOptions = {}) {
         const newInteractionCount = (currentDocument.interaction_count || 1) + 1;
         const updatedHistory = [...(currentDocument.message_history || []), persistentUserMessage, initialAssistantMessage];
 
-        // @ts-ignore
         await supabase.from('generated_documents').update({
           status: 'generating',
-          attachments: mergedAttachments,
+          attachments: mergedAttachments as unknown as Json,
           last_user_prompt: userPrompt,
           interaction_count: newInteractionCount,
-          message_history: updatedHistory,
-        } as any).eq('id', documentId);
+          message_history: updatedHistory as unknown as Json,
+        }).eq('id', documentId);
 
         // Update local state
         const updates = {
@@ -304,12 +304,12 @@ export function useGenerate(options: UseGenerateOptions = {}) {
           prompt: userPrompt,
           latex: '',
           status: 'generating',
-          attachments: uploadedAttachments,
+          attachments: uploadedAttachments as unknown as Json,
           last_user_prompt: userPrompt,
           last_assistant_response: '',
           interaction_count: 1,
-          message_history: initialHistory,
-        } as any).select().single();
+          message_history: initialHistory as unknown as Json,
+        }).select().single();
 
         if (doc) {
           const createdDoc = doc as GeneratedDocument;
@@ -432,14 +432,13 @@ export function useGenerate(options: UseGenerateOptions = {}) {
           historyForDb[historyForDb.length - 1] = newAssistantMessage;
 
           const { error: updateError } = await supabase.from('generated_documents')
-            // @ts-ignore
             .update({
               latex: finalLatex,
               // attachments: ... already up to date
               last_user_prompt: userPrompt,
               last_assistant_response: successMessage,
               // interaction_count: ... already up to date
-              message_history: historyForDb as any,
+              message_history: historyForDb as unknown as Json,
               status: 'complete'
             })
             .eq('id', documentId);
@@ -469,13 +468,12 @@ export function useGenerate(options: UseGenerateOptions = {}) {
           
           const historyForDb = [userMessage, newAssistantMessage];
           
-          // @ts-ignore
           const { error: updateError } = await supabase.from('generated_documents').update({
               latex: finalLatex,
               title: docTitle,
               status: 'complete',
               last_assistant_response: successMessage,
-              message_history: historyForDb as any
+              message_history: historyForDb as unknown as Json
           }).eq('id', documentId);
 
            if (updateError) console.error('DB Error:', updateError);
@@ -526,11 +524,10 @@ export function useGenerate(options: UseGenerateOptions = {}) {
           }
 
           if (historyForDb.length > 0) {
-             // @ts-ignore
              await supabase.from('generated_documents').update({
-                  status: 'error', // or 'complete' if we want to show partial? 'error' implies stopped/failed.
+                  status: 'error',
                   last_assistant_response: partialAssistantMessage.content,
-                  message_history: historyForDb as any
+                  message_history: historyForDb as unknown as Json
               }).eq('id', documentId);
           }
       }

@@ -274,7 +274,7 @@ export function useGenerate(options: UseGenerateOptions = {}) {
         const newInteractionCount = (currentDocument.interaction_count || 1) + 1;
         const updatedHistory = [...(currentDocument.message_history || []), persistentUserMessage, initialAssistantMessage];
 
-        await supabase.from('generated_documents').update({
+        await (supabase.from('generated_documents') as any).update({
           status: 'generating',
           attachments: mergedAttachments as unknown as Json,
           last_user_prompt: userPrompt,
@@ -297,7 +297,7 @@ export function useGenerate(options: UseGenerateOptions = {}) {
         // Create a temporary title from prompt
         const tempTitle = userPrompt.slice(0, 50) + (userPrompt.length > 50 ? '...' : '');
         
-        const { data: doc, error: dbError } = await supabase.from('generated_documents').insert({
+        const { data: doc, error: dbError } = await (supabase.from('generated_documents') as any).insert({
           id: documentId,
           user_id: userId,
           title: tempTitle,
@@ -431,7 +431,7 @@ export function useGenerate(options: UseGenerateOptions = {}) {
           // We want to replace that one.
           historyForDb[historyForDb.length - 1] = newAssistantMessage;
 
-          const { error: updateError } = await supabase.from('generated_documents')
+          const { error: updateError } = await (supabase.from('generated_documents') as any)
             .update({
               latex: finalLatex,
               // attachments: ... already up to date
@@ -468,7 +468,7 @@ export function useGenerate(options: UseGenerateOptions = {}) {
           
           const historyForDb = [userMessage, newAssistantMessage];
           
-          const { error: updateError } = await supabase.from('generated_documents').update({
+          const { error: updateError } = await (supabase.from('generated_documents') as any).update({
               latex: finalLatex,
               title: docTitle,
               status: 'complete',
@@ -531,9 +531,9 @@ export function useGenerate(options: UseGenerateOptions = {}) {
           }
 
           if (historyForDb.length > 0) {
-             const status = isAbort ? 'complete' : 'error';
+             const status = (isAbort ? 'complete' : 'error') as 'complete' | 'error';
              
-             await supabase.from('generated_documents').update({
+             await (supabase.from('generated_documents') as any).update({
                   status,
                   latex: partialLatex,
                   last_assistant_response: finalAssistantContent,

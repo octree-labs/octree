@@ -3,12 +3,6 @@ import { createClient } from '@/lib/supabase/client';
 import type { ConversationSummary } from '@/types/conversation';
 import { Tables } from '@/database.types';
 
-export type GeneratedDocument = Tables<'generated_documents'> & {
-  attachments: StoredAttachment[];
-  message_history: StoredMessage[];
-  conversation_summary: ConversationSummary | null;
-};
-
 export type DocumentStatus = GeneratedDocument['status'];
 
 export interface StoredAttachment {
@@ -70,7 +64,7 @@ export const GenerateActions = {
     const supabase = createClient();
     setState({ isLoading: true });
 
-    const { data, error } = await supabase.from('generated_documents')
+    const { data, error } = await (supabase.from('generated_documents') as any)
       .select('*')
       .order('created_at', { ascending: false })
       .limit(50);
@@ -86,7 +80,7 @@ export const GenerateActions = {
 
   fetchDocument: async (id: string): Promise<GeneratedDocument | null> => {
     const supabase = createClient();
-    const { data, error } = await supabase.from('generated_documents')
+    const { data, error } = await (supabase.from('generated_documents') as any)
       .select('*')
       .eq('id', id)
       .single();
@@ -140,8 +134,8 @@ export const GenerateActions = {
 
   deleteDocument: async (id: string) => {
     const supabase = createClient();
-    const { error } = await supabase
-      .from('generated_documents')
+    const { error } = await (supabase
+      .from('generated_documents') as any)
       .delete()
       .eq('id', id);
 
@@ -168,7 +162,7 @@ export const GenerateActions = {
       ),
     }));
 
-    const { error } = await supabase.from('generated_documents')
+    const { error } = await (supabase.from('generated_documents') as any)
       .update({ title: newTitle })
       .eq('id', id);
 

@@ -498,37 +498,57 @@ export function useGenerate(options: UseGenerateOptions = {}) {
       const isAbort = (err as Error).name === 'AbortError';
       const msg = err instanceof Error ? err.message : 'Generation failed';
       
-      // Update DB with partial content
       if (documentId && userId) {
+          let partialLatex = isContinuation ? currentDocument?.latex : null;
+          if (streamedContent) {
+            const codeBlockMatch = streamedContent.match(/```(?:latex|tex)?\s*([\s\S]*)/i);
+            if (codeBlockMatch) {
+              partialLatex = codeBlockMatch[1].split('```')[0];
+            } else if (streamedContent.includes('\\documentclass')) {
+               const startIndex = streamedContent.indexOf('\\documentclass');
+               partialLatex = streamedContent.substring(startIndex);
+            }
+          }
+
+          const successMessage = 'Document generated successfully. Preview it below or open it in Octree.';
+          const finalAssistantContent = isAbort ? successMessage : (streamedContent || 'Generation failed.');
+
           const partialAssistantMessage = {
               id: assistantMessage.id,
               role: 'assistant' as const,
-              content: streamedContent || (isAbort ? 'Generation stopped.' : 'Generation failed.')
+              content: finalAssistantContent
           };
           
-          // Construct history with partial message
           let historyForDb: Message[] = [];
           
           if (isContinuation) {
-              // Retrieve previous history from currentDocument (which holds state before this turn)
-              // Note: currentDocument was updated in step 2, so it might have the empty message?
-              // No, `setCurrentDocument` was called in step 2.
-              // So `currentDocument.message_history` has the empty message.
               if (currentDocument?.message_history) {
                   historyForDb = [...currentDocument.message_history];
                   historyForDb[historyForDb.length - 1] = partialAssistantMessage;
               }
           } else {
-              // New doc
               historyForDb = [persistentUserMessage, partialAssistantMessage];
           }
 
           if (historyForDb.length > 0) {
+             const status = isAbort ? 'complete' : 'error';
+             
              await supabase.from('generated_documents').update({
-                  status: 'error',
-                  last_assistant_response: partialAssistantMessage.content,
+                  status,
+                  latex: partialLatex,
+                  last_assistant_response: finalAssistantContent,
                   message_history: historyForDb as unknown as Json
               }).eq('id', documentId);
+
+             const updates = {
+                status: status as any,
+                latex: partialLatex,
+                last_assistant_response: finalAssistantContent,
+                message_history: historyForDb as any
+             };
+             setCurrentDocument((prev) => prev ? { ...prev, ...updates } : prev);
+             GenerateActions.updateDocument(documentId, updates);
+             setMessages(historyForDb);
           }
       }
 

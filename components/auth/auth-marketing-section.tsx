@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import LogoCloud from '@/components/ui/logo-cloud';
 import { TestimonialCarousel } from './testimonial-carousel';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Play, X, ArrowRight } from 'lucide-react';
+import { Play, X, ArrowRight, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Dialog, DialogContent, DialogTrigger, DialogTitle, DialogClose } from '@/components/ui/dialog';
 import {
   VideoPlayer,
@@ -15,6 +15,179 @@ import {
   VideoPlayerTimeDisplay,
   VideoPlayerTimeRange,
 } from '@/components/ui/video-player';
+
+function UseCaseCarousel({ useCases }: { useCases: { title: string; description: string; videoUrl: string }[] }) {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [showFront, setShowFront] = useState(true);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const frontRef = useRef<HTMLVideoElement>(null);
+  const backRef = useRef<HTMLVideoElement>(null);
+  const dialogVideoRef = useRef<HTMLVideoElement>(null);
+  const lockRef = useRef(false);
+
+  // On mount, set the front video source
+  useEffect(() => {
+    const front = frontRef.current;
+    if (front) {
+      front.src = useCases[0].videoUrl;
+      front.load();
+      front.play().catch(() => {});
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const changeVideo = useCallback((newIndex: number) => {
+    if (lockRef.current) return;
+    lockRef.current = true;
+
+    // Load new video on the hidden (back) element
+    const back = showFront ? backRef.current : frontRef.current;
+    if (back) {
+      back.src = useCases[newIndex].videoUrl;
+      back.load();
+      back.play().catch(() => {});
+    }
+
+    // Crossfade: hide front, show back
+    setShowFront((prev) => !prev);
+    setCurrentIndex(newIndex);
+
+    // After transition, pause old video and unlock
+    setTimeout(() => {
+      const old = showFront ? frontRef.current : backRef.current;
+      if (old) old.pause();
+      lockRef.current = false;
+    }, 400);
+  }, [showFront, useCases]);
+
+  const goToNext = useCallback(() => {
+    changeVideo((currentIndex + 1) % useCases.length);
+  }, [currentIndex, useCases.length, changeVideo]);
+
+  const goToPrev = useCallback(() => {
+    changeVideo((currentIndex - 1 + useCases.length) % useCases.length);
+  }, [currentIndex, useCases.length, changeVideo]);
+
+  // Pause inline video when dialog opens, play dialog video
+  const handleDialogChange = useCallback((open: boolean) => {
+    setDialogOpen(open);
+    const active = showFront ? frontRef.current : backRef.current;
+    if (open) {
+      active?.pause();
+      setTimeout(() => {
+        const dialogVideo = dialogVideoRef.current;
+        if (dialogVideo && active) {
+          dialogVideo.currentTime = active.currentTime ?? 0;
+          dialogVideo.play().catch(() => {});
+        }
+      }, 50);
+    } else {
+      active?.play().catch(() => {});
+    }
+  }, [showFront]);
+
+  const current = useCases[currentIndex];
+
+  return (
+    <div className="flex flex-col gap-4 w-full">
+      {/* Video with arrows on left and right */}
+      <div className="relative w-full">
+        <button
+          onClick={goToPrev}
+          className="absolute -left-8 top-1/2 -translate-y-1/2 z-10 p-1 text-muted-foreground hover:text-foreground transition-colors"
+          aria-label="Previous use case"
+        >
+          <ChevronLeft className="h-5 w-5" />
+        </button>
+
+        <Dialog open={dialogOpen} onOpenChange={handleDialogChange}>
+          <DialogTrigger asChild>
+            <div className="relative overflow-hidden shadow-md bg-black aspect-video w-full cursor-pointer group">
+              {/* Front video */}
+              <video
+                ref={frontRef}
+                muted
+                playsInline
+                onEnded={goToNext}
+                className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
+                  showFront ? 'opacity-100 z-[1]' : 'opacity-0 z-0'
+                }`}
+              />
+              {/* Back video */}
+              <video
+                ref={backRef}
+                muted
+                playsInline
+                onEnded={goToNext}
+                className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
+                  showFront ? 'opacity-0 z-0' : 'opacity-100 z-[1]'
+                }`}
+              />
+              {/* Play overlay on hover */}
+              <div className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/90 shadow-lg">
+                  <Play className="h-5 w-5 fill-current text-black ml-0.5" />
+                </div>
+              </div>
+            </div>
+          </DialogTrigger>
+        <DialogContent className="sm:max-w-5xl w-[95vw] p-0 overflow-visible border-none bg-transparent shadow-none" showCloseButton={false}>
+          <DialogTitle className="sr-only">{current.title}</DialogTitle>
+          <div className="relative group/modal">
+            <VideoPlayer className="w-full overflow-hidden rounded-xl shadow-2xl bg-black aspect-video">
+              <VideoPlayerContent
+                ref={dialogVideoRef}
+                src={current.videoUrl}
+                playsInline
+                preload="auto"
+                autoPlay
+                muted
+                loop
+                slot="media"
+                className="w-full h-full"
+                style={{
+                  objectFit: 'contain',
+                  objectPosition: '50% 50%',
+                  transform: 'translateZ(0)',
+                  imageRendering: 'auto',
+                }}
+              />
+              <VideoPlayerControlBar>
+                <VideoPlayerPlayButton />
+                <VideoPlayerTimeRange />
+                <VideoPlayerTimeDisplay showDuration />
+                <VideoPlayerMuteButton />
+              </VideoPlayerControlBar>
+            </VideoPlayer>
+
+            <DialogClose className="absolute -top-12 right-0 rounded-full bg-white/10 p-2 ring-offset-background transition-opacity hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground">
+              <X className="h-5 w-5 text-white" />
+              <span className="sr-only">Close</span>
+            </DialogClose>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+        <button
+          onClick={goToNext}
+          className="absolute -right-8 top-1/2 -translate-y-1/2 z-10 p-1 text-muted-foreground hover:text-foreground transition-colors"
+          aria-label="Next use case"
+        >
+          <ChevronRight className="h-5 w-5" />
+        </button>
+      </div>
+
+      {/* Title and description below */}
+      <div className="text-center px-2">
+        <h3 className="font-semibold text-foreground text-sm">
+          {current.title}
+        </h3>
+        <p className="text-xs text-muted-foreground mt-0.5 leading-snug">
+          {current.description}
+        </p>
+      </div>
+    </div>
+  );
+}
 
 const testimonials = [
   {
@@ -66,46 +239,6 @@ const useCases = [
 
 export function AuthMarketingSection() {
   const [activeTab, setActiveTab] = useState('use-cases');
-  const [openDialogIndex, setOpenDialogIndex] = useState<number | null>(null);
-  const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
-  const preloadedVideos = useRef<Set<string>>(new Set());
-
-  // Preload all videos when Use Cases tab becomes active
-  useEffect(() => {
-    if (activeTab === 'use-cases') {
-      useCases.forEach((useCase) => {
-        if (!preloadedVideos.current.has(useCase.videoUrl)) {
-          // Create a video element to preload the video
-          const video = document.createElement('video');
-          video.preload = 'auto';
-          video.muted = true;
-          video.src = useCase.videoUrl;
-          // Start loading immediately
-          video.load();
-          preloadedVideos.current.add(useCase.videoUrl);
-        }
-      });
-    }
-  }, [activeTab]);
-
-  // Play video immediately when dialog opens
-  const handleDialogChange = useCallback((open: boolean, index: number) => {
-    if (open) {
-      setOpenDialogIndex(index);
-      // Small timeout to ensure the video element is mounted
-      setTimeout(() => {
-        const videoEl = videoRefs.current[index];
-        if (videoEl) {
-          videoEl.currentTime = 0;
-          videoEl.play().catch(() => {
-            // Autoplay might be blocked, user can click play
-          });
-        }
-      }, 50);
-    } else {
-      setOpenDialogIndex(null);
-    }
-  }, []);
 
   return (
     <div className="relative hidden w-1/2 bg-muted lg:flex lg:flex-col lg:items-center lg:p-12 overflow-hidden h-screen">
@@ -118,29 +251,16 @@ export function AuthMarketingSection() {
         }}
       />
 
-      {/* Hidden preload video elements - renders actual videos offscreen for faster playback */}
-      <div className="sr-only" aria-hidden="true">
-        {activeTab === 'use-cases' && useCases.map((useCase, index) => (
-          <video
-            key={`preload-${index}`}
-            src={useCase.videoUrl}
-            preload="auto"
-            muted
-            playsInline
-          />
-        ))}
-      </div>
-
-      <div className="relative z-10 flex flex-col h-full w-full max-w-md mx-auto justify-between py-12">
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col w-full">
+      <div className="relative z-10 flex flex-col h-full w-full max-w-2xl mx-auto justify-between py-12">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col w-full flex-1">
           {/* Tabs header - fixed at top */}
           <TabsList className="grid w-full grid-cols-2 shrink-0">
             <TabsTrigger value="testimonials">Testimonials</TabsTrigger>
             <TabsTrigger value="use-cases">Use Cases</TabsTrigger>
           </TabsList>
 
-          {/* Content area - Fixed height to prevent any layout shift */}
-          <div className="h-[450px] mt-8 flex flex-col">
+          {/* Content area */}
+          <div className="flex-1 mt-8 flex flex-col">
             <TabsContent 
               value="testimonials" 
               className="m-0 flex-1 data-[state=active]:flex flex-col items-center justify-center animate-in fade-in duration-300"
@@ -150,9 +270,12 @@ export function AuthMarketingSection() {
 
             <TabsContent 
               value="use-cases" 
-              className="m-0 flex-1 data-[state=active]:flex flex-col justify-center animate-in fade-in duration-300"
+              className="m-0 flex-1 data-[state=active]:flex flex-col items-center justify-center animate-in fade-in duration-300"
             >
-              <div className="space-y-3 w-full">
+              <UseCaseCarousel useCases={useCases} />
+
+              {/* Old card-based use cases list */}
+              {/* <div className="space-y-3 w-full">
                 {useCases.map((useCase, index) => (
                   <Dialog 
                     key={index} 
@@ -179,7 +302,6 @@ export function AuthMarketingSection() {
                           </div>
                         </div>
                         
-                        {/* Hidden indicator arrow that appears on hover */}
                         <div className="absolute right-4 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 group-hover:translate-x-0 translate-x-2 transition-all duration-300">
                           <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm shadow-zinc-950/20 ring-1 ring-inset ring-white/20">
                             <ArrowRight className="size-3.5" />
@@ -216,7 +338,6 @@ export function AuthMarketingSection() {
                           </VideoPlayerControlBar>
                         </VideoPlayer>
                         
-                        {/* Exact close button from marketing site */}
                         <DialogClose className="absolute -top-12 right-0 rounded-full bg-white/10 p-2 ring-offset-background transition-opacity hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground">
                           <X className="h-5 w-5 text-white" />
                           <span className="sr-only">Close</span>
@@ -225,14 +346,14 @@ export function AuthMarketingSection() {
                     </DialogContent>
                   </Dialog>
                 ))}
-              </div>
+              </div> */}
             </TabsContent>
           </div>
         </Tabs>
 
         {/* Logo cloud - pinned to bottom */}
-        <div className="shrink-0 mt-4">
-          <p className="mb-4 text-center text-muted-foreground text-[10px] font-bold uppercase tracking-[0.2em] opacity-60">
+        <div className="shrink-0 mt-8">
+          <p className="mb-1.5 text-center text-muted-foreground text-[10px] font-bold uppercase tracking-[0.2em] opacity-60">
             Used by researchers at
           </p>
           <LogoCloud />

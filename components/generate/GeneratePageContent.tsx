@@ -303,11 +303,12 @@ export function GeneratePageContent({
             ) : (
               <div className="p-4">
                 <div className="mx-auto max-w-3xl space-y-4">
-                  {messages.map((message) => (
+                  {messages.map((message, index) => (
                     <MessageBubble
                       key={message.id}
                       message={message}
                       isStreaming={
+                        index === messages.length - 1 &&
                         message.role === 'assistant' &&
                         isGenerating &&
                         !message.content.startsWith('Document generated successfully.') &&

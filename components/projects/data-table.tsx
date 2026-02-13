@@ -64,7 +64,6 @@ export function DataTable<TData extends { id: string }, TValue>({
                   return (
                     <TableHead
                       key={header.id}
-                      style={{ width: `${header.getSize()}px` }}
                     >
                       {header.isPlaceholder
                         ? null
@@ -112,7 +111,7 @@ export function DataTable<TData extends { id: string }, TValue>({
       </div>
 
       {/* Pagination Controls - Always visible (disabled when not applicable) */}
-      <div className="flex items-center justify-between px-2">
+      <div className="flex flex-col gap-4 px-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="text-sm text-neutral-500">
           Page {table.getState().pagination.pageIndex + 1} of{' '}
           {table.getPageCount()} ({data.length} total projects)

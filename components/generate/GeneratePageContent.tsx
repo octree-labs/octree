@@ -389,24 +389,37 @@ export function GeneratePageContent({
                   </DropdownMenuContent>
                 </DropdownMenu>
 
-                <Button
-                  type={isGenerating ? 'button' : 'submit'}
-                  size="icon"
-                  variant="gradient"
-                  disabled={!isGenerating && !prompt.trim()}
-                  onClick={isGenerating ? stopGeneration : undefined}
-                  className="h-8 w-8 shrink-0"
-                  data-onboarding-target="generate-send"
-                >
-                  {isGenerating ? (
-                    <Square className="h-4 w-4 fill-current" />
-                  ) : (
-                    <ArrowUp className="h-4 w-4" />
+                <div className="flex items-center gap-2">
+                  {isGenerating && (
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="secondary"
+                      onClick={stopGeneration}
+                      className="h-8 w-8 shrink-0 rounded-full"
+                      aria-label="Stop generating"
+                    >
+                      <Square className="h-3 w-3 fill-primary text-primary" />
+                    </Button>
                   )}
-                  <span className="sr-only">
-                    {isGenerating ? 'Stop generating' : 'Send prompt'}
-                  </span>
-                </Button>
+                  <Button
+                    type="submit"
+                    size="icon"
+                    variant="gradient"
+                    disabled={isGenerating || !prompt.trim()}
+                    className="h-8 w-8 shrink-0 rounded-full"
+                    data-onboarding-target="generate-send"
+                  >
+                    {isGenerating ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <ArrowUp className="h-4 w-4" />
+                    )}
+                    <span className="sr-only">
+                      {isGenerating ? 'Generating...' : 'Send prompt'}
+                    </span>
+                  </Button>
+                </div>
               </div>
             </Card>
             <input

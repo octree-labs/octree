@@ -1,5 +1,6 @@
 import type { CompilationError } from '@/types/compilation';
 import { isBinaryFile } from '@/lib/constants/file-types';
+import { createClient } from '@/lib/supabase/client';
 
 export function normalizePath(name: string): string {
   if (!name) return 'document.tex';
@@ -92,9 +93,20 @@ export async function makeCompilationRequest(
   const timeoutId = setTimeout(() => controller.abort(), COMPILE_TIMEOUT_MS);
 
   try {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+
+    // Attach Supabase JWT for compile service auth
+    const supabase = createClient();
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.access_token) {
+      headers['Authorization'] = `Bearer ${session.access_token}`;
+    }
+
     const response = await fetch(`${COMPILE_SERVICE_URL}/compile`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(requestBody),
       signal: controller.signal,
     });

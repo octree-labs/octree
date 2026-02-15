@@ -184,3 +184,16 @@
     animation: pulse-slow 4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
   }
 }
+
+/* PDF viewer: highlight citation links [1], [2] when LaTeX uses \\usepackage{hyperref} */
+.react-pdf__Page__annotations .annotationLayer .linkAnnotation > a,
+.annotationLayer .linkAnnotation > a {
+  color: hsl(var(--primary)) !important;
+  text-decoration: underline;
+  text-decoration-color: hsl(var(--primary) / 0.7);
+}
+.react-pdf__Page__annotations .annotationLayer .linkAnnotation > a:hover,
+.annotationLayer .linkAnnotation > a:hover {
+  color: hsl(var(--primary-light)) !important;
+  opacity: 1;
+}

@@ -309,7 +309,7 @@ function DynamicPDFViewer({
                       className="border border-slate-200 shadow-sm"
                       onLoadSuccess={onPageLoadSuccess(pageNum)}
                       renderTextLayer={false}
-                      renderAnnotationLayer={false}
+                      renderAnnotationLayer={true}
                       loading={
                         <div className="flex items-center justify-center p-4">
                           <Loader2 className="mr-2 h-5 w-5 animate-spin text-blue-500" />

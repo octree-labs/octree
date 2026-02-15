@@ -6,6 +6,7 @@ import {
   latexLanguageConfiguration,
   latexTokenProvider,
   registerLatexCompletions,
+  registerCitationLinkProvider,
 } from '@/lib/editor-config';
 import { registerMonacoThemes } from '@/lib/monaco-themes';
 import { useEditorTheme } from '@/stores/editor-theme';
@@ -20,6 +21,8 @@ interface MonacoEditorProps {
   ) => void;
   className?: string;
   options?: Monaco.editor.IStandaloneEditorConstructionOptions;
+  /** Resolve citation key to .bib file path and line (for Cmd+click to bib). */
+  getBibLocation?: (key: string) => { filePath: string; lineNumber: number } | null;
 }
 
 export function MonacoEditor({
@@ -28,6 +31,7 @@ export function MonacoEditor({
   onMount,
   className = '',
   options = {},
+  getBibLocation,
 }: MonacoEditorProps) {
   const theme = useEditorTheme((state) => state.theme);
   const themesRegistered = useRef(false);
@@ -51,6 +55,13 @@ export function MonacoEditor({
     });
   }, []);
 
+  const handleMount = (editor: Monaco.editor.IStandaloneCodeEditor, monaco: typeof Monaco) => {
+    if (getBibLocation) {
+      registerCitationLinkProvider(monaco, getBibLocation);
+    }
+    onMount?.(editor, monaco);
+  };
+
   return (
     <div className={className}>
       <Editor
@@ -59,6 +70,7 @@ export function MonacoEditor({
         value={content}
         onChange={(value) => onChange?.(value || '')}
         theme={theme}
+        onMount={handleMount}
         options={{
           scrollbar: {
             vertical: 'auto',
@@ -87,7 +99,6 @@ export function MonacoEditor({
           },
           ...options,
         }}
-        onMount={onMount}
       />
     </div>
   );

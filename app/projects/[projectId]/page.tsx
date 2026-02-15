@@ -34,6 +34,7 @@ import type { EditSuggestion } from '@/types/edit';
 import { isImageFile, isPDFFile, isTextFile } from '@/lib/constants/file-types';
 import { ImageViewer } from '@/components/image-viewer';
 import { SimplePDFViewer } from '@/components/simple-pdf-viewer';
+import { findBibLocation } from '@/lib/utils/bib';
 
 const CHAT_WIDTH_DEFAULT = 340;
 const CHAT_WIDTH_MIN = 280;
@@ -135,9 +136,50 @@ export default function ProjectPage() {
 
   const [chatWidth, setChatWidth] = useState(CHAT_WIDTH_DEFAULT);
   const [isChatResizing, setIsChatResizing] = useState(false);
+  const [bibScrollTo, setBibScrollTo] = useState<{
+    filePath: string;
+    lineNumber: number;
+  } | null>(null);
 
   const chatStartXRef = useRef(0);
   const chatStartWidthRef = useRef(0);
+
+  const getBibLocation = useCallback(
+    (key: string) => findBibLocation(key, projectFiles),
+    [projectFiles]
+  );
+
+  const applyBibHash = useCallback(() => {
+    if (!projectFiles?.length) return;
+    const hash = window.location.hash.slice(1);
+    const m = hash.match(/^bib:([^:]+):(\d+)$/);
+    if (!m) return;
+    const [, filePath, lineStr] = m;
+    const filePathDecoded = decodeURIComponent(filePath);
+    const lineNumber = parseInt(lineStr, 10);
+    const target = projectFiles.find((pf) => pf.file.name === filePathDecoded);
+    if (target) {
+      FileActions.setSelectedFile(target.file);
+      setBibScrollTo({ filePath: filePathDecoded, lineNumber });
+    }
+    window.history.replaceState(null, '', window.location.pathname + window.location.search);
+  }, [projectFiles]);
+
+  useEffect(() => {
+    applyBibHash();
+    window.addEventListener('hashchange', applyBibHash);
+    return () => window.removeEventListener('hashchange', applyBibHash);
+  }, [applyBibHash]);
+
+  useEffect(() => {
+    if (!bibScrollTo || !selectedFile || selectedFile.name !== bibScrollTo.filePath || !editorRef.current) return;
+    const editor = editorRef.current;
+    const line = Math.max(1, bibScrollTo.lineNumber);
+    requestAnimationFrame(() => {
+      editor.revealLineInCenter(line);
+      setBibScrollTo(null);
+    });
+  }, [bibScrollTo, selectedFile]);
 
   useEffect(() => {
     const stored = localStorage.getItem(CHAT_WIDTH_STORAGE_KEY);
@@ -331,6 +373,7 @@ export default function ProjectPage() {
                       content={content}
                       onChange={handleEditorChange}
                       onMount={handleEditorMount}
+                      getBibLocation={getBibLocation}
                       className="h-full"
                     />
                     <SelectionButton

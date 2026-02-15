@@ -29,6 +29,18 @@ import {
 } from '@/lib/constants/file-types';
 import { toast } from 'sonner';
 
+/** Default content for new .bib files. Standard BibTeX; compatible with Zotero exports. */
+const DEFAULT_BIB_CONTENT = `@article{example,
+  author = {Author, A.},
+  title = {Example Title},
+  journal = {Journal Name},
+  year = {2024},
+  volume = {1},
+  number = {1},
+  pages = {1--10},
+}
+`;
+
 interface AddFileDialogProps {
   projectId: string;
   projectTitle: string;
@@ -177,7 +189,9 @@ export function AddFileDialog({
         throw new Error('A file with this name already exists');
       }
 
-      const content = fileContent || '';
+      const content = fileName.toLowerCase().endsWith('.bib')
+        ? DEFAULT_BIB_CONTENT
+        : (fileContent || '');
       const mimeType = getContentTypeByFilename(fileName);
       const blob = new Blob([content], { type: mimeType });
 

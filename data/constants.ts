@@ -7,6 +7,7 @@ export const DEFAULT_LATEX_CONTENT = (title: string) => `\\documentclass{article
 \\usepackage[utf8]{inputenc}
 \\usepackage{amsmath}
 \\usepackage{graphicx}
+\\usepackage[colorlinks,citecolor=blue,linkcolor=blue,urlcolor=blue]{hyperref}
 
 \\title{${title}}
 \\author{Your Name}
@@ -36,6 +37,7 @@ export const DEFAULT_LATEX_CONTENT_FROM_FILENAME = (fileName: string) => {
 \\usepackage{amssymb}
 \\usepackage{graphicx}
 \\usepackage{geometry}
+\\usepackage[colorlinks,citecolor=blue,linkcolor=blue,urlcolor=blue]{hyperref}
 \\geometry{margin=1in}
 
 \\title{${cleanTitle}}

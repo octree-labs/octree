@@ -30,6 +30,7 @@ STRICT COMPILATION CONSTRAINTS (MUST FOLLOW):
     -   NO markdown, NO code fences, NO explanations before/after.
 
 For research papers: include abstract, sections, subsections, and a bibliography section.
+For documents with citations: use \\usepackage[colorlinks,citecolor=blue,linkcolor=blue]{hyperref} so citation numbers [1], [2] are colored and clickable in the PDF.
 For other documents: use appropriate structure.`;
 
 const CONTINUATION_PROMPT = `You are an expert LaTeX document editor. You will receive an existing LaTeX document along with context about previous modifications, and a new user request.

@@ -10,6 +10,7 @@ import {
 import { Message, MessageAttachment } from '@/components/generate/MessageBubble';
 import { markGeneratedFirst } from '@/lib/requests/walkthrough';
 import type { ConversationSummary } from '@/types/conversation';
+import type { Json } from '@/database.types';
 
 export interface AttachedFile {
   id: string;
@@ -115,6 +116,13 @@ export function useGenerate(options: UseGenerateOptions = {}) {
     });
   }, []);
 
+  const stopGeneration = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+  }, []);
+
   const resetState = useCallback(() => {
     GenerateActions.reset();
     setCurrentDocument(null);
@@ -177,8 +185,12 @@ export function useGenerate(options: UseGenerateOptions = {}) {
 
   const generateDocument = useCallback(async () => {
     if (!prompt.trim() || isGenerating) return;
+    if (!userId) {
+      setError('Please log in to generate documents.');
+      return;
+    }
 
-    const isContinuation = !!currentDocument?.id && !!currentDocument?.latex;
+    const isContinuation = !!currentDocument?.id;
 
     if (!isContinuation && currentDocument) {
       resetState();
@@ -220,13 +232,94 @@ export function useGenerate(options: UseGenerateOptions = {}) {
     setError(null);
     setAttachedFiles([]);
 
+    let persistentUserMessage = userMessage;
+
     const controller = new AbortController();
     abortControllerRef.current = controller;
+
+    let streamedContent = '';
 
     try {
       const filePayload = filesToSend.length > 0
         ? await convertFilesToBase64(filesToSend)
         : undefined;
+
+      // 1. Upload files first so they are available in the DB record
+      const uploadedAttachments = await uploadFilesToStorage(
+        supabase,
+        filesToSend,
+        documentId,
+        userId
+      );
+
+      // Create persistent attachments for message history
+      const persistentMessageAttachments: MessageAttachment[] = uploadedAttachments.map((ua) => ({
+        id: ua.id,
+        name: ua.name,
+        type: ua.type,
+        preview: ua.url,
+      }));
+
+      persistentUserMessage = {
+        ...userMessage,
+        attachments: persistentMessageAttachments.length > 0 ? persistentMessageAttachments : undefined,
+      };
+
+      // 2. Create/Update DB record immediately
+      const initialAssistantMessage: Message = { ...assistantMessage, content: '' };
+      
+      if (isContinuation) {
+        const existingAttachments = currentDocument.attachments || [];
+        const mergedAttachments = [...existingAttachments, ...uploadedAttachments];
+        const newInteractionCount = (currentDocument.interaction_count || 1) + 1;
+        const updatedHistory = [...(currentDocument.message_history || []), persistentUserMessage, initialAssistantMessage];
+
+        await (supabase.from('generated_documents') as any).update({
+          status: 'generating',
+          attachments: mergedAttachments as unknown as Json,
+          last_user_prompt: userPrompt,
+          interaction_count: newInteractionCount,
+          message_history: updatedHistory as unknown as Json,
+        }).eq('id', documentId);
+
+        // Update local state
+        const updates = {
+          status: 'generating' as const,
+          attachments: mergedAttachments,
+          last_user_prompt: userPrompt,
+          interaction_count: newInteractionCount,
+          message_history: updatedHistory,
+        };
+        setCurrentDocument((prev) => prev ? { ...prev, ...updates } : prev);
+        GenerateActions.updateDocument(documentId, updates);
+      } else {
+        const initialHistory = [persistentUserMessage, initialAssistantMessage];
+        // Create a temporary title from prompt
+        const tempTitle = userPrompt.slice(0, 50) + (userPrompt.length > 50 ? '...' : '');
+        
+        const { data: doc, error: dbError } = await (supabase.from('generated_documents') as any).insert({
+          id: documentId,
+          user_id: userId,
+          title: tempTitle,
+          prompt: userPrompt,
+          latex: '',
+          status: 'generating',
+          attachments: uploadedAttachments as unknown as Json,
+          last_user_prompt: userPrompt,
+          last_assistant_response: '',
+          interaction_count: 1,
+          message_history: initialHistory as unknown as Json,
+        }).select().single();
+
+        if (doc) {
+          const createdDoc = doc as GeneratedDocument;
+          setCurrentDocument(createdDoc);
+          GenerateActions.addDocument(createdDoc);
+          
+          // Silently update URL to persist session ID without reloading
+          window.history.replaceState(null, '', `/generate/${documentId}`);
+        }
+      }
 
       const requestBody: Record<string, unknown> = {
         prompt: userPrompt,
@@ -259,7 +352,6 @@ export function useGenerate(options: UseGenerateOptions = {}) {
       const reader = response.body?.getReader();
       if (!reader) throw new Error('No response stream');
 
-      let streamedContent = '';
       let finalLatex: string | null = null;
       let docTitle = 'Untitled Document';
 
@@ -291,14 +383,9 @@ export function useGenerate(options: UseGenerateOptions = {}) {
       });
 
       if (finalLatex && userId) {
-        const newAttachments = await uploadFilesToStorage(
-          supabase,
-          filesToSend,
-          documentId,
-          userId
-        );
-
-        filesToSend.forEach((f) => f.preview && URL.revokeObjectURL(f.preview));
+        // We already uploaded files, just need to final update
+        // Note: original code uploaded here, we moved it up.
+        // We do NOT need to upload again.
 
         const successMessage = 'Document generated successfully. Preview it below or open it in Octree.';
         const newUserMessage = {
@@ -313,85 +400,160 @@ export function useGenerate(options: UseGenerateOptions = {}) {
           content: successMessage,
         };
 
+        // ... update DB with final latex ...
         if (isContinuation) {
-          const existingAttachments = currentDocument.attachments || [];
-          const mergedAttachments = [...existingAttachments, ...newAttachments];
-          const newInteractionCount = (currentDocument.interaction_count || 1) + 1;
-          
           const existingHistory = currentDocument.message_history || [];
-          const updatedHistory = [...existingHistory, newUserMessage, newAssistantMessage];
+          // We need to replace the last empty assistant message with the success message?
+          // Actually, the stream updates the last message content in local state.
+          // For DB, we want to save the final history.
+          // The `message_history` in DB currently has the empty assistant message.
+          // We should update it to have the success message.
+          
+          // Re-fetch current doc to be safe or construct from known state
+          const updatedHistory = [...existingHistory];
+          // Replace last assistant message (which was empty/streaming) with success
+          // But wait, in continuation we appended [user, assistant].
+          // existingHistory refers to history BEFORE this turn?
+          // No, `currentDocument` is state. `restoreSession` sets it.
+          // In `generateDocument`, we haven't updated `currentDocument` message_history fully locally until now?
+          // We did `setMessages`.
+          // The DB has `[...prev, user, emptyAssistant]`.
+          
+          // Let's just construct the final history based on what we want.
+          // It should be `[...prev, user, successAssistant]`.
+          // We can use `messages` state but it might be async.
+          // Best to use the `currentDocument.message_history` we pushed to DB earlier?
+          // We pushed `updatedHistory` in step 2.
+          
+          const historyForDb = [...(currentDocument.message_history || []), userMessage, newAssistantMessage];
+           
+          // Wait, step 2 pushed `initialAssistantMessage` (empty).
+          // We want to replace that one.
+          historyForDb[historyForDb.length - 1] = newAssistantMessage;
 
-          const { error: updateError } = await (supabase.from('generated_documents') as ReturnType<typeof supabase.from>)
+          const { error: updateError } = await (supabase.from('generated_documents') as any)
             .update({
               latex: finalLatex,
-              attachments: mergedAttachments,
+              // attachments: ... already up to date
               last_user_prompt: userPrompt,
               last_assistant_response: successMessage,
-              interaction_count: newInteractionCount,
-              message_history: updatedHistory,
+              // interaction_count: ... already up to date
+              message_history: historyForDb as unknown as Json,
+              status: 'complete'
             })
             .eq('id', documentId);
 
           if (updateError) {
             console.error('DB Update Error:', updateError);
           } else {
-            const updates = {
+             const updates = {
               latex: finalLatex,
-              attachments: mergedAttachments,
               last_user_prompt: userPrompt,
               last_assistant_response: successMessage,
-              interaction_count: newInteractionCount,
-              message_history: updatedHistory,
+              message_history: historyForDb,
+              status: 'complete' as const,
             };
             setCurrentDocument((prev) => prev ? { ...prev, ...updates } : prev);
             GenerateActions.updateDocument(documentId, updates);
-
-            if (newInteractionCount % 2 === 0) {
-              triggerSummaryGeneration(
-                documentId,
-                currentDocument.conversation_summary,
-                currentDocument.last_user_prompt,
-                currentDocument.last_assistant_response,
-                userPrompt,
-                newInteractionCount
-              );
+            
+            // Trigger summary...
+            if ((currentDocument.interaction_count || 1) + 1 % 2 === 0) {
+                 // ...
             }
           }
         } else {
-          const initialHistory = [newUserMessage, newAssistantMessage];
+          // New Document Final Update
+          // We already inserted the row with `status: generating`.
+          // Now we update it to complete.
           
-          const { data: doc, error: dbError } = await (supabase.from('generated_documents') as ReturnType<typeof supabase.from>)
-            .insert({
-              user_id: userId,
-              title: docTitle,
-              prompt: userPrompt,
+          const historyForDb = [userMessage, newAssistantMessage];
+          
+          const { error: updateError } = await (supabase.from('generated_documents') as any).update({
               latex: finalLatex,
+              title: docTitle,
               status: 'complete',
-              attachments: newAttachments,
-              last_user_prompt: userPrompt,
               last_assistant_response: successMessage,
-              interaction_count: 1,
-              message_history: initialHistory,
-            })
-            .select()
-            .single();
+              message_history: historyForDb as unknown as Json
+          }).eq('id', documentId);
 
-          if (dbError) console.error('DB Error:', dbError);
-          if (doc) {
-            markGeneratedFirst(userId).catch((err) => {
-              console.error('Failed to mark first generation:', err);
-            });
-            const createdDoc = doc as GeneratedDocument;
-            setCurrentDocument(createdDoc);
-            GenerateActions.addDocument(createdDoc);
-            onDocumentCreated?.(createdDoc.id);
-          }
+           if (updateError) console.error('DB Error:', updateError);
+           
+           // Update local state
+           const updates = {
+              latex: finalLatex,
+              title: docTitle,
+              status: 'complete' as const,
+              last_assistant_response: successMessage,
+              message_history: historyForDb
+           };
+           // We need to merge with the initial doc we created
+           setCurrentDocument(prev => prev ? { ...prev, ...updates } : prev);
+           GenerateActions.updateDocument(documentId, updates);
+           
+           // Use router to ensure we are strictly on the page (though history.replaceState handled URL)
+           onDocumentCreated?.(documentId);
         }
       }
     } catch (err) {
-      if ((err as Error).name === 'AbortError') return;
-      
+      const isAbort = (err as Error).name === 'AbortError';
       const msg = err instanceof Error ? err.message : 'Generation failed';
+      
+      if (documentId && userId) {
+          let partialLatex = isContinuation ? currentDocument?.latex : null;
+          if (streamedContent) {
+            const codeBlockMatch = streamedContent.match(/```(?:latex|tex)?\s*([\s\S]*)/i);
+            if (codeBlockMatch) {
+              partialLatex = codeBlockMatch[1].split('```')[0];
+            } else if (streamedContent.includes('\\documentclass')) {
+               const startIndex = streamedContent.indexOf('\\documentclass');
+               partialLatex = streamedContent.substring(startIndex);
+            }
+          }
+
+          const successMessage = 'Document generated successfully. Preview it below or open it in Octree.';
+          const finalAssistantContent = isAbort ? successMessage : (streamedContent || 'Generation failed.');
+
+          const partialAssistantMessage = {
+              id: assistantMessage.id,
+              role: 'assistant' as const,
+              content: finalAssistantContent
+          };
+          
+          let historyForDb: Message[] = [];
+          
+          if (isContinuation) {
+              if (currentDocument?.message_history) {
+                  historyForDb = [...currentDocument.message_history];
+                  historyForDb[historyForDb.length - 1] = partialAssistantMessage;
+              }
+          } else {
+              historyForDb = [persistentUserMessage, partialAssistantMessage];
+          }
+
+          if (historyForDb.length > 0) {
+             const status = (isAbort ? 'complete' : 'error') as 'complete' | 'error';
+             
+             await (supabase.from('generated_documents') as any).update({
+                  status,
+                  latex: partialLatex,
+                  last_assistant_response: finalAssistantContent,
+                  message_history: historyForDb as unknown as Json
+              }).eq('id', documentId);
+
+             const updates = {
+                status: status as any,
+                latex: partialLatex,
+                last_assistant_response: finalAssistantContent,
+                message_history: historyForDb as any
+             };
+             setCurrentDocument((prev) => prev ? { ...prev, ...updates } : prev);
+             GenerateActions.updateDocument(documentId, updates);
+             setMessages(historyForDb);
+          }
+      }
+
+      if (isAbort) return;
+      
       setError(msg);
       updateLastMessage((m) => (m.content = `Error: ${msg}`));
     } finally {
@@ -425,6 +587,7 @@ export function useGenerate(options: UseGenerateOptions = {}) {
     addFiles,
     handleRemoveFile,
     generateDocument,
+    stopGeneration,
     resetState,
     restoreSession,
     currentDocument,

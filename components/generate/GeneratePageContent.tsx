@@ -12,6 +12,7 @@ import {
   X,
   Image as ImageIcon,
   File as FileIcon,
+  Square,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -151,6 +152,7 @@ export function GeneratePageContent({
     addFiles,
     handleRemoveFile,
     generateDocument,
+    stopGeneration,
     restoreSession,
     currentDocument,
   } = useGenerate({ onDocumentCreated: handleDocumentCreated });
@@ -301,11 +303,12 @@ export function GeneratePageContent({
             ) : (
               <div className="p-4">
                 <div className="mx-auto max-w-3xl space-y-4">
-                  {messages.map((message) => (
+                  {messages.map((message, index) => (
                     <MessageBubble
                       key={message.id}
                       message={message}
                       isStreaming={
+                        index === messages.length - 1 &&
                         message.role === 'assistant' &&
                         isGenerating &&
                         !message.content.startsWith('Document generated successfully.') &&
@@ -386,21 +389,37 @@ export function GeneratePageContent({
                   </DropdownMenuContent>
                 </DropdownMenu>
 
-                <Button
-                  type="submit"
-                  size="icon"
-                  variant="gradient"
-                  disabled={!prompt.trim() || isGenerating}
-                  className="h-8 w-8 shrink-0"
-                  data-onboarding-target="generate-send"
-                >
-                  {isGenerating ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <ArrowUp className="h-4 w-4" />
+                <div className="flex items-center gap-2">
+                  {isGenerating && (
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="secondary"
+                      onClick={stopGeneration}
+                      className="h-8 w-8 shrink-0 rounded-full"
+                      aria-label="Stop generating"
+                    >
+                      <Square className="h-3 w-3 fill-primary text-primary" />
+                    </Button>
                   )}
-                  <span className="sr-only">Send prompt</span>
-                </Button>
+                  <Button
+                    type="submit"
+                    size="icon"
+                    variant="gradient"
+                    disabled={isGenerating || !prompt.trim()}
+                    className="h-8 w-8 shrink-0 rounded-full"
+                    data-onboarding-target="generate-send"
+                  >
+                    {isGenerating ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <ArrowUp className="h-4 w-4" />
+                    )}
+                    <span className="sr-only">
+                      {isGenerating ? 'Generating...' : 'Send prompt'}
+                    </span>
+                  </Button>
+                </div>
               </div>
             </Card>
             <input

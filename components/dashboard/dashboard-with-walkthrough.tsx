@@ -69,7 +69,7 @@ export function DashboardWithWalkthrough({
 
       <main className="container mx-auto px-4 py-8">
         <div
-          className="mb-8 flex items-center justify-between"
+          className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"
           data-onboarding-target="dashboard-header"
         >
           <div>

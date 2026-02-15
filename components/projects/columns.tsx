@@ -26,11 +26,10 @@ export const columns = ({
   {
     accessorKey: 'title',
     header: 'Title',
-    size: 1000,
     cell: ({ row }) => {
       const title = row.getValue('title') as string;
       return (
-        <div className="max-w-[1000px] truncate" title={title}>
+        <div className="max-w-[140px] truncate sm:max-w-[180px] md:max-w-[450px] lg:max-w-[400px] xl:max-w-[700px]" title={title}>
           {title}
         </div>
       );
@@ -38,15 +37,17 @@ export const columns = ({
   },
   {
     accessorKey: 'updated_at',
-    header: 'Last Updated',
-    size: 200,
+    header: () => <span className="hidden md:block">Last Updated</span>,
     cell: ({ row }) => {
-      return dayjs(row.getValue('updated_at')).format('MMM D, YYYY h:mm A');
+      return (
+        <span className="hidden md:block">
+          {dayjs(row.getValue('updated_at')).format('MMM D, YYYY h:mm A')}
+        </span>
+      );
     },
   },
   {
     id: 'actions',
-    size: 50,
     cell: ({ row }) => {
       const project = row.original;
 

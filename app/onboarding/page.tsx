@@ -6,13 +6,14 @@ import { toast } from 'sonner';
 
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+// Card imports removed — using plain layout instead
+// import {
+//   Card,
+//   CardContent,
+//   CardDescription,
+//   CardHeader,
+//   CardTitle,
+// } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import {
   Select,
@@ -182,13 +183,13 @@ export default function OnboardingPage() {
       case 0:
         return (
           <>
-            <CardHeader>
-              <CardTitle>Welcome to Octree!</CardTitle>
-              <CardDescription>
+            <div className="space-y-1.5">
+              <h2 className="text-2xl font-semibold leading-none tracking-tight">Welcome to Octree!</h2>
+              <p className="text-sm text-muted-foreground">
                 Let's start by learning a bit about you.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
+              </p>
+            </div>
+            <div className="space-y-6 pt-4">
               <div className="space-y-2">
                 <Label htmlFor="role">Your role</Label>
                 <Select value={role} onValueChange={setRole}>
@@ -237,20 +238,20 @@ export default function OnboardingPage() {
                   </SelectContent>
                 </Select>
               </div>
-            </CardContent>
+            </div>
           </>
         );
 
       case 1:
         return (
           <>
-            <CardHeader>
-              <CardTitle>Subscribe to Octree Pro</CardTitle>
-              <CardDescription>
+            <div className="space-y-1.5">
+              <h2 className="text-2xl font-semibold leading-none tracking-tight">Subscribe to Octree Pro</h2>
+              <p className="text-sm text-muted-foreground">
                 Everything you need for professional LaTeX documents.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
+              </p>
+            </div>
+            <div className="space-y-4 pt-4">
               <div className="flex items-center gap-2">
                 <Switch
                   id="monthly-switch"
@@ -282,7 +283,7 @@ export default function OnboardingPage() {
                 <p className="mb-4 text-sm font-semibold">Octree includes</p>
                 <FeatureList />
               </div>
-            </CardContent>
+            </div>
           </>
         );
 
@@ -312,9 +313,9 @@ export default function OnboardingPage() {
         {/* Center the form */}
         <div className="flex flex-1 items-center justify-center">
           <div className="w-full max-w-md space-y-6">
-            <Card>
+            <div className="space-y-6">
               {renderStep()}
-              <CardContent className="pt-0 space-y-3">
+              <div className="space-y-3">
                 <Button
                   className="w-full"
                   variant="gradient"
@@ -344,8 +345,8 @@ export default function OnboardingPage() {
                     No charge for 3 days. Cancel anytime.
                   </p>
                 )}
-              </CardContent>
-            </Card>
+              </div>
+            </div>
 
             {/* Progress dots with back button and user info below card */}
             <div className="flex items-center justify-between">

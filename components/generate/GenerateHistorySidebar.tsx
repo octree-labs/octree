@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, Loader2, X, MoreHorizontal, Pencil } from 'lucide-react';
+import { Plus, Loader2, X, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -82,6 +82,18 @@ export function GenerateHistorySidebar() {
         }
     };
 
+    const handleDelete = async (doc: GeneratedDocument, e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (!confirm('Are you sure you want to delete this document?')) return;
+
+        const isCurrent = activeDocumentId === doc.id;
+        const success = await GenerateActions.deleteDocument(doc.id);
+        
+        if (success && isCurrent) {
+            router.push('/generate');
+        }
+    };
+
     const handleNewChat = () => {
         GenerateActions.setActiveDocument(null);
         router.push('/generate');
@@ -145,7 +157,7 @@ export function GenerateHistorySidebar() {
                                                         {doc.title}
                                                     </span>
                                                     <span className="text-xs text-muted-foreground">
-                                                        {new Date(doc.created_at).toLocaleDateString()}
+                                                        {doc.created_at ? new Date(doc.created_at).toLocaleDateString() : ''}
                                                     </span>
                                                 </div>
                                             </Button>
@@ -166,6 +178,13 @@ export function GenerateHistorySidebar() {
                                                         <DropdownMenuItem onClick={(e) => startRenaming(doc, e)}>
                                                             <Pencil className="mr-2 h-4 w-4" />
                                                             Rename
+                                                        </DropdownMenuItem>
+                                                        <DropdownMenuItem 
+                                                            onClick={(e) => handleDelete(doc, e)}
+                                                            className="text-red-600 focus:text-red-600 focus:bg-red-50"
+                                                        >
+                                                            <Trash2 className="mr-2 h-4 w-4" />
+                                                            Delete
                                                         </DropdownMenuItem>
                                                     </DropdownMenuContent>
                                                 </DropdownMenu>

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { createClient } from '@/lib/supabase/server';
 import type { CompileRequest, CompileCachePayload } from './types';
 import {
   buildCacheKey,
@@ -48,6 +49,18 @@ function normalizeRequest(body: Partial<CompileRequest>): CompileRequest {
 
 export async function POST(request: Request) {
   try {
+    const supabase = await createClient();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session?.access_token) {
+      return NextResponse.json(
+        { error: 'Unauthorized. Please log in.' },
+        { status: 401 }
+      );
+    }
+
     const rawBody: Partial<CompileRequest> = await request.json();
 
     const requestValidationError = validateCompileRequest(rawBody);
@@ -91,7 +104,8 @@ export async function POST(request: Request) {
 
     const compileResult = await compileLatex(
       body,
-      COMPILE_SERVICE_URL as string
+      COMPILE_SERVICE_URL as string,
+      session.access_token
     );
 
     if (

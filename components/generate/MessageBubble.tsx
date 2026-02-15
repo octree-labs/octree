@@ -112,7 +112,7 @@ export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
     return (
         <div className="flex w-full justify-start">
             <Card className="w-full overflow-hidden bg-muted/50 p-0">
-                <div className="h-80 w-full">
+                <div className="h-64 w-full md:h-80">
                     <MonacoEditor
                         content={message.content}
                         className="h-full"

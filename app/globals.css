@@ -148,6 +148,17 @@
   margin-left: 2px !important; /* Adjust spacing */
 }
 
+.monaco-editor .octra-citation-ref {
+  background-color: rgba(37, 99, 235, 0.18);
+  border-radius: 4px;
+  color: #1d4ed8;
+  font-weight: 600;
+}
+
+.monaco-editor.octra-citation-ref-hover {
+  cursor: pointer;
+}
+
 /* Optional: Style for the 'after' widget's newline indicator */
 .octra-suggestion-added::after {
   /* Style the '↵' character if needed, e.g., color */

@@ -36,8 +36,8 @@ Octree is a modern, cloud-based LaTeX editor with built-in AI capabilities. It c
 ## Links
 
 - Website: https://www.useoctree.com
-- Login: https://www.useoctree.com/auth/login
-- Sign Up: https://www.useoctree.com/auth/sign-up
+- Login: https://app.useoctree.com/auth/login
+- Sign Up: https://app.useoctree.com/auth/sign-up
 - Contact: https://www.useoctree.com/contact
 
 ## Contact

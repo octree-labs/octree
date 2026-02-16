@@ -3,6 +3,7 @@
 import { useCallback } from 'react';
 import { toast } from 'sonner';
 import { useEditLimitCache } from '../use-edit-limit-cache';
+import { PRO_MONTHLY_EDIT_LIMIT } from '@/data/constants';
 import { useSuggestionQueue } from './use-suggestion-queue';
 import { useSuggestionDecorations } from './use-suggestion-decorations';
 import { acceptSingleEdit, acceptAllEdits, rejectEdit, acceptEditDirect, AcceptEditOptions } from './suggestion-operations';
@@ -53,7 +54,7 @@ export function useEditSuggestions({
       // Fast check using cached status
       if (!canEdit) {
         toast.error(
-          'You have reached your edit limit. Please upgrade to Pro for 200 edits per month.'
+          `You have reached your edit limit. Please upgrade to Pro for ${PRO_MONTHLY_EDIT_LIMIT} edits per month.`
         );
         return;
       }
@@ -90,7 +91,7 @@ export function useEditSuggestions({
     // Fast check using cached status
     if (!canEdit) {
       toast.error(
-        'You have reached your edit limit. Please upgrade to Pro for 200 edits per month.'
+        `You have reached your edit limit. Please upgrade to Pro for ${PRO_MONTHLY_EDIT_LIMIT} edits per month.`
       );
       return;
     }

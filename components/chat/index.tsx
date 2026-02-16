@@ -35,6 +35,7 @@ interface ChatProps {
   autoSendMessage?: string | null;
   setAutoSendMessage?: (message: string | null) => void;
   projectId?: string;
+  autoFocus?: boolean;
 }
 
 interface ChatMessage {
@@ -61,6 +62,7 @@ export function Chat({
   autoSendMessage,
   setAutoSendMessage,
   projectId,
+  autoFocus = true,
 }: ChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -76,10 +78,12 @@ export function Chat({
 
   useEffect(() => {
     if (isOpen) {
-      chatInputRef.current?.focus();
+      if (autoFocus) {
+        chatInputRef.current?.focus();
+      }
       scrollToBottom();
     }
-  }, [isOpen]);
+  }, [isOpen, autoFocus]);
 
   useEffect(() => {
     if (autoSendMessage && isOpen && !isLoading) {

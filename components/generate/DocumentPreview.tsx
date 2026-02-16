@@ -286,7 +286,7 @@ export function DocumentPreview({ latex, title, onOpenInOctree, isCreatingProjec
                     </div>
                 </div>
 
-            <div className="h-[600px] overflow-hidden">
+            <div className="h-[400px] md:h-[600px] overflow-hidden">
                 {viewMode === 'code' ? (
                     <div className="h-full w-full bg-muted/30">
                         <MonacoEditor
@@ -318,7 +318,7 @@ export function DocumentPreview({ latex, title, onOpenInOctree, isCreatingProjec
                 )}
             </div>
 
-            <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
+            <div className="flex flex-wrap items-center justify-end gap-2 border-t px-4 py-3">
                 <Button
                     variant="outline"
                     onClick={handleDownload}

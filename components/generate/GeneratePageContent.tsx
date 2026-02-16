@@ -264,12 +264,12 @@ export function GeneratePageContent({
 
   return (
     <>
-        <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b px-4 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12">
+        <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b px-2 md:px-4 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12">
           <div className="flex items-center gap-2">
             <SidebarTrigger className="-ml-1" />
             <BackButton />
           </div>
-          <div className="text-sm font-medium text-muted-foreground">
+          <div className="text-sm font-medium text-muted-foreground truncate max-w-[200px] md:max-w-none">
             {currentTitle}
           </div>
           <div className="w-8" />
@@ -301,7 +301,7 @@ export function GeneratePageContent({
             ) : !messages.length ? (
               <WelcomeState onSelectSuggestion={setPrompt} />
             ) : (
-              <div className="p-4">
+              <div className="p-2 md:p-4">
                 <div className="mx-auto max-w-3xl space-y-4">
                   {messages.map((message, index) => (
                     <MessageBubble
@@ -335,7 +335,7 @@ export function GeneratePageContent({
           </div>
         </main>
 
-        <div className="shrink-0 border-t bg-background p-4">
+        <div className="shrink-0 border-t bg-background p-2 md:p-4">
           <form
             onSubmit={(e) => {
               e.preventDefault();

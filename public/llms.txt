@@ -1,0 +1,45 @@
+# Octree
+
+> Octree is an AI-powered LaTeX editor that helps researchers, students, and professionals write, edit, and compile LaTeX documents faster.
+
+## About
+
+Octree is a modern, cloud-based LaTeX editor with built-in AI capabilities. It combines a full-featured LaTeX editing environment with intelligent AI assistance for writing, error fixing, and document generation. The editor is available at https://www.useoctree.com.
+
+## Features
+
+- **AI-Powered Editing Agent**: Edit documents with an AI agent similar to Cursor, but built for academics. Refactor entire projects with simple commands.
+- **Fast PDF Preview**: Real-time LaTeX compilation with instant PDF preview.
+- **AI Error Detection & Fixes**: One-click fixes for complex LaTeX compilation errors. Intelligent error detection eliminates manual debugging.
+- **Document Generation**: Generate professionally formatted academic papers, presentations, and resumes from AI prompts.
+- **Research Paper Generation**: Transform ideas into professionally formatted academic papers with citations and equations handled automatically.
+- **Beamer Presentations**: Build stunning Beamer presentations with AI assistance for conferences and lectures.
+- **Resume Builder**: Generate polished, ATS-friendly resumes using industry-standard LaTeX templates.
+- **Image to LaTeX**: Convert images containing math or tables into LaTeX code.
+- **Cloud Sync**: Unlimited projects and files synced across all devices.
+- **AI Chat Assistant**: Built-in chat for fixing errors, improving writing, and restructuring documents.
+
+## Use Cases
+
+- Academic research paper writing
+- Conference and lecture presentations (Beamer)
+- Professional resume and CV creation
+- Thesis and dissertation formatting
+- Technical documentation
+- Homework and assignment typesetting
+
+## Pricing
+
+- **Free Tier**: Available with limited AI features.
+- **Octree Pro**: $9.99/month or $4.99/week for unlimited AI features and priority support.
+
+## Links
+
+- Website: https://www.useoctree.com
+- Login: https://app.useoctree.com/auth/login
+- Sign Up: https://app.useoctree.com/auth/sign-up
+- Contact: https://www.useoctree.com/contact
+
+## Contact
+
+- Email: basil@useoctree.online

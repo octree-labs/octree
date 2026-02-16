@@ -30,7 +30,7 @@ import {
 
 export function GenerateHistorySidebar() {
     const router = useRouter();
-    const { toggleSidebar } = useSidebar();
+    const { toggleSidebar, isMobile, setOpenMobile } = useSidebar();
     const documents = useDocuments();
     const activeDocumentId = useActiveDocumentId();
     const isLoading = useIsLoading();
@@ -75,6 +75,10 @@ export function GenerateHistorySidebar() {
         if (editingId) return;
         if (!doc.latex) return;
         
+        if (isMobile) {
+            setOpenMobile(false);
+        }
+
         // Optimistically update active state if needed, though URL change will eventually trigger it
         if (activeDocumentId !== doc.id) {
             GenerateActions.setActiveDocument(doc.id);
@@ -95,6 +99,9 @@ export function GenerateHistorySidebar() {
     };
 
     const handleNewChat = () => {
+        if (isMobile) {
+            setOpenMobile(false);
+        }
         GenerateActions.setActiveDocument(null);
         router.push('/generate');
     };

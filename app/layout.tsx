@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { Analytics } from '@vercel/analytics/react';
+import { GoogleAnalytics } from '@next/third-parties/google';
 import './globals.css';
 import { ProjectProvider } from '@/app/context/project';
 import { Toaster } from '@/components/ui/sonner';
@@ -38,6 +39,7 @@ export default async function RootLayout({
         </ProjectProvider>
         <Toaster position="top-center" />
         <Analytics />
+        <GoogleAnalytics gaId="G-2G3ZGGMJ2Y" />
       </body>
     </html>
   );

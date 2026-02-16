@@ -9,18 +9,25 @@
     "build": "tsc",
     "deploy": "bash deploy.sh"
   },
-  "keywords": ["claude", "agent", "latex", "ai"],
+  "keywords": [
+    "claude",
+    "agent",
+    "latex",
+    "ai"
+  ],
   "author": "Octree AI",
   "license": "ISC",
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.1.5",
     "cors": "^2.8.5",
     "express": "^5.1.0",
+    "jsonwebtoken": "^9.0.2",
     "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
+    "@types/jsonwebtoken": "^9.0.7",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3"
   },
@@ -31,4 +38,3 @@
     "node": ">=18.0.0"
   }
 }
-

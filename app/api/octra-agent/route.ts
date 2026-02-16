@@ -12,16 +12,17 @@ export async function POST(request: Request) {
   try {
     const supabase = await createClient();
     const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
+      data: { session },
+    } = await supabase.auth.getSession();
 
-    if (userError || !user) {
+    if (!session?.access_token) {
       return NextResponse.json(
         { error: 'Unauthorized. Please log in to use AI features.' },
         { status: 401 }
       );
     }
+
+    const user = session.user;
 
     // Check if user has unlimited edits (whitelisted)
     const hasUnlimited = hasUnlimitedEdits(user.email);
@@ -194,6 +195,7 @@ export async function POST(request: Request) {
       headers: {
         'content-type': 'application/json',
         accept: 'text/event-stream',
+        'authorization': `Bearer ${session.access_token}`,
       },
       body: JSON.stringify(body),
     });

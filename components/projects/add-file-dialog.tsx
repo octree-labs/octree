@@ -28,7 +28,7 @@ import {
   getContentTypeByFilename,
 } from '@/lib/constants/file-types';
 import { toast } from 'sonner';
-import { useZoteroLocal } from '@/hooks/use-zotero-local';
+import { useZoteroSync } from '@/hooks/use-zotero-sync';
 
 interface AddFileDialogProps {
   projectId: string;
@@ -61,7 +61,7 @@ export function AddFileDialog({
   );
   const { revalidate } = useProjectFilesRevalidation(projectId);
   const { state: zoteroState, syncing, syncFromUrl, syncSaved } =
-    useZoteroLocal(projectId);
+    useZoteroSync(projectId);
 
   useEffect(() => {
     setZoteroUrl(zoteroState.sourceUrl ?? '');

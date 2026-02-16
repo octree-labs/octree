@@ -82,19 +82,19 @@ export function searchCitationEntries(
   });
 }
 
-export function useZoteroLocal(projectId: string) {
+export function useZoteroSync(projectId: string) {
   const [state, setState] = useState<ZoteroLocalState>(defaultState());
   const [syncing, setSyncing] = useState(false);
 
   const reload = useCallback(async () => {
     if (!projectId) return;
 
-    const supabase = createClient();
-    const { data } = await (supabase
-      .from('project_zotero_sources' as any)
+    const supabase = createClient() as any;
+    const { data } = await supabase
+      .from('project_zotero_sources')
       .select('*')
       .eq('project_id', projectId)
-      .maybeSingle() as any);
+      .maybeSingle();
 
     setState(normalizeRow(data as Record<string, unknown> | null));
   }, [projectId]);
@@ -119,9 +119,9 @@ export function useZoteroLocal(projectId: string) {
 
   const persistState = useCallback(
     async (next: ZoteroLocalState): Promise<ZoteroLocalState> => {
-      const supabase = createClient();
-      const { data, error } = await (supabase
-        .from('project_zotero_sources' as any)
+      const supabase = createClient() as any;
+      const { data, error } = await supabase
+        .from('project_zotero_sources')
         .upsert(
           {
             project_id: projectId,
@@ -139,7 +139,7 @@ export function useZoteroLocal(projectId: string) {
           { onConflict: 'project_id' }
         )
         .select('*')
-        .single() as any);
+        .single();
 
       if (error) throw new Error('Failed to persist Zotero integration state');
 

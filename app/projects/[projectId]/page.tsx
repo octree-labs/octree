@@ -10,7 +10,7 @@ import { useEditorCompilation } from '@/hooks/use-editor-compilation';
 import { useEditSuggestions } from '@/hooks/use-edit-suggestions';
 import { useEditorInteractions } from '@/hooks/use-editor-interactions';
 import { useEditorKeyboardShortcuts } from '@/hooks/use-editor-keyboard-shortcuts';
-import { useZoteroLocal } from '@/hooks/use-zotero-local';
+import { useZoteroSync } from '@/hooks/use-zotero-sync';
 import { MonacoEditor } from '@/components/editor/monaco-editor';
 import { EditorToolbar } from '@/components/editor/toolbar';
 import { SelectionButton } from '@/components/editor/selection-button';
@@ -186,7 +186,7 @@ export default function ProjectPage() {
   const [isChatResizing, setIsChatResizing] = useState(false);
   const [citationPickerOpen, setCitationPickerOpen] = useState(false);
   const [citationQuery, setCitationQuery] = useState('');
-  const { state: zoteroState, searchEntries } = useZoteroLocal(projectId);
+  const { state: zoteroState, searchEntries } = useZoteroSync(projectId);
 
   const chatStartXRef = useRef(0);
   const chatStartWidthRef = useRef(0);

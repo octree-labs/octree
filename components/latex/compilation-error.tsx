@@ -238,15 +238,16 @@ export function CompilationError({
   return (
     <div
       className={cn(
-        className ||
-          'fixed left-1/2 top-20 z-50 w-full max-w-4xl -translate-x-1/2 transform px-4'
+        'z-50 w-full px-4 py-6',
+        !className && 'absolute inset-x-0 top-0',
+        className
       )}
     >
-      <Card className="bg-white backdrop-blur-sm">
+      <Card className="bg-white shadow-xl backdrop-blur-sm">
         <CardHeader className="border-b pb-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-red-500">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-red-500">
                 <AlertCircle className="h-5 w-5 text-white" />
               </div>
               <CardTitle className="text-lg font-semibold text-slate-900">
@@ -258,7 +259,7 @@ export function CompilationError({
                 variant="ghost"
                 size="sm"
                 onClick={onDismiss}
-                className="h-8 w-8 p-0 text-slate-400 hover:bg-slate-100 hover:text-slate-900"
+                className="h-8 w-8 shrink-0 p-0 text-slate-400 hover:bg-slate-100 hover:text-slate-900"
               >
                 <X className="h-4 w-4" />
               </Button>
@@ -278,7 +279,7 @@ export function CompilationError({
             )}
             {error.summary && (
               <div className="rounded-r border-l-2 border-red-500 bg-slate-50 p-4">
-                <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-slate-700">
+                <pre className="whitespace-pre-wrap break-all font-mono text-xs leading-relaxed text-slate-700">
                   {error.summary}
                 </pre>
               </div>
@@ -312,7 +313,7 @@ export function CompilationError({
               {error.requestId && (
                 <Badge
                   variant="outline"
-                  className="max-w-[200px] truncate border-slate-200 bg-slate-50 font-mono text-xs text-slate-700"
+                  className="max-w-full truncate border-slate-200 bg-slate-50 font-mono text-xs text-slate-700"
                 >
                   {error.requestId}
                 </Badge>
@@ -339,7 +340,7 @@ export function CompilationError({
                   <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-900">
                     LaTeX Log
                   </h4>
-                  <pre className="max-h-40 overflow-x-auto rounded-lg border border-slate-200 bg-slate-50 p-4 font-mono text-xs leading-relaxed text-slate-700">
+                  <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-lg border border-slate-200 bg-slate-50 p-4 font-mono text-xs leading-relaxed text-slate-700">
                     {error.log}
                   </pre>
                 </div>
@@ -350,7 +351,7 @@ export function CompilationError({
                   <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-900">
                     Output
                   </h4>
-                  <pre className="max-h-40 overflow-x-auto rounded-lg border border-slate-200 bg-slate-50 p-4 font-mono text-xs leading-relaxed text-slate-700">
+                  <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-lg border border-slate-200 bg-slate-50 p-4 font-mono text-xs leading-relaxed text-slate-700">
                     {error.stdout}
                   </pre>
                 </div>
@@ -361,7 +362,7 @@ export function CompilationError({
                   <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-900">
                     Error Stream
                   </h4>
-                  <pre className="max-h-40 overflow-x-auto rounded-lg border border-slate-200 bg-slate-50 p-4 font-mono text-xs leading-relaxed text-slate-700">
+                  <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-lg border border-slate-200 bg-slate-50 p-4 font-mono text-xs leading-relaxed text-slate-700">
                     {error.stderr}
                   </pre>
                 </div>
@@ -369,9 +370,9 @@ export function CompilationError({
             </div>
           )}
 
-          <div className="flex gap-3 border-t border-slate-100 pt-4">
+          <div className="flex flex-wrap gap-2 border-t border-slate-100 pt-4">
             {onFixWithAI && (
-              <Button onClick={onFixWithAI} variant="gradient">
+              <Button onClick={onFixWithAI} variant="gradient" className="flex-1 sm:flex-none">
                 <WandSparkles className="h-4 w-4" />
                 Fix with AI
               </Button>
@@ -380,7 +381,7 @@ export function CompilationError({
               <Button
                 onClick={onRetry}
                 variant="outline"
-                className="border-slate-200 text-slate-700 hover:bg-slate-50"
+                className="flex-1 border-slate-200 text-slate-700 hover:bg-slate-50 sm:flex-none"
               >
                 <RefreshCw className="h-4 w-4" />
                 Try Again
@@ -392,7 +393,7 @@ export function CompilationError({
                 const errorText = formatCompilationErrorForClipboard(error);
                 navigator.clipboard.writeText(errorText);
               }}
-              className="border-slate-200 text-slate-700 hover:bg-slate-50"
+              className="flex-1 border-slate-200 text-slate-700 hover:bg-slate-50 sm:flex-none"
             >
               Copy Details
             </Button>

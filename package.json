@@ -2,13 +2,8 @@
   "name": "ai-latex-editor",
   "version": "0.1.0",
   "private": true,
-  "engines": {
-    "node": ">=20.9.0 <24"
-  },
   "scripts": {
-    "clean": "rm -rf node_modules",
-    "dev": "next dev",
-    "dev:turbo": "next dev --turbopack",
+    "dev": "next dev --turbopack",
     "build": "node scripts/create-dummy-cli.js && next build",
     "start": "next start",
     "lint": "next lint",

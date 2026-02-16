@@ -44,7 +44,7 @@ export default async function ProjectLayout({
           <header className="relative flex flex-shrink-0 items-center justify-between border-b px-4 py-3">
             <div className="absolute left-2 flex items-center gap-2">
               <SidebarTrigger className="hidden md:flex" />
-              <span className="text-neutral-300">|</span>
+              <span className="hidden text-neutral-300 md:inline">|</span>
               <span data-onboarding-target="editor-back">
                 <BackButton />
               </span>

@@ -435,13 +435,14 @@ export default function ProjectPage() {
 
                           {/* Floating Chat Button */}
                           <Button
+                              variant="gradient"
                               className={cn(
-                                "absolute bottom-4 right-4 z-40 h-12 w-12 rounded-full shadow-lg transition-transform duration-200",
+                                "absolute bottom-4 right-4 z-40 h-12 w-12 rounded-full p-0 shadow-xl transition-all duration-200 active:scale-95",
                                 isMobileChatOpen ? "scale-0 opacity-0" : "scale-100 opacity-100"
                               )}
                               onClick={() => setIsMobileChatOpen(true)}
                           >
-                              <MessageSquare className="size-6" />
+                              <MessageSquare className="size-6 fill-current/10" />
                           </Button>
                       </div>
                   )}

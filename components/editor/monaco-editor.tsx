@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import Editor, { loader } from '@monaco-editor/react';
 import {
   latexLanguageConfiguration,
@@ -10,6 +10,7 @@ import {
 import { registerMonacoThemes } from '@/lib/monaco-themes';
 import { useEditorTheme } from '@/stores/editor-theme';
 import type * as Monaco from 'monaco-editor';
+import type { CitationEntry } from '@/types/citation';
 
 interface MonacoEditorProps {
   content: string;
@@ -18,6 +19,7 @@ interface MonacoEditorProps {
     editor: Monaco.editor.IStandaloneCodeEditor,
     monaco: typeof Monaco
   ) => void;
+  citationEntries?: CitationEntry[];
   className?: string;
   options?: Monaco.editor.IStandaloneEditorConstructionOptions;
 }
@@ -26,11 +28,20 @@ export function MonacoEditor({
   content,
   onChange,
   onMount,
+  citationEntries = [],
   className = '',
   options = {},
 }: MonacoEditorProps) {
   const theme = useEditorTheme((state) => state.theme);
   const themesRegistered = useRef(false);
+  const providerDisposableRef = useRef<{ dispose: () => void } | null>(null);
+  const citationEntriesRef = useRef<CitationEntry[]>([]);
+
+  const memoizedEntries = useMemo(() => citationEntries, [citationEntries]);
+
+  useEffect(() => {
+    citationEntriesRef.current = memoizedEntries;
+  }, [memoizedEntries]);
 
   useEffect(() => {
     loader.init().then((monaco) => {
@@ -41,7 +52,11 @@ export function MonacoEditor({
         latexLanguageConfiguration
       );
       monaco.languages.setMonarchTokensProvider('latex', latexTokenProvider);
-      registerLatexCompletions(monaco);
+      providerDisposableRef.current?.dispose();
+      providerDisposableRef.current = registerLatexCompletions(
+        monaco,
+        () => citationEntriesRef.current
+      );
 
       // Register custom themes (only once)
       if (!themesRegistered.current) {
@@ -49,6 +64,11 @@ export function MonacoEditor({
         themesRegistered.current = true;
       }
     });
+
+    return () => {
+      providerDisposableRef.current?.dispose();
+      providerDisposableRef.current = null;
+    };
   }, []);
 
   return (

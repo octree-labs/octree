@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,7 +15,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Plus, Upload, FileText } from 'lucide-react';
+import { Plus, Upload, FileText, Link2, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { createClient } from '@/lib/supabase/client';
 import { useProjectFilesRevalidation } from '@/hooks/use-file-editor';
@@ -28,6 +28,7 @@ import {
   getContentTypeByFilename,
 } from '@/lib/constants/file-types';
 import { toast } from 'sonner';
+import { useZoteroLocal } from '@/hooks/use-zotero-local';
 
 interface AddFileDialogProps {
   projectId: string;
@@ -54,8 +55,17 @@ export function AddFileDialog({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [uploadMode, setUploadMode] = useState<'create' | 'upload'>('create');
+  const [zoteroUrl, setZoteroUrl] = useState('');
+  const [uploadMode, setUploadMode] = useState<'create' | 'upload' | 'zotero'>(
+    'create'
+  );
   const { revalidate } = useProjectFilesRevalidation(projectId);
+  const { state: zoteroState, syncing, syncFromUrl, syncSaved } =
+    useZoteroLocal(projectId);
+
+  useEffect(() => {
+    setZoteroUrl(zoteroState.sourceUrl ?? '');
+  }, [zoteroState.sourceUrl]);
 
   const onDrop = (acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {
@@ -224,6 +234,139 @@ export function AddFileDialog({
   const handleSubmit =
     uploadMode === 'upload' ? handleFileUpload : handleCreateFile;
 
+  const handleImportZotero = async () => {
+    if (!zoteroUrl.trim()) {
+      setError('Please enter a Zotero URL');
+      return;
+    }
+
+    setError(null);
+    try {
+      const synced = await syncFromUrl(zoteroUrl);
+      toast.success(`Imported ${synced.entries.length} Zotero reference(s)`);
+      setUploadMode('zotero');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to import Zotero references');
+    }
+  };
+
+  const handleSyncZotero = async () => {
+    setError(null);
+    try {
+      const synced = await syncSaved();
+      toast.success(`Synced ${synced.entries.length} Zotero reference(s)`);
+      setUploadMode('zotero');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to sync Zotero references');
+    }
+  };
+
+  const handleSaveZoteroToProject = async () => {
+    if (!zoteroState.refsBib?.trim()) {
+      setError('No imported references to save yet');
+      return;
+    }
+
+    setIsLoading(true);
+    FileTreeActions.setLoading(true);
+    setError(null);
+
+    try {
+      const supabase = createClient();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session?.user) {
+        throw new Error('User not authenticated');
+      }
+
+      const refsMime = getContentTypeByFilename('refs.bib');
+      const refsPath = `projects/${projectId}/refs.bib`;
+      const refsBlob = new Blob([zoteroState.refsBib], { type: refsMime });
+
+      const { error: refsUploadError } = await supabase.storage
+        .from('octree')
+        .upload(refsPath, refsBlob, {
+          cacheControl: '3600',
+          upsert: true,
+          contentType: refsMime,
+        });
+
+      if (refsUploadError) {
+        throw new Error('Failed to save refs.bib');
+      }
+
+      const mainPath = `projects/${projectId}/main.tex`;
+      const { data: mainBlob } = await supabase.storage
+        .from('octree')
+        .download(mainPath);
+
+      let patchedMainTex = false;
+      if (mainBlob) {
+        const mainText = await mainBlob.text();
+        const hasBibStyle = /\\bibliographystyle\s*\{[^}]+\}/.test(mainText);
+        const hasBibliography = /\\bibliography\s*\{[^}]+\}/.test(mainText);
+
+        if (!hasBibStyle || !hasBibliography) {
+          const additions = [
+            !hasBibStyle ? '\\bibliographystyle{plain}' : null,
+            !hasBibliography ? '\\bibliography{refs}' : null,
+          ]
+            .filter(Boolean)
+            .join('\n');
+
+          const insertion = `\n${additions}\n`;
+          const endTag = '\\end{document}';
+          const idx = mainText.lastIndexOf(endTag);
+          const nextMain = idx >= 0
+            ? `${mainText.slice(0, idx).trimEnd()}${insertion}${endTag}${mainText.slice(idx + endTag.length)}`
+            : `${mainText.trimEnd()}${insertion}`;
+          const mainMime = getContentTypeByFilename('main.tex');
+
+          const { error: mainUploadError } = await supabase.storage
+            .from('octree')
+            .upload(mainPath, new Blob([nextMain], { type: mainMime }), {
+              cacheControl: '3600',
+              upsert: true,
+              contentType: mainMime,
+            });
+
+          if (!mainUploadError) {
+            patchedMainTex = true;
+          }
+        }
+      }
+
+      const { data: storageFiles } = await supabase.storage
+        .from('octree')
+        .list(`projects/${projectId}`);
+      const refsFile = storageFiles?.find((f) => f.name === 'refs.bib');
+      if (refsFile) {
+        FileActions.setSelectedFile({
+          id: refsFile.id,
+          name: refsFile.name,
+          project_id: projectId,
+          size: refsFile.metadata?.size || null,
+          type: refsFile.metadata?.mimetype || null,
+          uploaded_at: refsFile.created_at,
+        });
+      }
+
+      await revalidate();
+      toast.success(
+        patchedMainTex
+          ? 'Saved refs.bib and updated bibliography commands in main.tex'
+          : 'Saved refs.bib to project'
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save references');
+    } finally {
+      setIsLoading(false);
+      FileTreeActions.setLoading(false);
+    }
+  };
+
   const handleOpenChange = (newOpen: boolean) => {
     setOpen(newOpen);
     if (!newOpen) {
@@ -258,9 +401,11 @@ export function AddFileDialog({
 
         <Tabs
           value={uploadMode}
-          onValueChange={(value) => setUploadMode(value as 'create' | 'upload')}
+          onValueChange={(value) =>
+            setUploadMode(value as 'create' | 'upload' | 'zotero')
+          }
         >
-          <TabsList className="grid w-full grid-cols-2">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="create" disabled={isLoading}>
               <FileText className="h-4 w-4" />
               Create File
@@ -268,6 +413,10 @@ export function AddFileDialog({
             <TabsTrigger value="upload" disabled={isLoading}>
               <Upload className="h-4 w-4" />
               Upload File
+            </TabsTrigger>
+            <TabsTrigger value="zotero" disabled={isLoading}>
+              <Link2 className="h-4 w-4" />
+              Import Zotero
             </TabsTrigger>
           </TabsList>
 
@@ -384,6 +533,75 @@ export function AddFileDialog({
                   disabled={isLoading || !selectedFile}
                 >
                   {isLoading ? 'Uploading...' : 'Upload File'}
+                </Button>
+              </DialogFooter>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="zotero" className="mt-4">
+            <div className="grid gap-4">
+              <div className="grid gap-3">
+                <Label htmlFor="zoteroUrl">Public Zotero URL</Label>
+                <Input
+                  id="zoteroUrl"
+                  value={zoteroUrl}
+                  onChange={(e) => setZoteroUrl(e.target.value)}
+                  placeholder="https://www.zotero.org/users/... or /groups/..."
+                  disabled={syncing}
+                />
+                <p className="text-xs text-neutral-500">
+                  Private library? Export a `.bib` file from Zotero and use Upload File.
+                </p>
+              </div>
+
+              <div className="rounded-md border border-neutral-200 bg-neutral-50 p-3 text-xs text-neutral-700">
+                <p>
+                  Last sync:{' '}
+                  {zoteroState.lastSyncedAt
+                    ? new Date(zoteroState.lastSyncedAt).toLocaleString()
+                    : 'Never'}
+                </p>
+                <p>References: {zoteroState.entries.length}</p>
+                <p>Status: {zoteroState.lastSyncStatus}</p>
+                {zoteroState.lastSyncError && (
+                  <p className="text-red-600">Error: {zoteroState.lastSyncError}</p>
+                )}
+              </div>
+
+              {error && <p className="text-sm text-red-600">{error}</p>}
+
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => handleOpenChange(false)}
+                  disabled={syncing}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleSyncZotero}
+                  disabled={syncing || !zoteroState.sourceUrl}
+                >
+                  <RefreshCw className={cn('h-4 w-4', syncing && 'animate-spin')} />
+                  {syncing ? 'Syncing...' : 'Sync'}
+                </Button>
+                <Button
+                  type="button"
+                  onClick={handleImportZotero}
+                  disabled={syncing || !zoteroUrl.trim()}
+                >
+                  <Link2 className="h-4 w-4" />
+                  {syncing ? 'Importing...' : 'Import'}
+                </Button>
+                <Button
+                  type="button"
+                  onClick={handleSaveZoteroToProject}
+                  disabled={isLoading || syncing || zoteroState.entries.length === 0}
+                >
+                  {isLoading ? 'Saving...' : 'Save to Project'}
                 </Button>
               </DialogFooter>
             </div>

@@ -35,8 +35,9 @@ import { isImageFile, isPDFFile, isTextFile } from '@/lib/constants/file-types';
 import { ImageViewer } from '@/components/image-viewer';
 import { SimplePDFViewer } from '@/components/simple-pdf-viewer';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { Code, Eye, MessageSquare, Play, Loader2 } from 'lucide-react';
+import { Code, Eye, MessageSquare, Play, Loader2, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { FileTree } from '@/components/projects/file-tree';
 
 const CHAT_WIDTH_DEFAULT = 340;
 const CHAT_WIDTH_MIN = 280;
@@ -47,7 +48,7 @@ export default function ProjectPage() {
   const params = useParams();
   const projectId = params.projectId as string;
   const isMobile = useIsMobile();
-  const [mobileView, setMobileView] = useState<'code' | 'preview'>('code');
+  const [mobileView, setMobileView] = useState<'files' | 'code' | 'preview'>('code');
   const [isMobileChatOpen, setIsMobileChatOpen] = useState(false);
 
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -344,7 +345,10 @@ export default function ProjectPage() {
                           const errorContext = formatCompilationErrorForAI(compilationError);
                           setTextFromEditor(errorContext);
                           setChatOpen(true);
-                          if (isMobile) setIsMobileChatOpen(true);
+                          if (isMobile) {
+                            setMobileView('code'); // Switch to code view to show chat
+                            setIsMobileChatOpen(true);
+                          }
                           setAutoSendMessage('Fix this error');
                           setCompilationError(null);
                       }}
@@ -364,7 +368,10 @@ export default function ProjectPage() {
                               const errorContext = formatCompilationErrorForAI(compilationError);
                               setTextFromEditor(errorContext);
                               setChatOpen(true);
-                              if (isMobile) setIsMobileChatOpen(true);
+                              if (isMobile) {
+                                setMobileView('code'); // Switch to code view to show chat
+                                setIsMobileChatOpen(true);
+                              }
                               setAutoSendMessage('Fix this error');
                               setCompilationError(null);
                           }
@@ -375,12 +382,32 @@ export default function ProjectPage() {
       </div>
   );
 
+  const renderFiles = () => (
+    <div className="flex h-full flex-col bg-slate-50 p-4">
+      {projectData && projectFiles ? (
+        <FileTree
+          files={projectFiles}
+          selectedFileId={selectedFile?.id || null}
+          onFileSelect={(file) => {
+            FileActions.setSelectedFile(file);
+            setMobileView('code');
+          }}
+          rootFolderName={projectData.title}
+          projectId={projectData.id}
+        />
+      ) : (
+        <LoadingState />
+      )}
+    </div>
+  );
+
   if (isMobile) {
       return (
           <div className="flex h-[calc(100vh-theme(spacing.14))] flex-col bg-slate-100">
               <div className="flex-1 overflow-hidden relative">
+                  {mobileView === 'files' && renderFiles()}
                   {mobileView === 'code' && (
-                      <div className="flex h-full flex-col">
+                      <div className="flex h-full flex-col relative">
                           <div className="flex items-center justify-between border-b bg-white px-2 py-1.5">
                               <span className="text-xs font-medium text-muted-foreground truncate max-w-[200px]">
                                   {selectedFile?.name}
@@ -406,46 +433,75 @@ export default function ProjectPage() {
                           <div className="flex-1 overflow-hidden">
                               {renderContent()}
                           </div>
+
+                          {/* Floating Chat Button */}
+                          <Button
+                              className={cn(
+                                "absolute bottom-4 right-4 z-40 h-12 w-12 rounded-full shadow-lg transition-transform duration-200",
+                                isMobileChatOpen ? "scale-0 opacity-0" : "scale-100 opacity-100"
+                              )}
+                              onClick={() => setIsMobileChatOpen(true)}
+                          >
+                              <MessageSquare className="size-6" />
+                          </Button>
                       </div>
                   )}
                   {mobileView === 'preview' && renderPreview()}
 
-                  {/* Chat Overlay */}
-                  <div
-                      className={cn(
-                          "absolute inset-x-0 bottom-0 z-50 flex h-[60vh] flex-col overflow-hidden rounded-t-2xl border-t bg-white shadow-2xl transition-transform duration-300 ease-in-out",
-                          isMobileChatOpen ? "translate-y-0" : "translate-y-full"
-                      )}
-                  >
-                      <Chat
-                          isOpen={true} // Always mounted/open in the overlay context if the overlay is visible
-                          setIsOpen={() => setIsMobileChatOpen(false)}
-                          onEditSuggestion={handleSuggestionFromChat}
-                          onAcceptEdit={handleAcceptEdit}
-                          onRejectEdit={handleRejectEdit}
-                          onAcceptAllEdits={handleAcceptAllEdits}
-                          editSuggestions={editSuggestions}
-                          pendingEditCount={totalPendingCount}
-                          fileContent={selectedFile && isTextFile(selectedFile.name) ? content : ''}
-                          textFromEditor={textFromEditor}
-                          setTextFromEditor={setTextFromEditor}
-                          selectionRange={selectionRange}
-                          projectFiles={projectFileContext}
-                          currentFilePath={selectedFile?.name ?? null}
-                          autoSendMessage={autoSendMessage}
-                          setAutoSendMessage={setAutoSendMessage}
-                          projectId={projectId}
-                      />
-                  </div>
+                  {/* Chat Overlay - Only in Code View */}
+                  {mobileView === 'code' && (
+                    <div
+                        className={cn(
+                            "absolute inset-x-0 bottom-0 z-50 flex h-[60vh] flex-col overflow-hidden rounded-t-2xl border-t bg-white shadow-2xl transition-transform duration-300 ease-in-out",
+                            isMobileChatOpen ? "translate-y-0" : "translate-y-full"
+                        )}
+                    >
+                        <Chat
+                            isOpen={isMobileChatOpen}
+                            setIsOpen={() => setIsMobileChatOpen(false)}
+                            autoFocus={false}
+                            onEditSuggestion={handleSuggestionFromChat}
+                            onAcceptEdit={handleAcceptEdit}
+                            onRejectEdit={handleRejectEdit}
+                            onAcceptAllEdits={handleAcceptAllEdits}
+                            editSuggestions={editSuggestions}
+                            pendingEditCount={totalPendingCount}
+                            fileContent={selectedFile && isTextFile(selectedFile.name) ? content : ''}
+                            textFromEditor={textFromEditor}
+                            setTextFromEditor={setTextFromEditor}
+                            selectionRange={selectionRange}
+                            projectFiles={projectFileContext}
+                            currentFilePath={selectedFile?.name ?? null}
+                            autoSendMessage={autoSendMessage}
+                            setAutoSendMessage={setAutoSendMessage}
+                            projectId={projectId}
+                        />
+                    </div>
+                  )}
               </div>
 
               {/* Bottom Navigation */}
               <div className="flex shrink-0 items-center justify-around border-t bg-white p-2 safe-area-bottom relative z-50">
                   <Button
+                      variant={mobileView === 'files' ? 'secondary' : 'ghost'}
+                      size="sm"
+                      className="flex-1 flex-col gap-1 h-auto py-2 rounded-lg"
+                      onClick={() => {
+                        setMobileView('files');
+                        setIsMobileChatOpen(false);
+                      }}
+                  >
+                      <FileText className="size-5" />
+                      <span className="text-[10px] font-medium">Files</span>
+                  </Button>
+                  <Button
                       variant={mobileView === 'code' ? 'secondary' : 'ghost'}
                       size="sm"
                       className="flex-1 flex-col gap-1 h-auto py-2 rounded-lg"
-                      onClick={() => setMobileView('code')}
+                      onClick={() => {
+                        setMobileView('code');
+                        setIsMobileChatOpen(false);
+                      }}
                   >
                       <Code className="size-5" />
                       <span className="text-[10px] font-medium">Code</span>
@@ -454,19 +510,13 @@ export default function ProjectPage() {
                       variant={mobileView === 'preview' ? 'secondary' : 'ghost'}
                       size="sm"
                       className="flex-1 flex-col gap-1 h-auto py-2 rounded-lg"
-                      onClick={() => setMobileView('preview')}
+                      onClick={() => {
+                        setMobileView('preview');
+                        setIsMobileChatOpen(false);
+                      }}
                   >
                       <Eye className="size-5" />
                       <span className="text-[10px] font-medium">Preview</span>
-                  </Button>
-                  <Button
-                      variant={isMobileChatOpen ? 'secondary' : 'ghost'}
-                      size="sm"
-                      className="flex-1 flex-col gap-1 h-auto py-2 rounded-lg"
-                      onClick={() => setIsMobileChatOpen(!isMobileChatOpen)}
-                  >
-                      <MessageSquare className="size-5" />
-                      <span className="text-[10px] font-medium">Assistant</span>
                   </Button>
               </div>
           </div>

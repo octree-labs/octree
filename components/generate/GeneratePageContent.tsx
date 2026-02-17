@@ -1,8 +1,6 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback, memo } from 'react';
-
-const SUCCESS_MESSAGE_PREFIX = 'Document generated successfully.';
 import { useRouter } from 'next/navigation';
 import {
   ArrowUp,
@@ -40,6 +38,7 @@ import { GenerateOnboarding } from '@/components/generate/generate-onboarding';
 import { markGenerateWalkthroughSeen } from '@/lib/requests/walkthrough';
 
 const GENERATE_ONBOARDING_STORAGE_KEY = 'octree_generate_onboarding_completed';
+const SUCCESS_MESSAGE_PREFIX = 'Document generated successfully.';
 
 interface GeneratePageContentProps {
   userId?: string;
@@ -318,7 +317,7 @@ export function GeneratePageContent({
                   ))}
 
                   <div data-onboarding-target="generate-preview">
-                    {currentLatex && !isGenerating && (
+                    {currentLatex && currentLatex.trim() !== '' && !isGenerating && (
                       <DocumentPreview
                         latex={currentLatex}
                         title={currentTitle}

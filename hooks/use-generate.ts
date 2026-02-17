@@ -234,6 +234,7 @@ export function useGenerate(options: UseGenerateOptions = {}) {
     abortControllerRef.current = controller;
 
     let streamedContent = '';
+    let expectedHistory: Message[] = [];
 
     try {
       const filePayload = filesToSend.length > 0
@@ -266,6 +267,7 @@ export function useGenerate(options: UseGenerateOptions = {}) {
         const mergedAttachments = [...existingAttachments, ...uploadedAttachments];
         const newInteractionCount = (currentDocument.interaction_count || 1) + 1;
         const updatedHistory = [...(currentDocument.message_history || []), persistentUserMessage, initialAssistantMessage];
+        expectedHistory = updatedHistory;
 
         await (supabase.from('generated_documents') as any).update({
           status: 'generating',
@@ -286,6 +288,7 @@ export function useGenerate(options: UseGenerateOptions = {}) {
         GenerateActions.updateDocument(documentId, updates);
       } else {
         const initialHistory = [persistentUserMessage, initialAssistantMessage];
+        expectedHistory = initialHistory;
         const tempTitle = userPrompt.slice(0, 50) + (userPrompt.length > 50 ? '...' : '');
         
         const { data: doc, error: dbError } = await (supabase.from('generated_documents') as any).insert({
@@ -380,7 +383,7 @@ export function useGenerate(options: UseGenerateOptions = {}) {
         };
 
         if (isContinuation) {
-          const historyForDb = [...(currentDocument.message_history || [])];
+          const historyForDb = [...expectedHistory];
           historyForDb[historyForDb.length - 1] = successAssistantMessage;
 
           const { error: updateError } = await (supabase.from('generated_documents') as any)
@@ -442,8 +445,14 @@ export function useGenerate(options: UseGenerateOptions = {}) {
 
           if (isAbort) {
             status = 'error';
-            finalAssistantContent = 'Generation cancelled.';
-            finalLatex = isContinuation ? (currentDocument?.latex || null) : null;
+            
+            if (isContinuation) {
+              finalAssistantContent = 'Generation cancelled. Here is the last complete document';
+              finalLatex = currentDocument?.latex || null;
+            } else {
+              finalAssistantContent = 'Generation cancelled.';
+              finalLatex = '';
+            }
           } else {
             status = 'error';
             finalAssistantContent = streamedContent || 'Generation failed.';
@@ -461,7 +470,7 @@ export function useGenerate(options: UseGenerateOptions = {}) {
             finalLatex = partialLatex;
           }
 
-          const partialAssistantMessage = {
+          const partialAssistantMessage: Message = {
               id: assistantMessage.id,
               role: 'assistant' as const,
               content: finalAssistantContent
@@ -470,8 +479,8 @@ export function useGenerate(options: UseGenerateOptions = {}) {
           let historyForDb: Message[] = [];
           
           if (isContinuation) {
-              if (currentDocument?.message_history) {
-                  historyForDb = [...currentDocument.message_history];
+              if (expectedHistory.length > 0) {
+                  historyForDb = [...expectedHistory];
                   historyForDb[historyForDb.length - 1] = partialAssistantMessage;
               }
           } else {

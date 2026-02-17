@@ -1,7 +1,11 @@
 import { useRef, useEffect, useState } from 'react';
-import { FileText, Check, Loader2, Copy } from 'lucide-react';
+import { FileText, Check, Loader2, Copy, AlertCircle } from 'lucide-react';
 import { MonacoEditor } from '@/components/editor/monaco-editor';
 import { Card } from '@/components/ui/card';
+import type monaco from 'monaco-editor';
+
+const SUCCESS_MESSAGE_PREFIX = 'Document generated successfully.';
+const CANCELLED_MESSAGE_PREFIX = 'Generation cancelled.';
 
 export interface MessageAttachment {
     id: string;
@@ -24,13 +28,13 @@ interface MessageBubbleProps {
 
 export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
     const isUser = message.role === 'user';
-    const isCompletionMessage = message.content.startsWith('Document generated successfully.');
+    const isCompletionMessage = message.content.startsWith(SUCCESS_MESSAGE_PREFIX);
+    const isCancelledMessage = message.content.startsWith(CANCELLED_MESSAGE_PREFIX);
     const [isCopied, setIsCopied] = useState(false);
 
-    // Refs for auto-scrolling
-    const editorRef = useRef<any>(null);
+    const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
 
-    const handleEditorDidMount = (editor: any) => {
+    const handleEditorDidMount = (editor: monaco.editor.IStandaloneCodeEditor) => {
         editorRef.current = editor;
     };
 
@@ -103,6 +107,17 @@ export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
             <div className="flex w-full justify-start">
                 <div className="flex items-center gap-2 rounded-md bg-muted/50 px-4 py-3 text-sm text-muted-foreground">
                     <Check className="h-4 w-4 text-green-600" />
+                    <span>{message.content}</span>
+                </div>
+            </div>
+        );
+    }
+
+    if (isCancelledMessage) {
+        return (
+            <div className="flex w-full justify-start">
+                <div className="flex items-center gap-2 rounded-md bg-muted/50 px-4 py-3 text-sm text-muted-foreground">
+                    <AlertCircle className="h-4 w-4 text-orange-600" />
                     <span>{message.content}</span>
                 </div>
             </div>

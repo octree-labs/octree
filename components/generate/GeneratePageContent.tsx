@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback, memo } from 'react';
-import { useRouter } from 'next/navigation';
 
-const GENERATE_ONBOARDING_STORAGE_KEY = 'octree_generate_onboarding_completed';
+const SUCCESS_MESSAGE_PREFIX = 'Document generated successfully.';
+import { useRouter } from 'next/navigation';
 import {
   ArrowUp,
   Loader2,
@@ -38,6 +38,8 @@ import { useGenerate, type AttachedFile } from '@/hooks/use-generate';
 import { useAutoScroll } from '@/hooks/use-auto-scroll';
 import { GenerateOnboarding } from '@/components/generate/generate-onboarding';
 import { markGenerateWalkthroughSeen } from '@/lib/requests/walkthrough';
+
+const GENERATE_ONBOARDING_STORAGE_KEY = 'octree_generate_onboarding_completed';
 
 interface GeneratePageContentProps {
   userId?: string;
@@ -171,8 +173,8 @@ export function GeneratePageContent({
       return () => clearTimeout(t);
     }
   }, [shouldShowGenerateWalkthrough]);
+
   const currentSessionId = useRef<string | null>(null);
-  const isInitialLoad = initialDocument && currentSessionId.current !== initialDocument.id;
 
   useEffect(() => {
     if (initialDocument && currentSessionId.current !== initialDocument.id) {
@@ -244,9 +246,7 @@ export function GeneratePageContent({
     markedGenerateWalkthroughRef.current = true;
     try {
       await markGenerateWalkthroughSeen(userId);
-    } catch (error) {
-      console.error('Failed to mark generate walkthrough as seen:', error);
-    }
+    } catch {}
   }, [userId]);
 
   const handleGenerateWalkthroughClose = useCallback(
@@ -296,7 +296,7 @@ export function GeneratePageContent({
               </div>
             )}
 
-            {isInitialLoad ? (
+            {initialDocument && currentSessionId.current !== initialDocument.id ? (
               <ChatSkeleton />
             ) : !messages.length ? (
               <WelcomeState onSelectSuggestion={setPrompt} />
@@ -311,7 +311,7 @@ export function GeneratePageContent({
                         index === messages.length - 1 &&
                         message.role === 'assistant' &&
                         isGenerating &&
-                        !message.content.startsWith('Document generated successfully.') &&
+                        !message.content.startsWith(SUCCESS_MESSAGE_PREFIX) &&
                         !error
                       }
                     />

@@ -2,6 +2,9 @@ import { useRef, useEffect, useState } from 'react';
 import { FileText, Check, Loader2, Copy } from 'lucide-react';
 import { MonacoEditor } from '@/components/editor/monaco-editor';
 import { Card } from '@/components/ui/card';
+import type monaco from 'monaco-editor';
+
+const SUCCESS_MESSAGE_PREFIX = 'Document generated successfully.';
 
 export interface MessageAttachment {
     id: string;
@@ -24,13 +27,12 @@ interface MessageBubbleProps {
 
 export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
     const isUser = message.role === 'user';
-    const isCompletionMessage = message.content.startsWith('Document generated successfully.');
+    const isCompletionMessage = message.content.startsWith(SUCCESS_MESSAGE_PREFIX);
     const [isCopied, setIsCopied] = useState(false);
 
-    // Refs for auto-scrolling
-    const editorRef = useRef<any>(null);
+    const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
 
-    const handleEditorDidMount = (editor: any) => {
+    const handleEditorDidMount = (editor: monaco.editor.IStandaloneCodeEditor) => {
         editorRef.current = editor;
     };
 

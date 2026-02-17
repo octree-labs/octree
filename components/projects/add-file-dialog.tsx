@@ -529,6 +529,7 @@ export function AddFileDialog({
                 </Button>
                 <Button
                   type="button"
+                  variant="gradient"
                   onClick={handleSubmit}
                   disabled={isLoading || !selectedFile}
                 >
@@ -590,6 +591,7 @@ export function AddFileDialog({
                 </Button>
                 <Button
                   type="button"
+                  variant="gradient"
                   onClick={handleImportZotero}
                   disabled={syncing || !zoteroUrl.trim()}
                 >
@@ -598,6 +600,7 @@ export function AddFileDialog({
                 </Button>
                 <Button
                   type="button"
+                  variant="gradient"
                   onClick={handleSaveZoteroToProject}
                   disabled={isLoading || syncing || zoteroState.entries.length === 0}
                 >

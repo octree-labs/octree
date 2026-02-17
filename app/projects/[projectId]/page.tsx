@@ -637,6 +637,7 @@ export default function ProjectPage() {
                       <Button
                         type="button"
                         size="sm"
+                        variant="gradient"
                         onClick={() => {
                           insertCitationAtCursor(editorRef.current, entry.key);
                           setCitationPickerOpen(false);

@@ -12,6 +12,7 @@ import { ChatMessageComponent } from './chat-message';
 import { ChatInput, ChatInputRef } from './chat-input';
 import { EmptyState } from './empty-state';
 import { SearchPanel } from './search-panel';
+import { OutlinePanel } from './outline-panel';
 
 interface ChatProps {
   onEditSuggestion: (edit: EditSuggestion | EditSuggestion[]) => void;
@@ -37,6 +38,7 @@ interface ChatProps {
   setAutoSendMessage?: (message: string | null) => void;
   projectId?: string;
   autoFocus?: boolean;
+  onJumpToLine?: (line: number) => void;
 }
 
 interface ChatMessage {
@@ -64,13 +66,14 @@ export function Chat({
   setAutoSendMessage,
   projectId,
   autoFocus = true,
+  onJumpToLine,
 }: ChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [conversionStatus, setConversionStatus] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
-  const [activeTab, setActiveTab] = useState<'chat' | 'search'>('chat');
+  const [activeTab, setActiveTab] = useState<'chat' | 'search' | 'outline'>('chat');
 
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const shouldStickToBottomRef = useRef<boolean>(true);
@@ -406,6 +409,16 @@ export function Chat({
             >
               Search
             </button>
+            <button
+              onClick={() => setActiveTab('outline')}
+              className={`rounded-md px-1.5 py-0.5 text-xs transition-colors ${
+                activeTab === 'outline'
+                  ? 'font-medium text-slate-700'
+                  : 'text-slate-400 hover:text-slate-600'
+              }`}
+            >
+              Outline
+            </button>
           </div>
         </div>
 
@@ -446,6 +459,11 @@ export function Chat({
       <div className="flex min-h-0 flex-1 flex-col">
         {activeTab === 'search' ? (
           <SearchPanel />
+        ) : activeTab === 'outline' ? (
+          <OutlinePanel
+            fileContent={fileContent}
+            onJumpToLine={onJumpToLine ?? (() => {})}
+          />
         ) : (
           <>
             <div

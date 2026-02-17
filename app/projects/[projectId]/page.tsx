@@ -259,6 +259,17 @@ export default function ProjectPage() {
     [handleEditSuggestion]
   );
 
+  const handleJumpToLine = useCallback(
+    (line: number) => {
+      const editor = editorRef.current;
+      if (!editor) return;
+      editor.revealLineInCenter(line);
+      editor.setPosition({ lineNumber: line, column: 1 });
+      editor.focus();
+    },
+    []
+  );
+
   useEditorKeyboardShortcuts({
     editor: editorRef.current,
     monacoInstance: monacoRef.current,
@@ -475,6 +486,7 @@ export default function ProjectPage() {
                             autoSendMessage={autoSendMessage}
                             setAutoSendMessage={setAutoSendMessage}
                             projectId={projectId}
+                            onJumpToLine={handleJumpToLine}
                         />
                     </div>
                   )}
@@ -609,6 +621,7 @@ export default function ProjectPage() {
           autoSendMessage={autoSendMessage}
           setAutoSendMessage={setAutoSendMessage}
           projectId={projectId}
+          onJumpToLine={handleJumpToLine}
         />
       </div>
     </div>

@@ -11,6 +11,7 @@ import { useFileAttachments } from './use-file-attachments';
 import { ChatMessageComponent } from './chat-message';
 import { ChatInput, ChatInputRef } from './chat-input';
 import { EmptyState } from './empty-state';
+import { SearchPanel } from './search-panel';
 
 interface ChatProps {
   onEditSuggestion: (edit: EditSuggestion | EditSuggestion[]) => void;
@@ -69,6 +70,7 @@ export function Chat({
   const [isLoading, setIsLoading] = useState(false);
   const [conversionStatus, setConversionStatus] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
+  const [activeTab, setActiveTab] = useState<'chat' | 'search'>('chat');
 
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const shouldStickToBottomRef = useRef<boolean>(true);
@@ -383,15 +385,37 @@ export function Chat({
           <div>
             <h3 className="text-sm font-semibold text-slate-800">Octra</h3>
           </div>
+          <div className="flex items-center gap-1 border-l border-slate-200 pl-3">
+            <button
+              onClick={() => setActiveTab('chat')}
+              className={`rounded-md px-1.5 py-0.5 text-xs transition-colors ${
+                activeTab === 'chat'
+                  ? 'font-medium text-slate-700'
+                  : 'text-slate-400 hover:text-slate-600'
+              }`}
+            >
+              Chat
+            </button>
+            <button
+              onClick={() => setActiveTab('search')}
+              className={`rounded-md px-1.5 py-0.5 text-xs transition-colors ${
+                activeTab === 'search'
+                  ? 'font-medium text-slate-700'
+                  : 'text-slate-400 hover:text-slate-600'
+              }`}
+            >
+              Search
+            </button>
+          </div>
         </div>
 
         <div className="flex items-center gap-1">
-          {isLoading && (
+          {isLoading && activeTab === 'chat' && (
             <div className="flex items-center pr-1" aria-live="polite">
               <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
             </div>
           )}
-          {pendingEditCount > 1 && onAcceptAllEdits && (
+          {pendingEditCount > 1 && onAcceptAllEdits && activeTab === 'chat' && (
             <Button
               size="sm"
               onClick={onAcceptAllEdits}
@@ -420,81 +444,87 @@ export function Chat({
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col">
-        <div
-          ref={chatContainerRef}
-          className="flex-1 overflow-y-auto overflow-x-hidden p-4 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-neutral-300"
-        >
-          {messages.length === 0 && !isLoading && !conversionStatus && (
-            <EmptyState />
-          )}
-          {messages.map((message) => (
-            <ChatMessageComponent
-              key={message.id}
-              message={message}
-              isLoading={isLoading}
-              proposalIndicator={proposalIndicators[message.id]}
-              textFromEditor={textFromEditor}
-              suggestions={suggestionsByMessage.get(message.id) || []}
-              onAcceptEdit={onAcceptEdit}
-              onRejectEdit={onRejectEdit}
-            />
-          ))}
+        {activeTab === 'search' ? (
+          <SearchPanel />
+        ) : (
+          <>
+            <div
+              ref={chatContainerRef}
+              className="flex-1 overflow-y-auto overflow-x-hidden p-4 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-neutral-300"
+            >
+              {messages.length === 0 && !isLoading && !conversionStatus && (
+                <EmptyState />
+              )}
+              {messages.map((message) => (
+                <ChatMessageComponent
+                  key={message.id}
+                  message={message}
+                  isLoading={isLoading}
+                  proposalIndicator={proposalIndicators[message.id]}
+                  textFromEditor={textFromEditor}
+                  suggestions={suggestionsByMessage.get(message.id) || []}
+                  onAcceptEdit={onAcceptEdit}
+                  onRejectEdit={onRejectEdit}
+                />
+              ))}
 
-          {conversionStatus && (
-            <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50/50 px-3 py-2">
-              <div className="flex items-center gap-2 text-sm text-primary">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span className="font-medium">{conversionStatus}</span>
-              </div>
+              {conversionStatus && (
+                <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50/50 px-3 py-2">
+                  <div className="flex items-center gap-2 text-sm text-primary">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span className="font-medium">{conversionStatus}</span>
+                  </div>
+                </div>
+              )}
             </div>
-          )}
-        </div>
 
-        <ChatInput
-          ref={chatInputRef}
-          formRef={formRef}
-          input={input}
-          isLoading={isLoading}
-          textFromEditor={textFromEditor}
-          attachments={attachments}
-          canAddMoreAttachments={canAddMoreAttachments}
-          hasMessages={messages.length > 0}
-          onInputChange={setInput}
-          onSubmit={handleSubmit}
-          onClearEditor={() => setTextFromEditor(null)}
-          onStop={() => {
-            console.log(
-              '[Chat] Stop button clicked, currentAssistantId:',
-              currentAssistantIdRef.current
-            );
-
-            stopStream();
-            clearAllProposalsAndTimeouts();
-
-            const messageIdToRemove = currentAssistantIdRef.current;
-            if (messageIdToRemove) {
-              setMessages((prev) => {
-                const filtered = prev.filter((m) => m.id !== messageIdToRemove);
+            <ChatInput
+              ref={chatInputRef}
+              formRef={formRef}
+              input={input}
+              isLoading={isLoading}
+              textFromEditor={textFromEditor}
+              attachments={attachments}
+              canAddMoreAttachments={canAddMoreAttachments}
+              hasMessages={messages.length > 0}
+              onInputChange={setInput}
+              onSubmit={handleSubmit}
+              onClearEditor={() => setTextFromEditor(null)}
+              onStop={() => {
                 console.log(
-                  '[Chat] Removed message, before:',
-                  prev.length,
-                  'after:',
-                  filtered.length
+                  '[Chat] Stop button clicked, currentAssistantId:',
+                  currentAssistantIdRef.current
                 );
-                return filtered;
-              });
-              currentAssistantIdRef.current = null;
-            }
 
-            setIsLoading(false);
-            setConversionStatus(null);
-            setError(null);
-          }}
-          onFilesSelected={addFiles}
-          onRemoveAttachment={removeAttachment}
-          onResetError={() => setError(null)}
-          onClearHistory={clearHistory}
-        />
+                stopStream();
+                clearAllProposalsAndTimeouts();
+
+                const messageIdToRemove = currentAssistantIdRef.current;
+                if (messageIdToRemove) {
+                  setMessages((prev) => {
+                    const filtered = prev.filter((m) => m.id !== messageIdToRemove);
+                    console.log(
+                      '[Chat] Removed message, before:',
+                      prev.length,
+                      'after:',
+                      filtered.length
+                    );
+                    return filtered;
+                  });
+                  currentAssistantIdRef.current = null;
+                }
+
+                setIsLoading(false);
+                setConversionStatus(null);
+                setError(null);
+              }}
+              onFilesSelected={addFiles}
+              onRemoveAttachment={removeAttachment}
+              onResetError={() => setError(null)}
+              onClearHistory={clearHistory}
+            />
+          </>
+        )}
       </div>
     </div>
   );

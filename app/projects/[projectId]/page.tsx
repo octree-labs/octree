@@ -334,7 +334,7 @@ export default function ProjectPage() {
   const renderPreview = () => (
       <div className="h-full overflow-hidden border-l border-slate-200" data-onboarding-target="pdf">
           {compilationError && !pdfData ? (
-              <div className="flex h-full overflow-auto">
+              <div className="relative flex h-full overflow-auto">
                   <CompilationError
                       error={compilationError}
                       variant="overlay"

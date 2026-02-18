@@ -14,6 +14,7 @@ import { PageCallback } from 'react-pdf/dist/esm/shared/types.js';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 import { CompilationError } from '@/components/latex/compilation-error';
+import { CompilationLoading } from '@/components/latex/compilation-loading';
 import type { CompilationError as CompilationErrorType } from '@/types/compilation';
 
 // Initialize the worker
@@ -50,6 +51,8 @@ function DynamicPDFViewer({
 }: PDFViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const wasInitialLoadingRef = useRef(false);
+  const [showSuccess, setShowSuccess] = useState(false);
   const [numPages, setNumPages] = useState<number | null>(null);
   const [pageNumber, setPageNumber] = useState<number>(1);
   const [pageInput, setPageInput] = useState<string>('1');
@@ -59,6 +62,23 @@ function DynamicPDFViewer({
   } | null>(null);
   const [zoom, setZoom] = useState<number>(1.0);
   const [containerWidth, setContainerWidth] = useState<number>(800);
+
+  // Track initial loading state to show success flash
+  useEffect(() => {
+    if (isLoading && !pdfData) {
+      wasInitialLoadingRef.current = true;
+    }
+  }, [isLoading, pdfData]);
+
+  // Show success flash when initial compile completes
+  useEffect(() => {
+    if (pdfData && wasInitialLoadingRef.current) {
+      wasInitialLoadingRef.current = false;
+      setShowSuccess(true);
+      const timer = setTimeout(() => setShowSuccess(false), 800);
+      return () => clearTimeout(timer);
+    }
+  }, [pdfData]);
 
   useEffect(() => {
     setZoom(1.0);
@@ -202,13 +222,12 @@ function DynamicPDFViewer({
     };
   }
 
+  if (showSuccess && pdfData) {
+    return <CompilationLoading completed />;
+  }
+
   if (isLoading && !pdfData) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-primary" />
-        <span className="ml-2 text-slate-500">Compiling...</span>
-      </div>
-    );
+    return <CompilationLoading />;
   }
 
   if (!pdfData) {

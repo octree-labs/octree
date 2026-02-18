@@ -31,6 +31,7 @@ import {
   Lock,
   MessageSquare,
   PanelRightClose,
+  BookOpen,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
@@ -50,6 +51,7 @@ interface EditorToolbarProps {
   onCompile: () => void;
   onExportPDF: () => void;
   onExportZIP: () => void;
+  onOpenCitationPicker: () => void;
   onOpenChat: () => void;
   onToggleChat: () => void;
   chatOpen: boolean;
@@ -65,6 +67,7 @@ export function EditorToolbar({
   onCompile,
   onExportPDF,
   onExportZIP,
+  onOpenCitationPicker,
   onOpenChat,
   onToggleChat,
   chatOpen,
@@ -222,6 +225,17 @@ export function EditorToolbar({
               <span className="underline">U</span>
             </ButtonGroupItem>
           </ButtonGroup>
+
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onOpenCitationPicker}
+            className="gap-1.5"
+            title="Insert citation"
+          >
+            <BookOpen className="h-3.5 w-3.5" />
+            <span className="font-medium">Cite</span>
+          </Button>
 
           <Button
             variant="default"

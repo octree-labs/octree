@@ -217,7 +217,7 @@ export function Chat({
             }
           },
           onToolCall: (name, count, violations, progressIncrement) => {
-            if (name === 'propose_edits') {
+            if (name === 'edit') {
               const violationCount = Array.isArray(violations)
                 ? violations.length
                 : undefined;
@@ -227,6 +227,9 @@ export function Chat({
               if (typeof progressIncrement === 'number') {
                 incrementProgress(assistantId, progressIncrement, true);
               }
+            }
+            if (name === 'compile_success') {
+              window.dispatchEvent(new Event('agent-compile'));
             }
           },
           onError: (errorMsg) => {
@@ -280,11 +283,14 @@ export function Chat({
             }
           },
           onToolCall: (name, count, violations) => {
-            if (name === 'propose_edits') {
+            if (name === 'edit') {
               const violationCount = Array.isArray(violations)
                 ? violations.length
                 : undefined;
               setPending(assistantId, count, violationCount);
+            }
+            if (name === 'compile_success') {
+              window.dispatchEvent(new Event('agent-compile'));
             }
           },
           onError: (errorMsg) => {
@@ -415,22 +421,6 @@ export function Chat({
               <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
             </div>
           )}
-          {pendingEditCount > 1 && onAcceptAllEdits && activeTab === 'chat' && (
-            <Button
-              size="sm"
-              onClick={onAcceptAllEdits}
-              disabled={isLoading}
-              className="h-7 rounded-md bg-green-600 px-2 text-xs text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
-              title={
-                isLoading
-                  ? 'Wait for all edits to finish generating'
-                  : 'Accept all pending edits'
-              }
-            >
-              <CheckCheck size={12} className="mr-1" />
-              Accept All ({pendingEditCount})
-            </Button>
-          )}
           <Button
             variant="ghost"
             size="sm"
@@ -455,11 +445,11 @@ export function Chat({
               {messages.length === 0 && !isLoading && !conversionStatus && (
                 <EmptyState />
               )}
-              {messages.map((message) => (
+              {messages.map((message, index) => (
                 <ChatMessageComponent
                   key={message.id}
                   message={message}
-                  isLoading={isLoading}
+                  isLoading={isLoading && index === messages.length - 1}
                   proposalIndicator={proposalIndicators[message.id]}
                   textFromEditor={textFromEditor}
                   suggestions={suggestionsByMessage.get(message.id) || []}
@@ -477,6 +467,20 @@ export function Chat({
                 </div>
               )}
             </div>
+
+            {pendingEditCount > 0 && onAcceptAllEdits && (
+              <div className="flex-shrink-0 border-t border-slate-200 bg-slate-50 px-4 py-2">
+                <Button
+                  size="sm"
+                  onClick={onAcceptAllEdits}
+                  className="h-7 w-full rounded-md bg-green-600 px-2 text-xs text-white hover:bg-green-700"
+                  title="Accept all pending edits"
+                >
+                  <CheckCheck size={12} className="mr-1" />
+                  Accept All ({pendingEditCount})
+                </Button>
+              </div>
+            )}
 
             <ChatInput
               ref={chatInputRef}

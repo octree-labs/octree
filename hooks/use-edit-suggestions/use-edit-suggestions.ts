@@ -20,17 +20,15 @@ export function useEditSuggestions({
   onSwitchFile,
   onOtherFileEdited,
 }: UseEditSuggestionsProps): EditSuggestionsState {
-  // Use cached edit limit to check before requesting AI suggestions
-  // Note: Quota is consumed on generation (in /api/octra-agent), not on accept
   const { canEdit } = useEditLimitCache();
 
-  // Manage suggestions
+  // Manage suggestions — no editor reference needed for string-matching edits
   const {
     editSuggestions,
     setEditSuggestions,
     totalPendingCount,
     handleEditSuggestion,
-  } = useSuggestionQueue({ editor });
+  } = useSuggestionQueue();
 
   // Manage editor decorations
   const { decorationIds, setDecorationIds } = useSuggestionDecorations({
@@ -51,7 +49,6 @@ export function useEditSuggestions({
   // Accept a single edit
   const handleAcceptEdit = useCallback(
     async (suggestionId: string) => {
-      // Fast check using cached status
       if (!canEdit) {
         toast.error(
           `You have reached your edit limit. Please upgrade to Pro for ${PRO_MONTHLY_EDIT_LIMIT} edits per month.`
@@ -59,7 +56,6 @@ export function useEditSuggestions({
         return;
       }
 
-      // If editor is available, use Monaco-based editing (better for undo/redo)
       if (editor && monacoInstance) {
         await acceptSingleEdit(
           suggestionId,
@@ -70,7 +66,6 @@ export function useEditSuggestions({
           acceptOptions
         );
       } else {
-        // No editor available - apply edit directly to file store
         acceptEditDirect(
           suggestionId,
           editSuggestions,
@@ -88,7 +83,6 @@ export function useEditSuggestions({
 
     if (pendingSuggestions.length === 0) return;
 
-    // Fast check using cached status
     if (!canEdit) {
       toast.error(
         `You have reached your edit limit. Please upgrade to Pro for ${PRO_MONTHLY_EDIT_LIMIT} edits per month.`
@@ -97,7 +91,6 @@ export function useEditSuggestions({
     }
 
     if (editor && monacoInstance) {
-      // Use Monaco-based editing when available
       await acceptAllEdits(
         pendingSuggestions,
         editor,
@@ -112,15 +105,8 @@ export function useEditSuggestions({
       );
     } else {
       // No editor - apply each edit directly to file store
-      // Sort from bottom to top to avoid line shifting issues
-      const sorted = [...pendingSuggestions].sort((a, b) => {
-        const lineA = a.position?.line || 1;
-        const lineB = b.position?.line || 1;
-        return lineB - lineA;
-      });
-
       let appliedCount = 0;
-      for (const suggestion of sorted) {
+      for (const suggestion of pendingSuggestions) {
         const success = acceptEditDirect(
           suggestion.id,
           editSuggestions,
@@ -164,4 +150,3 @@ export function useEditSuggestions({
     handleRejectEdit,
   };
 }
-

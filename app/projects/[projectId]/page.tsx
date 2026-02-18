@@ -127,6 +127,23 @@ export default function ProjectPage() {
     onSwitchFile: handleSwitchFile,
   });
 
+  // Auto-accept edits as they arrive
+  useEffect(() => {
+    if (totalPendingCount > 0) {
+      handleAcceptAllEdits();
+    }
+  }, [totalPendingCount, handleAcceptAllEdits]);
+
+  // Recompile in browser when agent compiles
+  useEffect(() => {
+    const onAgentCompile = () => {
+      // Small delay to let auto-accepted edits flush to the editor
+      setTimeout(() => handleCompile(), 300);
+    };
+    window.addEventListener('agent-compile', onAgentCompile);
+    return () => window.removeEventListener('agent-compile', onAgentCompile);
+  }, [handleCompile]);
+
   const {
     showButton,
     buttonPos,

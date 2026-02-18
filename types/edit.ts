@@ -1,9 +1,8 @@
-import { LineEdit } from '@/lib/octra-agent/line-edits';
+import { StringEdit } from '@/lib/octra-agent/edits';
 
-// EditSuggestion format using line-based edits
-export interface EditSuggestion extends LineEdit {
+// EditSuggestion format using string-matching edits
+export interface EditSuggestion extends StringEdit {
   id: string;
   messageId?: string; // ID of the chat message that created this suggestion
   status: 'pending' | 'accepted' | 'rejected';
-  original?: string; // Original content for delete operations
 }

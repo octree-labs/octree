@@ -5,7 +5,7 @@ const DIFF_BLOCK_REGEX = /```latex-diff[^\n]*\r?\n([\s\S]*?)\r?\n```/gi;
 const DIFF_HEADER_REGEX =
   /@@\s*-(\d+)(?:,(\d+))?\s*\+(\d+)(?:,(\d+))?\s*@@/;
 
-export function parseLatexDiff(content: string): EditSuggestion[] {
+export function parseLatexDiff(content: string, filePath = ''): EditSuggestion[] {
   const suggestions: EditSuggestion[] = [];
   let match: RegExpExecArray | null;
 
@@ -22,8 +22,6 @@ export function parseLatexDiff(content: string): EditSuggestion[] {
 
     let originalContent = '';
     let suggestedContent = '';
-    let actualOriginalLineCount = 0;
-    let firstChangeIndex = -1;
 
     for (let i = 1; i < lines.length; i++) {
       const line = lines[i];
@@ -31,30 +29,9 @@ export function parseLatexDiff(content: string): EditSuggestion[] {
 
       if (line.startsWith('-')) {
         originalContent += lineContent + '\n';
-        actualOriginalLineCount++;
-        if (firstChangeIndex === -1) {
-          firstChangeIndex = i - 1;
-        }
       } else if (line.startsWith('+')) {
         suggestedContent += lineContent + '\n';
-        if (firstChangeIndex === -1) {
-          firstChangeIndex = i - 1;
-        }
       }
-    }
-
-    const referenceStartLine = parseInt(headerMatch[1], 10);
-    const referenceOriginalCount = headerMatch[2]
-      ? parseInt(headerMatch[2], 10)
-      : 0;
-
-    const correctedStartLine =
-      firstChangeIndex !== -1
-        ? referenceStartLine + firstChangeIndex
-        : referenceStartLine;
-
-    if (actualOriginalLineCount === 0 && referenceOriginalCount > 0) {
-      actualOriginalLineCount = referenceOriginalCount;
     }
 
     originalContent = originalContent.replace(/\n$/, '');
@@ -63,13 +40,9 @@ export function parseLatexDiff(content: string): EditSuggestion[] {
     if (originalContent || suggestedContent) {
       suggestions.push({
         id: uuidv4(),
-        editType: 'replace' as const,
-        content: suggestedContent,
-        position: {
-          line: correctedStartLine,
-        },
-        explanation: undefined,
-        original: originalContent,
+        file_path: filePath,
+        old_string: originalContent,
+        new_string: suggestedContent,
         status: 'pending',
       });
     }

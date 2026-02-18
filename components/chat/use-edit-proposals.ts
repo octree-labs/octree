@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
-import { LineEdit } from '@/lib/octra-agent/line-edits';
+import { StringEdit } from '@/lib/octra-agent/edits';
 import { EditSuggestion } from '@/types/edit';
 
 export type ProposalState = 'pending' | 'success' | 'error';
@@ -29,14 +29,9 @@ function buildStepStates(total: number, progress: number): ProposalStepState[] {
   });
 }
 
-interface ProjectFile {
-  path: string;
-  content: string;
-}
-
 export function useEditProposals(
   fileContent: string,
-  projectFiles: ProjectFile[] = [],
+  projectFiles: { path: string; content: string }[] = [],
   currentFilePath: string | null = null
 ) {
   const [proposalIndicators, setProposalIndicators] = useState<
@@ -68,7 +63,6 @@ export function useEditProposals(
   }, []);
 
   const clearAllProposalsAndTimeouts = useCallback(() => {
-    // Clear all timeouts completely
     Object.values(progressTimeoutsRef.current).forEach((timeouts) => {
       timeouts.forEach((timeoutId) => window.clearTimeout(timeoutId));
     });
@@ -76,12 +70,10 @@ export function useEditProposals(
     pendingTimestampRef.current = {};
     eventProgressRef.current = {};
     processedEditsRef.current.clear();
-    
-    // Clear all pending indicators
+
     setProposalIndicators((prev) => {
       const updated: Record<string, ProposalIndicator> = {};
       Object.entries(prev).forEach(([messageId, indicator]) => {
-        // Keep successful ones, clear pending/error ones
         if (indicator.state === 'success') {
           updated[messageId] = indicator;
         }
@@ -166,54 +158,33 @@ export function useEditProposals(
   }, []);
 
   const convertEditsToSuggestions = useCallback(
-    (edits: LineEdit[], messageId: string): EditSuggestion[] => {
-      // Create unique key for deduplication
-      const editsKey = JSON.stringify(
-        edits.map((e) => ({
-          type: e.editType,
-          line: e.position?.line,
-          content: e.content,
-          lineCount: e.originalLineCount,
-          explanation: e.explanation,
-        }))
-      );
+    (edits: StringEdit[], messageId: string): EditSuggestion[] => {
+      // Deduplicate per-edit to handle batches of different sizes
+      // (e.g. individual edits during streaming vs all edits in the done event)
+      const newEdits = edits.filter((e) => {
+        const editKey = JSON.stringify({
+          file_path: e.file_path,
+          old_string: e.old_string,
+          new_string: e.new_string,
+        });
+        if (processedEditsRef.current.has(editKey)) {
+          return false;
+        }
+        processedEditsRef.current.add(editKey);
+        return true;
+      });
 
-      // Skip duplicates
-      if (processedEditsRef.current.has(editsKey)) {
-        console.log('[Chat] Skipping duplicate edits');
+      if (newEdits.length === 0) {
         return [];
       }
-      processedEditsRef.current.add(editsKey);
 
-      // Ensure we have a slot to track cascading timeouts
       if (!progressTimeoutsRef.current[messageId]) {
         progressTimeoutsRef.current[messageId] = [];
       }
 
-      // Map to EditSuggestions
-      const mapped: EditSuggestion[] = edits.map((edit, idx) => {
-        let originalContent = '';
-        if (
-          (edit.editType === 'delete' || edit.editType === 'replace') &&
-          edit.position?.line &&
-          edit.originalLineCount
-        ) {
-          // Get the correct file content based on targetFile
-          let targetContent = fileContent;
-          if (edit.targetFile && edit.targetFile !== currentFilePath) {
-            const targetFileData = projectFiles.find(f => f.path === edit.targetFile);
-            if (targetFileData) {
-              targetContent = targetFileData.content;
-            }
-          }
-          
-          const startLine = edit.position.line;
-          const lineCount = edit.originalLineCount;
-          const lines = targetContent.split('\n');
-          const endLine = Math.min(startLine + lineCount - 1, lines.length);
-          originalContent = lines.slice(startLine - 1, endLine).join('\n');
-        }
-
+      // Map to EditSuggestions — no need to extract original from file content
+      // because old_string IS the original text
+      const mapped: EditSuggestion[] = newEdits.map((edit, idx) => {
         editIdCounterRef.current += 1;
 
         return {
@@ -221,14 +192,11 @@ export function useEditProposals(
           id: `${Date.now()}-${editIdCounterRef.current}-${idx}`,
           messageId,
           status: 'pending' as const,
-          original: originalContent,
         };
       });
 
       // Increment progress for each accepted edit chunk with a staggered cascade
       if (eventProgressRef.current[messageId]) {
-        // Progress already handled via streaming events.
-        // Ensure step visuals reflect the current progress state.
         setProposalIndicators((prev) => {
           const current = prev[messageId];
           if (!current) return prev;
@@ -245,7 +213,6 @@ export function useEditProposals(
           };
         });
       } else {
-        // Increment progress for each accepted edit chunk with a staggered cascade
         mapped.forEach((_, idx) => {
           const timeoutId = window.setTimeout(() => {
             incrementProgress(messageId, 1);
@@ -299,7 +266,7 @@ export function useEditProposals(
 
       return mapped;
     },
-    [fileContent, projectFiles, currentFilePath, incrementProgress]
+    [incrementProgress]
   );
 
   return {
@@ -312,4 +279,3 @@ export function useEditProposals(
     convertEditsToSuggestions,
   };
 }
-

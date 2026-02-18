@@ -44,3 +44,6 @@ next-env.d.ts
 tmp/
 
 digitalocean_compile/README.md
+
+agent_server/node_modules
+agent_server/.env

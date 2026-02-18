@@ -125,13 +125,13 @@ function renderMessageContent(content: string): ReactNode {
   return parts;
 }
 
-// Helper to get display info for suggestions
+// Helper to get display info for string-matching suggestions
 function getSuggestionInfo(suggestion: EditSuggestion) {
-  const startLine = suggestion.position?.line || 1;
-  const lineCount = suggestion.originalLineCount || 1;
-  const suggestedText = suggestion.editType === 'delete' ? '' : (suggestion.content || '');
-  
-  return { startLine, lineCount, suggestedText };
+  const isInsert = suggestion.old_string === '';
+  const isDelete = suggestion.new_string === '';
+  const editType = isInsert ? 'insert' : isDelete ? 'delete' : 'replace';
+
+  return { editType, isInsert, isDelete };
 }
 
 // Inline suggestion component with collapsible diff
@@ -145,10 +145,10 @@ function InlineSuggestion({
   onReject: (id: string) => void;
 }) {
   const [isExpanded, setIsExpanded] = useState(true);
-  const { startLine, lineCount, suggestedText } = getSuggestionInfo(suggestion);
+  const { editType } = getSuggestionInfo(suggestion);
   const isPending = suggestion.status === 'pending';
-  const targetFile = suggestion.targetFile;
-  
+  const targetFile = suggestion.file_path;
+
   if (!isPending) return null;
 
   return (
@@ -171,21 +171,17 @@ function InlineSuggestion({
               {targetFile}
             </span>
           )}
-          <span className="font-medium text-blue-700 flex-shrink-0">
-            L{startLine}
-            {lineCount > 1 && `-${startLine + lineCount - 1}`}
-          </span>
-          {suggestion.editType === 'delete' && (
+          {editType === 'delete' && (
             <span className="text-[9px] font-medium text-red-600 bg-red-50 px-1 py-0.5 rounded flex-shrink-0">
               DEL
             </span>
           )}
-          {suggestion.editType === 'insert' && (
+          {editType === 'insert' && (
             <span className="text-[9px] font-medium text-green-600 bg-green-50 px-1 py-0.5 rounded flex-shrink-0">
               INS
             </span>
           )}
-          {suggestion.editType === 'replace' && (
+          {editType === 'replace' && (
             <span className="text-[9px] font-medium text-amber-600 bg-amber-50 px-1 py-0.5 rounded flex-shrink-0">
               REP
             </span>
@@ -220,8 +216,8 @@ function InlineSuggestion({
       {isExpanded && (
         <div className="px-2 pb-2">
           <DiffViewer
-            original={suggestion.original ?? ''}
-            suggested={suggestedText}
+            original={suggestion.old_string}
+            suggested={suggestion.new_string}
             className="max-w-full"
           />
           {suggestion.explanation && (

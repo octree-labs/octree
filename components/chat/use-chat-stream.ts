@@ -1,5 +1,5 @@
 import { useRef, useCallback } from 'react';
-import { LineEdit } from '@/lib/octra-agent/line-edits';
+import { StringEdit } from '@/lib/octra-agent/edits';
 
 interface ChatMessage {
   id: string;
@@ -26,7 +26,7 @@ interface ProjectContextPayload {
 
 interface StreamCallbacks {
   onTextUpdate: (text: string) => void;
-  onEdits: (edits: LineEdit[]) => void;
+  onEdits: (edits: StringEdit[]) => void;
   onToolCall: (
     name: string,
     count?: number,
@@ -148,7 +148,14 @@ export function useChatStream() {
       };
 
       while (true) {
-        const { value, done } = await reader.read();
+        let value: Uint8Array | undefined;
+        let done: boolean;
+        try {
+          ({ value, done } = await reader.read());
+        } catch {
+          // Stream aborted — exit cleanly
+          break;
+        }
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
 
@@ -239,4 +246,3 @@ export function useChatStream() {
     stopStream,
   };
 }
-

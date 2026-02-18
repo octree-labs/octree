@@ -74,6 +74,11 @@ export async function processFileContent(
 const COMPILE_SERVICE_URL = process.env.NEXT_PUBLIC_COMPILE_SERVICE_URL;
 const COMPILE_TIMEOUT_MS = 180_000;
 
+async function gzipBody(data: string): Promise<Blob> {
+  const stream = new Blob([data]).stream().pipeThrough(new CompressionStream('gzip'));
+  return new Response(stream).blob();
+}
+
 export async function makeCompilationRequest(
   filesPayload: Array<{ path: string; content: string; encoding?: string }>,
   normalizedFileName: string,
@@ -104,10 +109,18 @@ export async function makeCompilationRequest(
       headers['Authorization'] = `Bearer ${session.access_token}`;
     }
 
+    // Gzip the request body to reduce upload size for large projects
+    const jsonBody = JSON.stringify(requestBody);
+    let body: string | Blob = jsonBody;
+    if (typeof CompressionStream !== 'undefined') {
+      body = await gzipBody(jsonBody);
+      headers['Content-Encoding'] = 'gzip';
+    }
+
     const response = await fetch(`${COMPILE_SERVICE_URL}/compile`, {
       method: 'POST',
       headers,
-      body: JSON.stringify(requestBody),
+      body,
       signal: controller.signal,
     });
 

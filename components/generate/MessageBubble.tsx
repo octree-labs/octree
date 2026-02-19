@@ -1,7 +1,11 @@
 import { useRef, useEffect, useState } from 'react';
-import { FileText, Check, Loader2, Copy, AlertCircle } from 'lucide-react';
+import { FileText, Check, Copy, AlertCircle } from 'lucide-react';
 import { MonacoEditor } from '@/components/editor/monaco-editor';
 import { Card } from '@/components/ui/card';
+import {
+  GenerationProgressTracker,
+  type GenerationMilestone,
+} from '@/components/generate/GenerationProgressTracker';
 import type monaco from 'monaco-editor';
 
 const SUCCESS_MESSAGE_PREFIX = 'Document generated successfully.';
@@ -24,9 +28,10 @@ export interface Message {
 interface MessageBubbleProps {
     message: Message;
     isStreaming?: boolean;
+    generationMilestone?: GenerationMilestone;
 }
 
-export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
+export function MessageBubble({ message, isStreaming, generationMilestone }: MessageBubbleProps) {
     const isUser = message.role === 'user';
     const isCompletionMessage = message.content.startsWith(SUCCESS_MESSAGE_PREFIX);
     const isCancelledMessage = message.content.startsWith(CANCELLED_MESSAGE_PREFIX);
@@ -124,36 +129,52 @@ export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
         );
     }
 
-    return (
-        <div className="flex w-full justify-start">
-            <Card className="w-full overflow-hidden bg-muted/50 p-0">
-                <div className="h-64 w-full md:h-80">
-                    <MonacoEditor
-                        content={message.content}
-                        className="h-full"
-                        onMount={handleEditorDidMount}
-                        options={{
-                            readOnly: true,
-                            minimap: { enabled: false },
-                            scrollBeyondLastLine: false,
-                            wordWrap: 'on',
-                            lineNumbers: 'off',
-                            renderLineHighlight: 'none',
-                            folding: false,
-                            scrollbar: {
-                                vertical: 'visible',
-                                verticalScrollbarSize: 10
-                            }
-                        }}
-                    />
-                </div>
-                {isStreaming && (
-                    <div className="flex items-center gap-2 border-t px-4 py-2 text-muted-foreground bg-background/50">
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                        <span className="text-xs">Generating...</span>
-                    </div>
-                )}
-            </Card>
-        </div>
-    );
+    const showTracker = isStreaming && generationMilestone;
+    const hasContent = message.content.length > 0;
+
+    const monacoEditor = hasContent ? (
+        <Card className="w-full overflow-hidden bg-muted/50 p-0">
+            <div className="h-64 w-full md:h-80">
+                <MonacoEditor
+                    content={message.content}
+                    className="h-full"
+                    onMount={handleEditorDidMount}
+                    options={{
+                        readOnly: true,
+                        minimap: { enabled: false },
+                        scrollBeyondLastLine: false,
+                        wordWrap: 'on',
+                        lineNumbers: 'off',
+                        renderLineHighlight: 'none',
+                        folding: false,
+                        scrollbar: {
+                            vertical: 'visible',
+                            verticalScrollbarSize: 10
+                        }
+                    }}
+                />
+            </div>
+        </Card>
+    ) : null;
+
+    if (showTracker) {
+        return (
+            <div className="flex w-full justify-start">
+                <GenerationProgressTracker milestone={generationMilestone}>
+                    {monacoEditor}
+                </GenerationProgressTracker>
+            </div>
+        );
+    }
+
+    // Non-streaming assistant message with content (e.g. restored from history)
+    if (hasContent) {
+        return (
+            <div className="flex w-full justify-start">
+                {monacoEditor}
+            </div>
+        );
+    }
+
+    return null;
 }

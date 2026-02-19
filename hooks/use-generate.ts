@@ -7,6 +7,7 @@ import {
   type StoredAttachment,
 } from '@/stores/generate';
 import { Message, MessageAttachment } from '@/components/generate/MessageBubble';
+import type { GenerationMilestone } from '@/components/generate/GenerationProgressTracker';
 import type { Json } from '@/database.types';
 
 export interface AttachedFile {
@@ -35,6 +36,7 @@ export function useGenerate(options: UseGenerateOptions = {}) {
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
   const [currentDocument, setCurrentDocument] = useState<GeneratedDocument | null>(null);
+  const [generationMilestone, setGenerationMilestone] = useState<GenerationMilestone>('started');
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -225,6 +227,7 @@ export function useGenerate(options: UseGenerateOptions = {}) {
     setMessages((prev) => [...prev, userMessage, assistantMessage]);
     setPrompt('');
     setIsGenerating(true);
+    setGenerationMilestone('started');
     setError(null);
     setAttachedFiles([]);
 
@@ -350,6 +353,9 @@ export function useGenerate(options: UseGenerateOptions = {}) {
       await readStream(reader, (event, data) => {
         switch (event) {
           case 'status':
+            if ((data.phase as string) === 'finalizing') {
+              setGenerationMilestone('finalizing');
+            }
             if (data.message) {
               updateLastMessage((m) => (m.content = data.message as string));
             }
@@ -357,12 +363,16 @@ export function useGenerate(options: UseGenerateOptions = {}) {
           case 'content':
             if (data.text) {
               streamedContent += data.text;
+              setGenerationMilestone((prev) =>
+                prev === 'started' ? 'content_streaming' : prev
+              );
               updateLastMessage((m) => (m.content = streamedContent));
             }
             break;
           case 'complete':
             finalLatex = data.latex as string;
             docTitle = (data.title as string) || docTitle;
+            setGenerationMilestone('complete');
             updateLastMessage(
               (m) =>
                 (m.content =
@@ -513,6 +523,7 @@ export function useGenerate(options: UseGenerateOptions = {}) {
       updateLastMessage((m) => (m.content = `Error: ${msg}`));
     } finally {
       setIsGenerating(false);
+      setGenerationMilestone('started');
       abortControllerRef.current = null;
     }
   }, [
@@ -546,6 +557,7 @@ export function useGenerate(options: UseGenerateOptions = {}) {
     resetState,
     restoreSession,
     currentDocument,
+    generationMilestone,
   };
 }
 

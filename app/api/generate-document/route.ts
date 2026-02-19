@@ -253,6 +253,8 @@ export async function POST(request: Request) {
             write('content', { text: chunkBuffer, partial: true });
           }
 
+          write('status', { phase: 'finalizing', message: 'Finalizing document...' });
+
           const latex = extractLatex(accumulatedContent);
 
           if (!latex) {

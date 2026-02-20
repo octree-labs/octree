@@ -14,6 +14,7 @@ import { DiffViewer } from '../ui/diff-viewer';
 import { ProposalIndicator } from './proposal-indicator';
 import { ProposalIndicator as ProposalIndicatorType } from './use-edit-proposals';
 import { EditSuggestion } from '@/types/edit';
+import { ChatProgressTracker } from './chat-progress-tracker';
 
 interface ChatMessage {
   id: string;
@@ -255,22 +256,17 @@ export function ChatMessageComponent({
         {message.role === 'assistant' ? 'Octra' : 'You'}
       </div>
 
-      <div className="min-w-0 overflow-hidden whitespace-pre-wrap break-words text-sm text-slate-800">
-        {message.role === 'assistant' && !message.content && isLoading ? (
-          <div className="flex items-end gap-1.5">
-            <span className="animate-pulse text-sm text-slate-500">
-              Thinking
-            </span>
-            <div className="flex items-center space-x-0.5 pb-1">
-              <div className="h-1 w-1 animate-bounce rounded-full bg-slate-400 [animation-delay:-0.3s]"></div>
-              <div className="h-1 w-1 animate-bounce rounded-full bg-slate-400 [animation-delay:-0.15s]"></div>
-              <div className="h-1 w-1 animate-bounce rounded-full bg-slate-400"></div>
-            </div>
-          </div>
-        ) : (
-          renderMessageContent(message.content)
-        )}
-      </div>
+      {message.role === 'assistant' && isLoading ? (
+        <div className="mb-2">
+          <ChatProgressTracker hasContent={!!message.content} />
+        </div>
+      ) : null}
+
+      {message.content && (
+        <div className="min-w-0 overflow-hidden whitespace-pre-wrap break-words text-sm text-slate-800">
+          {renderMessageContent(message.content)}
+        </div>
+      )}
 
       {message.role === 'assistant' && !textFromEditor && proposalIndicator && (
         <div className="mt-3 border-t border-blue-100 pt-3">

@@ -481,6 +481,7 @@ export default function ProjectPage() {
                             onAcceptEdit={handleAcceptEdit}
                             onRejectEdit={handleRejectEdit}
                             onAcceptAllEdits={handleAcceptAllEdits}
+                            onRestoreCheckpoint={(snapshot) => FileActions.setContent(snapshot)}
                             editSuggestions={editSuggestions}
                             pendingEditCount={totalPendingCount}
                             fileContent={selectedFile && isTextFile(selectedFile.name) ? content : ''}
@@ -615,6 +616,7 @@ export default function ProjectPage() {
           onAcceptEdit={handleAcceptEdit}
           onRejectEdit={handleRejectEdit}
           onAcceptAllEdits={handleAcceptAllEdits}
+          onRestoreCheckpoint={(snapshot) => FileActions.setContent(snapshot)}
           editSuggestions={editSuggestions}
           pendingEditCount={totalPendingCount}
           fileContent={selectedFile && isTextFile(selectedFile.name) ? content : ''}

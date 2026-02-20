@@ -1,7 +1,6 @@
-import { type ReactNode, useState, useMemo } from 'react';
+import { type ReactNode, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { Loader2, Check, X, ChevronDown, ChevronRight } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { Loader2 } from 'lucide-react';
 import LatexRenderer from '../latex-renderer';
 import {
   Accordion,
@@ -9,8 +8,6 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '../ui/accordion';
-import { Button } from '../ui/button';
-import { DiffViewer } from '../ui/diff-viewer';
 import { ProposalIndicator as ProposalIndicatorType } from './use-edit-proposals';
 import { EditSuggestion } from '@/types/edit';
 import { ChatProgressTracker } from './chat-progress-tracker';
@@ -90,7 +87,7 @@ function renderMessageContent(content: string): ReactNode {
 
   if (!hasLatexDiff) {
     return (
-      <div className="whitespace-pre-wrap break-words">
+      <div className="break-words">
         <ReactMarkdown>{content}</ReactMarkdown>
       </div>
     );
@@ -175,112 +172,6 @@ function renderMessageContent(content: string): ReactNode {
   return parts;
 }
 
-// Helper to get display info for string-matching suggestions
-function getSuggestionInfo(suggestion: EditSuggestion) {
-  const isInsert = suggestion.old_string === '';
-  const isDelete = suggestion.new_string === '';
-  const editType = isInsert ? 'insert' : isDelete ? 'delete' : 'replace';
-
-  return { editType, isInsert, isDelete };
-}
-
-// Inline suggestion component with collapsible diff
-function InlineSuggestion({
-  suggestion,
-  onAccept,
-  onReject,
-}: {
-  suggestion: EditSuggestion;
-  onAccept: (id: string) => void;
-  onReject: (id: string) => void;
-}) {
-  const [isExpanded, setIsExpanded] = useState(true);
-  const { editType } = getSuggestionInfo(suggestion);
-  const isPending = suggestion.status === 'pending';
-  const targetFile = suggestion.file_path;
-
-  if (!isPending) return null;
-
-  return (
-    <div className="rounded-md border border-blue-200 bg-white overflow-hidden text-[11px]">
-      <div
-        role="button"
-        tabIndex={0}
-        onClick={() => setIsExpanded(!isExpanded)}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIsExpanded(!isExpanded); } }}
-        className="w-full flex items-center justify-between px-2 py-1.5 text-left hover:bg-slate-50 transition-colors cursor-pointer"
-      >
-        <div className="flex items-center gap-1.5 min-w-0 flex-1">
-          {isExpanded ? (
-            <ChevronDown className="h-3 w-3 text-slate-500 flex-shrink-0" />
-          ) : (
-            <ChevronRight className="h-3 w-3 text-slate-500 flex-shrink-0" />
-          )}
-          {targetFile && (
-            <span className="text-[9px] font-medium text-slate-600 bg-slate-100 px-1 py-0.5 rounded truncate max-w-[100px]" title={targetFile}>
-              {targetFile}
-            </span>
-          )}
-          {editType === 'delete' && (
-            <span className="text-[9px] font-medium text-red-600 bg-red-50 px-1 py-0.5 rounded flex-shrink-0">
-              DEL
-            </span>
-          )}
-          {editType === 'insert' && (
-            <span className="text-[9px] font-medium text-green-600 bg-green-50 px-1 py-0.5 rounded flex-shrink-0">
-              INS
-            </span>
-          )}
-          {editType === 'replace' && (
-            <span className="text-[9px] font-medium text-amber-600 bg-amber-50 px-1 py-0.5 rounded flex-shrink-0">
-              REP
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onAccept(suggestion.id);
-            }}
-            className="h-5 px-1.5 flex items-center rounded border border-green-200 text-green-700 hover:border-green-300 hover:bg-green-50"
-          >
-            <Check size={10} className="mr-0.5" />
-            Accept
-          </button>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onReject(suggestion.id);
-            }}
-            className="h-5 px-1.5 flex items-center rounded border border-red-200 text-red-700 hover:border-red-300 hover:bg-red-50"
-          >
-            <X size={10} className="mr-0.5" />
-            Reject
-          </button>
-        </div>
-      </div>
-      
-      {isExpanded && (
-        <div className="px-2 pb-2">
-          <DiffViewer
-            original={suggestion.old_string}
-            suggested={suggestion.new_string}
-            className="max-w-full"
-          />
-          {suggestion.explanation && (
-            <p className="mt-1.5 text-[10px] text-slate-600 italic">
-              {suggestion.explanation}
-            </p>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 export function ChatMessageComponent({
   message,
   isLoading,
@@ -292,7 +183,6 @@ export function ChatMessageComponent({
   onRejectEdit,
   toolBoundaries,
 }: ChatMessageProps) {
-  const pendingSuggestions = suggestions.filter((s) => s.status === 'pending');
   const acceptedSuggestions = suggestions.filter((s) => s.status === 'accepted');
 
   // Split content into segments based on tool call boundaries
@@ -349,18 +239,6 @@ export function ChatMessageComponent({
         acceptedEdits={acceptedSuggestions}
       />
 
-      {pendingSuggestions.length > 0 && onAcceptEdit && onRejectEdit && (
-        <div className="mt-3 space-y-2 border-t border-blue-100 pt-3">
-          {pendingSuggestions.map((suggestion) => (
-            <InlineSuggestion
-              key={suggestion.id}
-              suggestion={suggestion}
-              onAccept={onAcceptEdit}
-              onReject={onRejectEdit}
-            />
-          ))}
-        </div>
-      )}
     </div>
   );
 }

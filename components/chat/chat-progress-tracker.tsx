@@ -194,7 +194,7 @@ function AppliedEditsRow({
 function ContentSegment({ children }: { children: ReactNode }) {
   return (
     <div className="relative ml-[5.5px] border-l border-slate-200 py-2 pl-4">
-      <div className="min-w-0 overflow-hidden whitespace-pre-wrap break-words text-sm text-slate-800">
+      <div className="min-w-0 overflow-hidden break-words text-sm text-slate-800">
         {children}
       </div>
     </div>
@@ -265,25 +265,32 @@ export function ChatProgressTracker({
     editSteps.push({ id: 'error', label: 'Error', status: 'error' });
   }
 
+  // Thinking at the end — always the last thing shown while loading
+  const hasThinkingContent = !!thinkingContent;
+  const hasContextContent = !!contextContent;
+  const thinkingGapStep: Step | null =
+    isLoading && hasAnyProgress
+      ? { id: 'thinking-gap', label: 'Thinking', status: 'in-progress' }
+      : null;
+
   const doneStep: Step | null =
     !isLoading && proposalIndicator?.state !== 'error' && hasAnyProgress
       ? { id: 'done', label: 'Done', status: 'completed' }
       : null;
 
   // Determine what comes after each section for connector lines
-  const hasThinkingContent = !!thinkingContent;
-  const hasContextContent = !!contextContent;
   const hasFinalContent = !!finalContent;
   const hasEditSteps = editSteps.length > 0;
+  const hasThinkingGap = !!thinkingGapStep;
   const hasDone = !!doneStep;
 
-  const afterThinking = hasThinkingContent || !!contextStep || hasContextContent || hasEditSteps || hasFinalContent || hasDone;
-  const afterContext = hasContextContent || hasEditSteps || hasFinalContent || hasDone;
+  const afterThinking = hasThinkingContent || !!contextStep || hasContextContent || hasEditSteps || hasFinalContent || hasThinkingGap || hasDone;
+  const afterContext = hasContextContent || hasThinkingGap || hasEditSteps || hasFinalContent || hasDone;
   const afterEdits = hasFinalContent || hasDone;
 
   return (
     <div role="status" aria-live="polite">
-      {/* Thinking step */}
+      {/* Thinking step — loads then ticks */}
       <ol className="m-0 flex list-none flex-col p-0">
         <StepRow step={thinkingStep} hasConnector={afterThinking} />
       </ol>
@@ -335,6 +342,13 @@ export function ChatProgressTracker({
       {/* Text after edit tools (final response) */}
       {hasFinalContent && (
         <ContentSegment>{finalContent}</ContentSegment>
+      )}
+
+      {/* Thinking gap — always at the very end while loading */}
+      {thinkingGapStep && (
+        <ol className="m-0 flex list-none flex-col p-0">
+          <StepRow step={thinkingGapStep} hasConnector={false} />
+        </ol>
       )}
 
       {/* Done step */}

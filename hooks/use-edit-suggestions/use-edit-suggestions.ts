@@ -121,9 +121,6 @@ export function useEditSuggestions({
         if (success) appliedCount++;
       }
 
-      if (appliedCount > 0) {
-        toast.success(`Applied ${appliedCount} edit(s)`, { duration: 2000 });
-      }
     }
   }, [
     editSuggestions,

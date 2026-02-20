@@ -105,7 +105,6 @@ export async function acceptSingleEdit(
         });
     });
 
-    toast.success('Edit applied', { duration: 1000 });
   } catch (error) {
     console.error('Error applying edit:', error);
     toast.error('Failed to apply this suggestion. Please try again.');
@@ -196,7 +195,6 @@ export async function acceptAllEdits(
       } else {
         onClearAll();
       }
-      toast.success(`Applied ${appliedOtherFileIds.length} edit(s)`, { duration: 2000 });
     }
     return;
   }
@@ -239,7 +237,6 @@ export async function acceptAllEdits(
     onClearAll();
 
     const totalApplied = editsWithRanges.length + appliedOtherFileIds.length;
-    toast.success(`Applied ${totalApplied} edit(s)`, { duration: 2000 });
   } catch (error) {
     console.error('Error applying all edits:', error);
     toast.error('Failed to apply suggestions. Please try again.');
@@ -307,7 +304,6 @@ export function acceptEditDirect(
         });
     });
 
-    toast.success('Edit applied', { duration: 1000 });
     return true;
   } catch (error) {
     console.error('Error applying edit:', error);

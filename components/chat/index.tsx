@@ -458,11 +458,6 @@ export function Chat({
         </div>
 
         <div className="flex items-center gap-1">
-          {isLoading && activeTab === 'chat' && (
-            <div className="flex items-center pr-1" aria-live="polite">
-              <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
-            </div>
-          )}
           <Button
             variant="ghost"
             size="sm"
@@ -529,20 +524,6 @@ export function Chat({
                 </div>
               )}
             </div>
-
-            {pendingEditCount > 0 && onAcceptAllEdits && (
-              <div className="flex-shrink-0 border-t border-slate-200 bg-slate-50 px-4 py-2">
-                <Button
-                  size="sm"
-                  onClick={onAcceptAllEdits}
-                  className="h-7 w-full rounded-md bg-green-600 px-2 text-xs text-white hover:bg-green-700"
-                  title="Accept all pending edits"
-                >
-                  <CheckCheck size={12} className="mr-1" />
-                  Accept All ({pendingEditCount})
-                </Button>
-              </div>
-            )}
 
             <ChatInput
               ref={chatInputRef}

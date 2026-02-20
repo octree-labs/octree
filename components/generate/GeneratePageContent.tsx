@@ -156,6 +156,7 @@ export function GeneratePageContent({
     stopGeneration,
     restoreSession,
     currentDocument,
+    generationMilestone,
   } = useGenerate({ onDocumentCreated: handleDocumentCreated });
 
   const scrollRef = useAutoScroll<HTMLDivElement>();
@@ -302,19 +303,22 @@ export function GeneratePageContent({
             ) : (
               <div className="p-2 md:p-4">
                 <div className="mx-auto max-w-3xl space-y-4">
-                  {messages.map((message, index) => (
-                    <MessageBubble
-                      key={message.id}
-                      message={message}
-                      isStreaming={
-                        index === messages.length - 1 &&
-                        message.role === 'assistant' &&
-                        isGenerating &&
-                        !message.content.startsWith(SUCCESS_MESSAGE_PREFIX) &&
-                        !error
-                      }
-                    />
-                  ))}
+                  {messages.map((message, index) => {
+                    const isLastAssistantStreaming =
+                      index === messages.length - 1 &&
+                      message.role === 'assistant' &&
+                      isGenerating &&
+                      !message.content.startsWith(SUCCESS_MESSAGE_PREFIX) &&
+                      !error;
+                    return (
+                      <MessageBubble
+                        key={message.id}
+                        message={message}
+                        isStreaming={isLastAssistantStreaming}
+                        generationMilestone={isLastAssistantStreaming ? generationMilestone : undefined}
+                      />
+                    );
+                  })}
 
                   <div data-onboarding-target="generate-preview">
                     {currentLatex && currentLatex.trim() !== '' && !isGenerating && (

@@ -330,7 +330,7 @@ export default function OnboardingPage() {
                       ? 'Start Free Trial →'
                       : 'Continue'}
                 </Button>
-                {/* {currentStep === 1 && (
+                {currentStep === 1 && (
                   <Button
                     className="w-full"
                     variant="ghost"
@@ -339,7 +339,7 @@ export default function OnboardingPage() {
                   >
                     Skip for now
                   </Button>
-                )} */}
+                )}
                 {currentStep === 1 && (
                   <p className="text-center text-xs text-muted-foreground">
                     No charge for 3 days. Cancel anytime.

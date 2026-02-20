@@ -26,7 +26,7 @@ function StepIndicator({ status }: { status: StepStatus }) {
   if (status === 'pending') {
     return (
       <span
-        className="flex size-4 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-white"
+        className="bg-card border-border flex size-4 shrink-0 items-center justify-center rounded-full border motion-safe:transition-all motion-safe:duration-200"
         aria-hidden="true"
       />
     );
@@ -35,20 +35,23 @@ function StepIndicator({ status }: { status: StepStatus }) {
   if (status === 'in-progress') {
     return (
       <span
-        className="flex size-4 shrink-0 items-center justify-center rounded-full border border-blue-200 bg-white shadow-[0_0_0_3px_hsl(var(--primary)/0.1)]"
+        className="bg-card border-border flex size-4 shrink-0 items-center justify-center rounded-full border shadow-[0_0_0_3px_hsl(var(--primary)/0.1)] motion-safe:transition-all motion-safe:duration-300"
         aria-hidden="true"
       >
-        <Loader2 className="size-3.5 text-blue-600 animate-spin" />
+        <Loader2 className="text-primary size-3.5 motion-safe:animate-spin" />
       </span>
     );
   }
 
   return (
     <span
-      className="flex size-4 shrink-0 items-center justify-center rounded-full border border-blue-600 bg-blue-600 shadow-sm"
+      className="bg-gradient-to-t from-primary to-primary/85 text-primary-foreground border border-zinc-950/25 shadow-sm shadow-zinc-950/20 ring-1 ring-inset ring-white/20 dark:border-white/20 dark:ring-transparent flex size-4 shrink-0 items-center justify-center rounded-full motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-75 motion-safe:duration-300 motion-safe:ease-out"
       aria-hidden="true"
     >
-      <Check className="size-2.5 text-white" strokeWidth={3} />
+      <Check
+        className="size-2.5 motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-75 motion-safe:delay-75 motion-safe:duration-200 motion-safe:fill-mode-both"
+        strokeWidth={3}
+      />
     </span>
   );
 }
@@ -76,8 +79,8 @@ function formatElapsedTimeDateTime(milliseconds: number): string {
 function ElapsedTimeBadge({ elapsedTime }: { elapsedTime: number }) {
   if (elapsedTime <= 0) return null;
   return (
-    <div className="flex items-center gap-1 font-mono text-[11px] text-slate-500">
-      <Timer className="-mt-px size-3" />
+    <div className="text-muted-foreground flex items-center gap-1.5 font-mono text-xs">
+      <Timer className="-mt-px size-3.5" />
       <time dateTime={formatElapsedTimeDateTime(elapsedTime)}>
         {formatElapsedTime(elapsedTime)}
       </time>
@@ -103,7 +106,7 @@ export function ChatProgressTracker({ hasContent }: ChatProgressTrackerProps) {
     <article
       className={cn(
         'isolate flex w-full flex-col',
-        'select-none text-slate-700',
+        'text-foreground select-none',
       )}
       data-slot="progress-tracker"
       role="status"
@@ -123,7 +126,7 @@ export function ChatProgressTracker({ hasContent }: ChatProgressTrackerProps) {
             >
               {index < STEPS.length - 1 && (
                 <div
-                  className="absolute top-4 left-[7px] w-px bg-slate-200 transition-all duration-300"
+                  className="bg-border absolute top-4 left-[7px] w-px motion-safe:transition-all motion-safe:duration-300"
                   style={{ height: 'calc(100% - 1rem)' }}
                   aria-hidden="true"
                 />
@@ -131,8 +134,8 @@ export function ChatProgressTracker({ hasContent }: ChatProgressTrackerProps) {
 
               <div
                 className={cn(
-                  'relative z-10 flex items-center gap-2 py-1',
-                  'transition-all duration-300',
+                  'relative z-10 flex items-center gap-3 py-1.5',
+                  'motion-safe:transition-all motion-safe:duration-300',
                 )}
               >
                 <div className="relative z-10">
@@ -140,8 +143,8 @@ export function ChatProgressTracker({ hasContent }: ChatProgressTrackerProps) {
                 </div>
                 <span
                   className={cn(
-                    'text-xs leading-5 font-medium',
-                    status === 'pending' && 'text-slate-400',
+                    'text-sm leading-6 font-medium',
+                    status === 'pending' && 'text-muted-foreground',
                   )}
                 >
                   {step.label}

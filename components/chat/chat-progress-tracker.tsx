@@ -225,46 +225,48 @@ export function ChatProgressTracker({
     prevProposalStateRef.current = currentState;
   }, [proposalIndicator?.state]);
 
-  // Build steps
+  // Build steps — use any signal of progress to advance the timeline
+  const hasProposals = !!proposalIndicator;
+  const hasAnyProgress = hasGetContext || hasContent || hasProposals;
+
   const thinkingStep: Step = {
     id: 'thinking',
     label: 'Thinking',
-    status: hasGetContext || hasContent ? 'completed' : 'in-progress',
+    status: hasAnyProgress ? 'completed' : 'in-progress',
   };
 
   const contextStep: Step | null = hasGetContext
     ? {
         id: 'getting-context',
         label: 'Getting context',
-        status: hasContent ? 'completed' : 'in-progress',
+        status: hasContent || hasProposals ? 'completed' : 'in-progress',
       }
     : null;
 
+  // Edit steps show as soon as proposalIndicator is set (don't wait for text content)
   const editSteps: Step[] = [];
-  if (hasContent) {
-    if (proposalIndicator?.state === 'pending') {
-      for (let i = 0; i < completedEditRounds; i++) {
-        editSteps.push({ id: `proposing-${i}`, label: 'Proposing edits', status: 'completed' });
-        editSteps.push({ id: `applied-${i}`, label: 'Edits applied', status: 'completed' });
-      }
-      editSteps.push({ id: 'proposing-current', label: 'Proposing edits', status: 'in-progress' });
-    } else if (proposalIndicator?.state === 'success') {
-      const totalRounds = Math.max(completedEditRounds, 1);
-      for (let i = 0; i < totalRounds; i++) {
-        editSteps.push({ id: `proposing-${i}`, label: 'Proposing edits', status: 'completed' });
-        editSteps.push({ id: `applied-${i}`, label: 'Edits applied', status: 'completed' });
-      }
-    } else if (proposalIndicator?.state === 'error') {
-      for (let i = 0; i < completedEditRounds; i++) {
-        editSteps.push({ id: `proposing-${i}`, label: 'Proposing edits', status: 'completed' });
-        editSteps.push({ id: `applied-${i}`, label: 'Edits applied', status: 'completed' });
-      }
-      editSteps.push({ id: 'error', label: 'Error', status: 'error' });
+  if (proposalIndicator?.state === 'pending') {
+    for (let i = 0; i < completedEditRounds; i++) {
+      editSteps.push({ id: `proposing-${i}`, label: 'Proposing edits', status: 'completed' });
+      editSteps.push({ id: `applied-${i}`, label: 'Edits applied', status: 'completed' });
     }
+    editSteps.push({ id: 'proposing-current', label: 'Proposing edits', status: 'in-progress' });
+  } else if (proposalIndicator?.state === 'success') {
+    const totalRounds = Math.max(completedEditRounds, 1);
+    for (let i = 0; i < totalRounds; i++) {
+      editSteps.push({ id: `proposing-${i}`, label: 'Proposing edits', status: 'completed' });
+      editSteps.push({ id: `applied-${i}`, label: 'Edits applied', status: 'completed' });
+    }
+  } else if (proposalIndicator?.state === 'error') {
+    for (let i = 0; i < completedEditRounds; i++) {
+      editSteps.push({ id: `proposing-${i}`, label: 'Proposing edits', status: 'completed' });
+      editSteps.push({ id: `applied-${i}`, label: 'Edits applied', status: 'completed' });
+    }
+    editSteps.push({ id: 'error', label: 'Error', status: 'error' });
   }
 
   const doneStep: Step | null =
-    hasContent && !isLoading && proposalIndicator?.state !== 'error'
+    !isLoading && proposalIndicator?.state !== 'error' && hasAnyProgress
       ? { id: 'done', label: 'Done', status: 'completed' }
       : null;
 

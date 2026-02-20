@@ -88,20 +88,21 @@ export async function acceptSingleEdit(
       ]);
     }
 
-    // After accepting, filter remaining suggestions by checking if their old_string is still findable
+    // Mark as accepted and filter out invalidated pending suggestions
     onUpdate((prev) => {
-      const remaining = prev.filter((s) => s.id !== suggestionId);
-
-      // Re-read the model after the edit was applied
       const updatedModel = editor.getModel();
-      if (!updatedModel) return remaining;
 
-      return remaining.filter((s) => {
-        // Keep suggestions for other files
-        if (s.file_path && currentFile && s.file_path !== currentFile) return true;
-        // Check if this suggestion is still valid
-        return isSuggestionStillValid(updatedModel, s);
-      });
+      return prev
+        .map((s) => s.id === suggestionId ? { ...s, status: 'accepted' as const } : s)
+        .filter((s) => {
+          // Keep accepted/rejected suggestions
+          if (s.status !== 'pending') return true;
+          // Keep suggestions for other files
+          if (s.file_path && currentFile && s.file_path !== currentFile) return true;
+          // Check if this pending suggestion is still valid
+          if (!updatedModel) return true;
+          return isSuggestionStillValid(updatedModel, s);
+        });
     });
 
     toast.success('Edit applied', { duration: 1000 });
@@ -291,16 +292,19 @@ export function acceptEditDirect(
       onOtherFileEdited(targetFile, newContent);
     }
 
-    // Remove accepted suggestion and filter out any that are no longer valid
+    // Mark as accepted and filter out invalidated pending suggestions
     onUpdate((prev) => {
-      const remaining = prev.filter((s) => s.id !== suggestionId);
-      return remaining.filter((s) => {
-        // Keep suggestions for other files
-        if (s.file_path && s.file_path !== targetFile) return true;
-        // For same-file suggestions, check if old_string is still findable
-        if (s.old_string === '') return true; // Append is always valid
-        return newContent.indexOf(s.old_string) !== -1;
-      });
+      return prev
+        .map((s) => s.id === suggestionId ? { ...s, status: 'accepted' as const } : s)
+        .filter((s) => {
+          // Keep accepted/rejected suggestions
+          if (s.status !== 'pending') return true;
+          // Keep suggestions for other files
+          if (s.file_path && s.file_path !== targetFile) return true;
+          // For same-file suggestions, check if old_string is still findable
+          if (s.old_string === '') return true; // Append is always valid
+          return newContent.indexOf(s.old_string) !== -1;
+        });
     });
 
     toast.success('Edit applied', { duration: 1000 });

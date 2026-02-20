@@ -96,10 +96,15 @@ export function useEditSuggestions({
         editor,
         monacoInstance,
         () => {
-          setEditSuggestions([]);
+          // Mark all as accepted instead of removing
+          setEditSuggestions((prev) =>
+            prev.map((s) => s.status === 'pending' ? { ...s, status: 'accepted' as const } : s)
+          );
         },
         (appliedIds) => {
-          setEditSuggestions((prev) => prev.filter((s) => !appliedIds.includes(s.id)));
+          setEditSuggestions((prev) =>
+            prev.map((s) => appliedIds.includes(s.id) ? { ...s, status: 'accepted' as const } : s)
+          );
         },
         acceptOptions
       );

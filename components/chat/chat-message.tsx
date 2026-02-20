@@ -1,4 +1,4 @@
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, useState, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Loader2, Check, X, ChevronDown, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -11,10 +11,14 @@ import {
 } from '../ui/accordion';
 import { Button } from '../ui/button';
 import { DiffViewer } from '../ui/diff-viewer';
-import { ProposalIndicator } from './proposal-indicator';
 import { ProposalIndicator as ProposalIndicatorType } from './use-edit-proposals';
 import { EditSuggestion } from '@/types/edit';
 import { ChatProgressTracker } from './chat-progress-tracker';
+
+export interface ToolBoundary {
+  toolName: string;
+  textIndex: number;
+}
 
 interface ChatMessage {
   id: string;
@@ -26,10 +30,55 @@ interface ChatMessageProps {
   message: ChatMessage;
   isLoading?: boolean;
   proposalIndicator?: ProposalIndicatorType;
+  hasGetContext?: boolean;
   textFromEditor?: string | null;
   suggestions?: EditSuggestion[];
   onAcceptEdit?: (suggestionId: string) => void;
   onRejectEdit?: (suggestionId: string) => void;
+  toolBoundaries?: ToolBoundary[];
+}
+
+/**
+ * Split message text into segments based on tool call boundaries.
+ * Returns text for each phase: after thinking, after context, after edits.
+ */
+function splitContentByPhases(
+  text: string,
+  boundaries: ToolBoundary[]
+): { thinkingText: string; contextText: string; finalText: string } {
+  if (!boundaries.length) {
+    return { thinkingText: text, contextText: '', finalText: '' };
+  }
+
+  const firstToolAt = boundaries[0].textIndex;
+  const hasContext = boundaries.some(b => b.toolName === 'get_context');
+
+  // Find the first non-context boundary (edit, compile, etc.)
+  const firstNonContextBoundary = boundaries.find(b => b.toolName !== 'get_context');
+  const lastBoundary = boundaries[boundaries.length - 1];
+
+  if (hasContext && firstNonContextBoundary) {
+    // Has both context and edit/compile phases
+    return {
+      thinkingText: text.slice(0, firstToolAt),
+      contextText: text.slice(firstToolAt, firstNonContextBoundary.textIndex),
+      finalText: text.slice(lastBoundary.textIndex),
+    };
+  } else if (hasContext) {
+    // Only context calls, no edits
+    return {
+      thinkingText: text.slice(0, firstToolAt),
+      contextText: text.slice(firstToolAt, lastBoundary.textIndex),
+      finalText: text.slice(lastBoundary.textIndex),
+    };
+  } else {
+    // No context, just edits
+    return {
+      thinkingText: text.slice(0, firstToolAt),
+      contextText: '',
+      finalText: text.slice(lastBoundary.textIndex),
+    };
+  }
 }
 
 function renderMessageContent(content: string): ReactNode {
@@ -236,45 +285,71 @@ export function ChatMessageComponent({
   message,
   isLoading,
   proposalIndicator,
+  hasGetContext,
   textFromEditor,
   suggestions = [],
   onAcceptEdit,
   onRejectEdit,
+  toolBoundaries,
 }: ChatMessageProps) {
   const pendingSuggestions = suggestions.filter((s) => s.status === 'pending');
-  
-  return (
-    <div
-      className={cn(
-        'shadow-xs mb-4 min-w-0 break-words rounded-lg border',
-        message.role === 'assistant'
-          ? 'border-slate-200 bg-gradient-to-br from-blue-50 to-blue-50/50 p-3'
-          : 'border-slate-200 bg-white p-3'
-      )}
-    >
-      <div className="mb-1 text-sm font-semibold text-blue-800">
-        {message.role === 'assistant' ? 'Octra' : 'You'}
+  const acceptedSuggestions = suggestions.filter((s) => s.status === 'accepted');
+
+  // Split content into segments based on tool call boundaries
+  const segments = useMemo(() => {
+    if (!message.content) {
+      return { thinkingContent: null, contextContent: null, finalContent: null };
+    }
+
+    if (!toolBoundaries?.length) {
+      return {
+        thinkingContent: renderMessageContent(message.content),
+        contextContent: null,
+        finalContent: null,
+      };
+    }
+
+    const { thinkingText, contextText, finalText } = splitContentByPhases(
+      message.content,
+      toolBoundaries
+    );
+
+    return {
+      thinkingContent: thinkingText.trim() ? renderMessageContent(thinkingText.trim()) : null,
+      contextContent: contextText.trim() ? renderMessageContent(contextText.trim()) : null,
+      finalContent: finalText.trim() ? renderMessageContent(finalText.trim()) : null,
+    };
+  }, [message.content, toolBoundaries]);
+
+  if (message.role === 'user') {
+    return (
+      <div className="shadow-xs mb-4 min-w-0 break-words rounded-lg border border-slate-200 bg-white p-3">
+        <div className="mb-1 text-sm font-semibold text-blue-800">You</div>
+        {message.content && (
+          <div className="min-w-0 overflow-hidden whitespace-pre-wrap break-words text-sm text-slate-800">
+            {renderMessageContent(message.content)}
+          </div>
+        )}
       </div>
+    );
+  }
 
-      {message.role === 'assistant' && isLoading ? (
-        <div className="mb-2">
-          <ChatProgressTracker hasContent={!!message.content} />
-        </div>
-      ) : null}
+  return (
+    <div className="shadow-xs mb-4 min-w-0 break-words rounded-lg border border-slate-200 bg-gradient-to-br from-blue-50 to-blue-50/50 p-3">
+      <div className="mb-1 text-sm font-semibold text-blue-800">Octra</div>
 
-      {message.content && (
-        <div className="min-w-0 overflow-hidden whitespace-pre-wrap break-words text-sm text-slate-800">
-          {renderMessageContent(message.content)}
-        </div>
-      )}
+      <ChatProgressTracker
+        hasContent={!!message.content}
+        isLoading={!!isLoading}
+        proposalIndicator={proposalIndicator}
+        hasGetContext={hasGetContext}
+        thinkingContent={segments.thinkingContent}
+        contextContent={segments.contextContent}
+        finalContent={segments.finalContent}
+        acceptedEdits={acceptedSuggestions}
+      />
 
-      {message.role === 'assistant' && !textFromEditor && proposalIndicator && (
-        <div className="mt-3 border-t border-blue-100 pt-3">
-          <ProposalIndicator indicator={proposalIndicator} />
-        </div>
-      )}
-
-      {message.role === 'assistant' && pendingSuggestions.length > 0 && onAcceptEdit && onRejectEdit && (
+      {pendingSuggestions.length > 0 && onAcceptEdit && onRejectEdit && (
         <div className="mt-3 space-y-2 border-t border-blue-100 pt-3">
           {pendingSuggestions.map((suggestion) => (
             <InlineSuggestion

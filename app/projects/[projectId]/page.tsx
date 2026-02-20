@@ -54,6 +54,10 @@ export default function ProjectPage() {
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<typeof Monaco | null>(null);
 
+  // State mirrors of refs — triggers re-renders so hooks get the editor instance
+  const [editorInstance, setEditorInstance] = useState<Monaco.editor.IStandaloneCodeEditor | null>(null);
+  const [monacoInstanceState, setMonacoInstanceState] = useState<typeof Monaco | null>(null);
+
   const { content, setContent } = useEditorState();
 
   const projectFiles = useProjectFiles();
@@ -121,8 +125,8 @@ export default function ProjectPage() {
     handleAcceptAllEdits,
     handleRejectEdit,
   } = useEditSuggestions({
-    editor: editorRef.current,
-    monacoInstance: monacoRef.current,
+    editor: editorInstance,
+    monacoInstance: monacoInstanceState,
     currentFilePath: selectedFile?.name ?? null,
     onSwitchFile: handleSwitchFile,
   });
@@ -266,6 +270,8 @@ export default function ProjectPage() {
   ) => {
     editorRef.current = editor;
     monacoRef.current = monaco;
+    setEditorInstance(editor);
+    setMonacoInstanceState(monaco);
     setupEditorListeners(editor);
   };
 

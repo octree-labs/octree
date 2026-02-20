@@ -31,7 +31,8 @@ interface StreamCallbacks {
     name: string,
     count?: number,
     violations?: unknown[],
-    progressIncrement?: number
+    progressIncrement?: number,
+    textLength?: number
   ) => void;
   onError: (error: string) => void;
   onStatus: (state: string) => void;
@@ -196,10 +197,17 @@ export function useChatStream() {
           } else if (eventName === 'status') {
             if (payload?.state) callbacks.onStatus(payload.state);
           } else if (eventName === 'tool') {
+            // Force flush pending text so tool boundary text index is accurate
+            if (pendingTextRef.current) {
+              cancelPendingFrame();
+              lastAssistantText += pendingTextRef.current;
+              pendingTextRef.current = '';
+              callbacks.onTextUpdate(lastAssistantText);
+            }
             const name = payload?.name ? String(payload.name) : 'tool';
             const count = typeof payload?.count === 'number' ? payload.count : undefined;
             const progressIncrement = typeof payload?.progress === 'number' ? payload.progress : undefined;
-            callbacks.onToolCall(name, count, payload?.violations, progressIncrement);
+            callbacks.onToolCall(name, count, payload?.violations, progressIncrement, lastAssistantText.length);
           } else if (eventName === 'error') {
             const errorMsg = payload?.message
               ? String(payload.message)

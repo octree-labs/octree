@@ -158,6 +158,7 @@ app.post('/agent', jwtAuthMiddleware, async (req: express.Request, res: express.
       prompt: userText,
       tools,
       maxSteps: 25,
+      maxTokens: 16384,
     });
 
     const finalText = await processFullStream(result.fullStream, writeEvent, collectedEdits);

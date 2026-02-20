@@ -74,6 +74,8 @@ export function Chat({
   const [conversionStatus, setConversionStatus] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [activeTab, setActiveTab] = useState<'chat' | 'search'>('chat');
+  const [contextCalledIds, setContextCalledIds] = useState<Set<string>>(new Set());
+  const [toolBoundaries, setToolBoundaries] = useState<Map<string, Array<{ toolName: string; textIndex: number }>>>(new Map());
 
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const shouldStickToBottomRef = useRef<boolean>(true);
@@ -218,7 +220,10 @@ export function Chat({
               onEditSuggestion(suggestions);
             }
           },
-          onToolCall: (name, count, violations, progressIncrement) => {
+          onToolCall: (name, count, violations, progressIncrement, textLength) => {
+            if (name === 'get_context') {
+              setContextCalledIds(prev => new Set(prev).add(assistantId));
+            }
             if (name === 'edit') {
               const violationCount = Array.isArray(violations)
                 ? violations.length
@@ -232,6 +237,14 @@ export function Chat({
             }
             if (name === 'compile_success') {
               window.dispatchEvent(new Event('agent-compile'));
+            }
+            if (typeof textLength === 'number') {
+              setToolBoundaries(prev => {
+                const next = new Map(prev);
+                const existing = next.get(assistantId) || [];
+                next.set(assistantId, [...existing, { toolName: name, textIndex: textLength }]);
+                return next;
+              });
             }
           },
           onError: (errorMsg) => {
@@ -284,15 +297,31 @@ export function Chat({
               onEditSuggestion(suggestions);
             }
           },
-          onToolCall: (name, count, violations) => {
+          onToolCall: (name, count, violations, progressIncrement, textLength) => {
+            if (name === 'get_context') {
+              setContextCalledIds(prev => new Set(prev).add(assistantId));
+            }
             if (name === 'edit') {
               const violationCount = Array.isArray(violations)
                 ? violations.length
                 : undefined;
-              setPending(assistantId, count, violationCount);
+              if (typeof count === 'number') {
+                setPending(assistantId, count, violationCount);
+              }
+              if (typeof progressIncrement === 'number') {
+                incrementProgress(assistantId, progressIncrement, true);
+              }
             }
             if (name === 'compile_success') {
               window.dispatchEvent(new Event('agent-compile'));
+            }
+            if (typeof textLength === 'number') {
+              setToolBoundaries(prev => {
+                const next = new Map(prev);
+                const existing = next.get(assistantId) || [];
+                next.set(assistantId, [...existing, { toolName: name, textIndex: textLength }]);
+                return next;
+              });
             }
           },
           onError: (errorMsg) => {
@@ -367,6 +396,7 @@ export function Chat({
   const clearHistory = () => {
     setMessages([]);
     checkpointsRef.current.clear();
+    setToolBoundaries(new Map());
   };
 
   const handleRestoreCheckpoint = (messageId: string) => {
@@ -478,10 +508,12 @@ export function Chat({
                         message={message}
                         isLoading={isLoading && index === messages.length - 1}
                         proposalIndicator={proposalIndicators[message.id]}
+                        hasGetContext={contextCalledIds.has(message.id)}
                         textFromEditor={textFromEditor}
                         suggestions={suggestionsByMessage.get(message.id) || []}
                         onAcceptEdit={onAcceptEdit}
                         onRejectEdit={onRejectEdit}
+                        toolBoundaries={toolBoundaries.get(message.id)}
                       />
                     </div>
                   );

@@ -66,7 +66,8 @@ export async function processFullStream(
         }
 
         case 'step-finish': {
-          // A step (one LLM call) finished. Text so far is accumulated.
+          const sf = p as { type: string; finishReason?: string; usage?: { promptTokens?: number; completionTokens?: number } };
+          console.log(`[Stream] Step finished: reason=${sf.finishReason || 'unknown'}, usage=${JSON.stringify(sf.usage || {})}`);
           break;
         }
 
@@ -77,7 +78,8 @@ export async function processFullStream(
         }
 
         case 'finish': {
-          // Stream is done
+          const f = p as { type: string; finishReason?: string; usage?: { promptTokens?: number; completionTokens?: number } };
+          console.log(`[Stream] Finished: reason=${f.finishReason || 'unknown'}, usage=${JSON.stringify(f.usage || {})}, edits=${collectedEdits.length}`);
           break;
         }
       }

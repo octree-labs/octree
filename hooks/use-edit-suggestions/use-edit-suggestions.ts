@@ -46,7 +46,7 @@ export function useEditSuggestions({
     onOtherFileEdited,
   };
 
-  // Accept a single edit
+  // Accept a single edit — Monaco path with direct fallback
   const handleAcceptEdit = useCallback(
     async (suggestionId: string) => {
       if (!canEdit) {
@@ -70,14 +70,15 @@ export function useEditSuggestions({
           suggestionId,
           editSuggestions,
           setEditSuggestions,
-          currentFilePath
+          currentFilePath,
+          onOtherFileEdited
         );
       }
     },
     [canEdit, editor, monacoInstance, editSuggestions, setEditSuggestions, currentFilePath, onSwitchFile, onOtherFileEdited]
   );
 
-  // Accept all pending edits
+  // Accept all pending edits — Monaco if model ready, else direct fallback
   const handleAcceptAllEdits = useCallback(async () => {
     const pendingSuggestions = editSuggestions.filter((s) => s.status === 'pending');
 
@@ -90,13 +91,13 @@ export function useEditSuggestions({
       return;
     }
 
-    if (editor && monacoInstance) {
+    // Use Monaco if editor model is available, otherwise fall back to direct
+    if (editor && monacoInstance && editor.getModel()) {
       await acceptAllEdits(
         pendingSuggestions,
         editor,
         monacoInstance,
         () => {
-          // Mark all as accepted instead of removing
           setEditSuggestions((prev) =>
             prev.map((s) => s.status === 'pending' ? { ...s, status: 'accepted' as const } : s)
           );
@@ -109,18 +110,16 @@ export function useEditSuggestions({
         acceptOptions
       );
     } else {
-      // No editor - apply each edit directly to file store
-      let appliedCount = 0;
+      // No editor model — apply directly to file store
       for (const suggestion of pendingSuggestions) {
-        const success = acceptEditDirect(
+        acceptEditDirect(
           suggestion.id,
           editSuggestions,
           setEditSuggestions,
-          currentFilePath
+          currentFilePath,
+          onOtherFileEdited
         );
-        if (success) appliedCount++;
       }
-
     }
   }, [
     editSuggestions,

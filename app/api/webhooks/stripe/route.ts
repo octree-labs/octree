@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 import Stripe from 'stripe';
 import { createClient as createServerClient } from '@supabase/supabase-js';
+import { inngest } from '@/lib/inngest/client';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2025-02-24.acacia',
@@ -126,6 +127,31 @@ export async function POST(request: Request) {
                 'Failed to update onboarding_completed:',
                 upsertError
               );
+            }
+          }
+
+          if (
+            event.type === 'customer.subscription.created' &&
+            subscription.status === 'trialing' &&
+            subscription.trial_end
+          ) {
+            try {
+              const {
+                data: { user },
+              } = await supabase.auth.admin.getUserById(userId);
+              if (user?.email) {
+                await inngest.send({
+                  name: 'subscription/trial-started',
+                  data: {
+                    email: user.email,
+                    trialEndsAt: new Date(
+                      subscription.trial_end * 1000
+                    ).toISOString(),
+                  },
+                });
+              }
+            } catch {
+              // non-fatal — webhook must not fail due to email errors
             }
           }
         } catch (error) {

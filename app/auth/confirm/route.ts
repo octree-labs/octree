@@ -1,8 +1,9 @@
 import { type EmailOtpType } from '@supabase/supabase-js';
 import { type NextRequest } from 'next/server';
+import { redirect } from 'next/navigation';
 
 import { createClient } from '@/lib/supabase/server';
-import { redirect } from 'next/navigation';
+import { inngest } from '@/lib/inngest/client';
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -11,19 +12,38 @@ export async function GET(request: NextRequest) {
   const next = searchParams.get('next') ?? '/onboarding';
 
   if (token_hash && type) {
+    console.log('[confirm] route hit, type:', type);
     const supabase = await createClient();
 
-    const { error } = await supabase.auth.verifyOtp({
+    const {
+      data: { user },
+      error,
+    } = await supabase.auth.verifyOtp({
       type,
       token_hash,
     });
 
+    console.log(
+      '[confirm] verifyOtp result — error:',
+      error,
+      'user:',
+      user?.email
+    );
     if (!error) {
-      // redirect user to onboarding or specified redirect URL
+      if (user?.email) {
+        try {
+          await inngest.send({
+            name: 'user/confirmed',
+            data: { email: user.email },
+          });
+        } catch {
+          // non-fatal — auth flow must not be blocked by email errors
+        }
+      }
+
       redirect(next);
     }
   }
 
-  // redirect the user to an error page with some instructions
   redirect('/error');
 }

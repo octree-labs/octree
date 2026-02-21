@@ -16,6 +16,46 @@ export type State = {
   success?: boolean;
 };
 
+interface StorageFile {
+  name: string;
+  id: string | null;
+  metadata?: { size?: number; mimetype?: string };
+  created_at?: string;
+}
+
+async function listAllStorageFiles(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  projectId: string,
+  path: string = ''
+): Promise<StorageFile[]> {
+  const listPath = path
+    ? `projects/${projectId}/${path}`
+    : `projects/${projectId}`;
+
+  const { data: items, error } = await supabase.storage
+    .from('octree')
+    .list(listPath, {
+      sortBy: { column: 'created_at', order: 'desc' },
+    });
+
+  if (error || !items) return [];
+
+  const allFiles: StorageFile[] = [];
+
+  for (const item of items) {
+    if (item.id) {
+      const fullPath = path ? `${path}/${item.name}` : item.name;
+      allFiles.push({ ...item, name: fullPath });
+    } else if (item.name !== '.emptyFolderPlaceholder') {
+      const subPath = path ? `${path}/${item.name}` : item.name;
+      const subFiles = await listAllStorageFiles(supabase, projectId, subPath);
+      allFiles.push(...subFiles);
+    }
+  }
+
+  return allFiles;
+}
+
 export async function duplicateProject(projectId: string): Promise<State> {
   try {
     const supabase = await createClient();
@@ -37,7 +77,6 @@ export async function duplicateProject(projectId: string): Promise<State> {
 
     const { projectId: validatedProjectId } = validatedFields.data;
 
-    // Fetch source project (verify ownership)
     const { data: sourceProjectData, error: projectError } = await supabase
       .from('projects')
       .select('*')
@@ -53,19 +92,8 @@ export async function duplicateProject(projectId: string): Promise<State> {
 
     const sourceProject = sourceProjectData as Tables<'projects'>;
 
-    // Fetch all files for the source project
-    const { data: sourceFilesData, error: filesError } = await supabase
-      .from('files')
-      .select('*')
-      .eq('project_id', validatedProjectId);
+    const sourceFiles = await listAllStorageFiles(supabase, validatedProjectId);
 
-    if (filesError) {
-      throw new Error('Failed to fetch project files');
-    }
-
-    const sourceFiles = (sourceFilesData ?? []) as Tables<'files'>[];
-
-    // Create new project
     const newProjectData: TablesInsert<'projects'> = {
       title: `${sourceProject.title} copy`,
       user_id: user.id,
@@ -82,59 +110,29 @@ export async function duplicateProject(projectId: string): Promise<State> {
       throw new Error('Failed to create duplicate project');
     }
 
-    // Copy each file: download from storage, upload to new project, create file record
-    if (sourceFiles && sourceFiles.length > 0) {
-      for (const file of sourceFiles) {
-        const sourcePath = `projects/${validatedProjectId}/${file.name}`;
-        const destPath = `projects/${newProject.id}/${file.name}`;
+    for (const file of sourceFiles) {
+      const sourcePath = `projects/${validatedProjectId}/${file.name}`;
+      const destPath = `projects/${newProject.id}/${file.name}`;
 
-        // Download file from storage
-        const { data: fileBlob, error: downloadError } =
-          await supabase.storage.from('octree').download(sourcePath);
+      const { data: fileBlob, error: downloadError } = await supabase.storage
+        .from('octree')
+        .download(sourcePath);
 
-        if (downloadError || !fileBlob) {
-          console.error(`Error downloading file ${file.name}:`, downloadError);
-          continue;
-        }
+      if (downloadError || !fileBlob) {
+        console.error(`Error downloading file ${file.name}:`, downloadError);
+        continue;
+      }
 
-        // Upload to new project path
-        const { error: uploadError } = await supabase.storage
-          .from('octree')
-          .upload(destPath, fileBlob, {
-            cacheControl: '3600',
-            upsert: false,
-            contentType: file.type || undefined,
-          });
+      const { error: uploadError } = await supabase.storage
+        .from('octree')
+        .upload(destPath, fileBlob, {
+          cacheControl: '3600',
+          upsert: false,
+          contentType: file.metadata?.mimetype || undefined,
+        });
 
-        if (uploadError) {
-          console.error(`Error uploading file ${file.name}:`, uploadError);
-          continue;
-        }
-
-        // Get public URL for the new file
-        const { data: urlData } = supabase.storage
-          .from('octree')
-          .getPublicUrl(destPath);
-
-        // Create file record
-        const newFileRecord: TablesInsert<'files'> = {
-          project_id: newProject.id,
-          name: file.name,
-          type: file.type,
-          size: file.size,
-          url: urlData.publicUrl,
-        };
-
-        const { error: fileRecordError } = await (
-          supabase.from('files') as any
-        ).insert(newFileRecord);
-
-        if (fileRecordError) {
-          console.error(
-            `Error creating file record for ${file.name}:`,
-            fileRecordError
-          );
-        }
+      if (uploadError) {
+        console.error(`Error uploading file ${file.name}:`, uploadError);
       }
     }
 

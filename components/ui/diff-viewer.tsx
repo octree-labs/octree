@@ -3,53 +3,74 @@
 interface DiffViewerProps {
   original: string;
   suggested: string;
+  startLine?: number;
   className?: string;
 }
 
-export function DiffViewer({ original, suggested, className = '' }: DiffViewerProps) {
+export function DiffViewer({
+  original,
+  suggested,
+  startLine,
+  className = '',
+}: DiffViewerProps) {
   const originalLines = original ? original.split('\n') : [];
   const suggestedLines = suggested ? suggested.split('\n') : [];
 
   return (
-    <div className={`rounded-lg border border-gray-200 bg-white text-xs font-mono max-w-full max-h-64 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100 ${className}`}>
-      {/* Deletions */}
+    <div
+      className={`max-h-64 max-w-full overflow-y-auto rounded-lg border border-gray-200 bg-white font-mono text-xs scrollbar-thin scrollbar-track-gray-100 scrollbar-thumb-gray-300 ${className}`}
+    >
       {originalLines.length > 0 && (
         <div className="bg-red-50/50">
           {originalLines.map((line, index) => (
-            <div key={`del-${index}`} className="flex border-l-3 border-red-400">
-              <span className="bg-red-100 text-red-600 px-2 py-2 text-center min-w-[24px] border-r border-red-200 flex-shrink-0">
+            <div
+              key={`del-${index}`}
+              className="border-l-3 flex border-red-400"
+            >
+              {startLine !== undefined && (
+                <span className="min-w-[32px] flex-shrink-0 select-none border-r border-red-200 bg-red-100/70 px-1.5 py-2 text-right tabular-nums text-red-400">
+                  {startLine + index}
+                </span>
+              )}
+              <span className="min-w-[24px] flex-shrink-0 border-r border-red-200 bg-red-100 px-2 py-2 text-center text-red-600">
                 −
               </span>
-              <div className="px-3 py-2 text-red-700 flex-1 min-w-0 break-all whitespace-pre-wrap">
+              <div className="min-w-0 flex-1 whitespace-pre-wrap break-all px-3 py-2 text-red-700">
                 {line || '\u00A0'}
               </div>
             </div>
           ))}
         </div>
       )}
-      
-      {/* Additions */}
+
       {suggestedLines.length > 0 && (
         <div className="bg-green-50/50">
           {suggestedLines.map((line, index) => (
-            <div key={`add-${index}`} className="flex border-l-3 border-green-400">
-              <span className="bg-green-100 text-green-600 px-2 py-2 text-center min-w-[24px] border-r border-green-200 flex-shrink-0">
+            <div
+              key={`add-${index}`}
+              className="border-l-3 flex border-green-400"
+            >
+              {startLine !== undefined && (
+                <span className="min-w-[32px] flex-shrink-0 select-none border-r border-green-200 bg-green-100/70 px-1.5 py-2 text-right tabular-nums text-green-400">
+                  {startLine + index}
+                </span>
+              )}
+              <span className="min-w-[24px] flex-shrink-0 border-r border-green-200 bg-green-100 px-2 py-2 text-center text-green-600">
                 +
               </span>
-              <div className="px-3 py-2 text-green-700 flex-1 min-w-0 break-all whitespace-pre-wrap">
+              <div className="min-w-0 flex-1 whitespace-pre-wrap break-all px-3 py-2 text-green-700">
                 {line || '\u00A0'}
               </div>
             </div>
           ))}
         </div>
       )}
-      
-      {/* Empty state */}
+
       {originalLines.length === 0 && suggestedLines.length === 0 && (
-        <div className="px-4 py-3 text-gray-500 italic text-center bg-gray-50/50">
+        <div className="bg-gray-50/50 px-4 py-3 text-center italic text-gray-500">
           No changes to display
         </div>
       )}
     </div>
   );
-} 
+}

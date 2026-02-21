@@ -1,16 +1,11 @@
 import { useState, useCallback } from 'react';
 import { EditSuggestion } from '@/types/edit';
-import { normalizeSuggestions, getOriginalTextFromModel, getStartLine, getOriginalLineCount } from './utils';
-import type * as Monaco from 'monaco-editor';
-
-interface UseSuggestionQueueProps {
-  editor: Monaco.editor.IStandaloneCodeEditor | null;
-}
+import { normalizeSuggestions } from './utils';
 
 /**
  * Manages edit suggestions
  */
-export function useSuggestionQueue({ editor }: UseSuggestionQueueProps) {
+export function useSuggestionQueue() {
   const [editSuggestions, setEditSuggestions] = useState<EditSuggestion[]>([]);
 
   const handleEditSuggestion = useCallback(
@@ -24,21 +19,11 @@ export function useSuggestionQueue({ editor }: UseSuggestionQueueProps) {
         return;
       }
 
-      // Enrich suggestions with original text from the current model when missing
-      const model: Monaco.editor.ITextModel | null = editor ? editor.getModel() : null;
-
-      const withOriginals = incomingArray.map((s) => {
-        if (s.original !== undefined || !model) return s;
-        return {
-          ...s,
-          original: getOriginalTextFromModel(model, getStartLine(s), getOriginalLineCount(s)),
-        };
-      });
-
-      const normalized = normalizeSuggestions(withOriginals);
-      setEditSuggestions(normalized);
+      // No enrichment needed — old_string already contains the original text
+      const normalized = normalizeSuggestions(incomingArray);
+      setEditSuggestions((prev) => [...prev, ...normalized]);
     },
-    [editor]
+    []
   );
 
   const totalPendingCount = editSuggestions.filter((s) => s.status === 'pending').length;
@@ -50,4 +35,3 @@ export function useSuggestionQueue({ editor }: UseSuggestionQueueProps) {
     handleEditSuggestion,
   };
 }
-

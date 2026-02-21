@@ -72,7 +72,13 @@ function StepIndicator({ status }: { status: StepStatus }) {
   );
 }
 
-function StepRow({ step, hasConnector }: { step: Step; hasConnector: boolean }) {
+function StepRow({
+  step,
+  hasConnector,
+}: {
+  step: Step;
+  hasConnector: boolean;
+}) {
   return (
     <li className="relative">
       {hasConnector && (
@@ -116,7 +122,11 @@ function AppliedEditsRow({
       {hasConnector && (
         <div
           className="absolute w-px bg-slate-200"
-          style={{ top: '18px', height: isExpanded ? 'calc(100% - 6px)' : '12px', left: '5.5px' }}
+          style={{
+            top: '18px',
+            height: isExpanded ? 'calc(100% - 6px)' : '12px',
+            left: '5.5px',
+          }}
           aria-hidden="true"
         />
       )}
@@ -130,14 +140,12 @@ function AppliedEditsRow({
             setIsExpanded(!isExpanded);
           }
         }}
-        className="relative z-10 flex items-center gap-2 py-1 cursor-pointer group"
+        className="group relative z-10 flex cursor-pointer items-center gap-2 py-1"
       >
         <StepIndicator status={step.status} />
-        <span className="text-xs text-slate-500">
-          {step.label}
-        </span>
+        <span className="text-xs text-slate-500">{step.label}</span>
         {edits.length > 0 && (
-          <span className="text-slate-400 group-hover:text-slate-600 transition-colors">
+          <span className="text-slate-400 transition-colors group-hover:text-slate-600">
             {isExpanded ? (
               <ChevronDown className="size-3" />
             ) : (
@@ -152,33 +160,46 @@ function AppliedEditsRow({
         )}
       </div>
       {isExpanded && edits.length > 0 && (
-        <div className="ml-5 mt-1 mb-1 space-y-1.5">
+        <div className="mb-1 ml-5 mt-1 space-y-1.5">
           {edits.map((edit) => (
-            <div key={edit.id} className="rounded-md border border-slate-200 bg-white overflow-hidden text-[11px]">
-              <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-50 border-b border-slate-100">
+            <div
+              key={edit.id}
+              className="overflow-hidden rounded-md border border-slate-200 bg-white text-[11px]"
+            >
+              <div className="flex items-center gap-1.5 border-b border-slate-100 bg-slate-50 px-2 py-1">
                 {edit.file_path && (
-                  <span className="text-[9px] font-medium text-slate-600 bg-slate-100 px-1 py-0.5 rounded truncate max-w-[120px]" title={edit.file_path}>
+                  <span
+                    className="max-w-[120px] truncate rounded bg-slate-100 px-1 py-0.5 text-[9px] font-medium text-slate-600"
+                    title={edit.file_path}
+                  >
                     {edit.file_path}
                   </span>
                 )}
                 {edit.old_string === '' && (
-                  <span className="text-[9px] font-medium text-green-600 bg-green-50 px-1 py-0.5 rounded">INS</span>
+                  <span className="rounded bg-green-50 px-1 py-0.5 text-[9px] font-medium text-green-600">
+                    INS
+                  </span>
                 )}
                 {edit.new_string === '' && (
-                  <span className="text-[9px] font-medium text-red-600 bg-red-50 px-1 py-0.5 rounded">DEL</span>
+                  <span className="rounded bg-red-50 px-1 py-0.5 text-[9px] font-medium text-red-600">
+                    DEL
+                  </span>
                 )}
                 {edit.old_string !== '' && edit.new_string !== '' && (
-                  <span className="text-[9px] font-medium text-amber-600 bg-amber-50 px-1 py-0.5 rounded">REP</span>
+                  <span className="rounded bg-amber-50 px-1 py-0.5 text-[9px] font-medium text-amber-600">
+                    REP
+                  </span>
                 )}
               </div>
               <div className="px-1.5 py-1.5">
                 <DiffViewer
                   original={edit.old_string}
                   suggested={edit.new_string}
+                  startLine={edit.line_start}
                   className="max-w-full"
                 />
                 {edit.explanation && (
-                  <p className="mt-1 px-1 text-[10px] text-slate-500 italic">
+                  <p className="mt-1 px-1 text-[10px] italic text-slate-500">
                     {edit.explanation}
                   </p>
                 )}
@@ -247,20 +268,48 @@ export function ChatProgressTracker({
   const editSteps: Step[] = [];
   if (proposalIndicator?.state === 'pending') {
     for (let i = 0; i < completedEditRounds; i++) {
-      editSteps.push({ id: `proposing-${i}`, label: 'Proposing edits', status: 'completed' });
-      editSteps.push({ id: `applied-${i}`, label: 'Edits applied', status: 'completed' });
+      editSteps.push({
+        id: `proposing-${i}`,
+        label: 'Proposing edits',
+        status: 'completed',
+      });
+      editSteps.push({
+        id: `applied-${i}`,
+        label: 'Edits applied',
+        status: 'completed',
+      });
     }
-    editSteps.push({ id: 'proposing-current', label: 'Proposing edits', status: 'in-progress' });
+    editSteps.push({
+      id: 'proposing-current',
+      label: 'Proposing edits',
+      status: 'in-progress',
+    });
   } else if (proposalIndicator?.state === 'success') {
     const totalRounds = Math.max(completedEditRounds, 1);
     for (let i = 0; i < totalRounds; i++) {
-      editSteps.push({ id: `proposing-${i}`, label: 'Proposing edits', status: 'completed' });
-      editSteps.push({ id: `applied-${i}`, label: 'Edits applied', status: 'completed' });
+      editSteps.push({
+        id: `proposing-${i}`,
+        label: 'Proposing edits',
+        status: 'completed',
+      });
+      editSteps.push({
+        id: `applied-${i}`,
+        label: 'Edits applied',
+        status: 'completed',
+      });
     }
   } else if (proposalIndicator?.state === 'error') {
     for (let i = 0; i < completedEditRounds; i++) {
-      editSteps.push({ id: `proposing-${i}`, label: 'Proposing edits', status: 'completed' });
-      editSteps.push({ id: `applied-${i}`, label: 'Edits applied', status: 'completed' });
+      editSteps.push({
+        id: `proposing-${i}`,
+        label: 'Proposing edits',
+        status: 'completed',
+      });
+      editSteps.push({
+        id: `applied-${i}`,
+        label: 'Edits applied',
+        status: 'completed',
+      });
     }
     editSteps.push({ id: 'error', label: 'Error', status: 'error' });
   }
@@ -284,8 +333,20 @@ export function ChatProgressTracker({
   const hasThinkingGap = !!thinkingGapStep;
   const hasDone = !!doneStep;
 
-  const afterThinking = hasThinkingContent || !!contextStep || hasContextContent || hasEditSteps || hasFinalContent || hasThinkingGap || hasDone;
-  const afterContext = hasContextContent || hasThinkingGap || hasEditSteps || hasFinalContent || hasDone;
+  const afterThinking =
+    hasThinkingContent ||
+    !!contextStep ||
+    hasContextContent ||
+    hasEditSteps ||
+    hasFinalContent ||
+    hasThinkingGap ||
+    hasDone;
+  const afterContext =
+    hasContextContent ||
+    hasThinkingGap ||
+    hasEditSteps ||
+    hasFinalContent ||
+    hasDone;
   const afterEdits = hasFinalContent || hasDone;
 
   return (
@@ -296,9 +357,7 @@ export function ChatProgressTracker({
       </ol>
 
       {/* Text after thinking (before context/edit tools) */}
-      {hasThinkingContent && (
-        <ContentSegment>{thinkingContent}</ContentSegment>
-      )}
+      {hasThinkingContent && <ContentSegment>{thinkingContent}</ContentSegment>}
 
       {/* Getting context step */}
       {contextStep && (
@@ -308,9 +367,7 @@ export function ChatProgressTracker({
       )}
 
       {/* Text after context tools (before edit tools) */}
-      {hasContextContent && (
-        <ContentSegment>{contextContent}</ContentSegment>
-      )}
+      {hasContextContent && <ContentSegment>{contextContent}</ContentSegment>}
 
       {/* Edit steps */}
       {hasEditSteps && (
@@ -328,21 +385,13 @@ export function ChatProgressTracker({
                 />
               );
             }
-            return (
-              <StepRow
-                key={step.id}
-                step={step}
-                hasConnector={hasConn}
-              />
-            );
+            return <StepRow key={step.id} step={step} hasConnector={hasConn} />;
           })}
         </ol>
       )}
 
       {/* Text after edit tools (final response) */}
-      {hasFinalContent && (
-        <ContentSegment>{finalContent}</ContentSegment>
-      )}
+      {hasFinalContent && <ContentSegment>{finalContent}</ContentSegment>}
 
       {/* Thinking gap — always at the very end while loading */}
       {thinkingGapStep && (

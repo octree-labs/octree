@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { StringEdit } from '@/lib/octra-agent/edits';
 import { EditSuggestion } from '@/types/edit';
 
@@ -42,6 +42,20 @@ export function useEditProposals(
   const progressTimeoutsRef = useRef<Record<string, number[]>>({});
   const eventProgressRef = useRef<Record<string, boolean>>({});
   const editIdCounterRef = useRef(0);
+
+  const fileContentRef = useRef(fileContent);
+  const projectFilesRef = useRef(projectFiles);
+  const currentFilePathRef = useRef(currentFilePath);
+
+  useEffect(() => {
+    fileContentRef.current = fileContent;
+  }, [fileContent]);
+  useEffect(() => {
+    projectFilesRef.current = projectFiles;
+  }, [projectFiles]);
+  useEffect(() => {
+    currentFilePathRef.current = currentFilePath;
+  }, [currentFilePath]);
 
   const clearProposals = useCallback(() => {
     processedEditsRef.current.clear();
@@ -182,16 +196,30 @@ export function useEditProposals(
         progressTimeoutsRef.current[messageId] = [];
       }
 
-      // Map to EditSuggestions — no need to extract original from file content
-      // because old_string IS the original text
       const mapped: EditSuggestion[] = newEdits.map((edit, idx) => {
         editIdCounterRef.current += 1;
+
+        const resolvedContent =
+          projectFilesRef.current.find((f) => f.path === edit.file_path)
+            ?.content ??
+          (edit.file_path === currentFilePathRef.current
+            ? fileContentRef.current
+            : null);
+
+        let line_start: number | undefined;
+        if (resolvedContent && edit.old_string) {
+          const charIdx = resolvedContent.indexOf(edit.old_string);
+          if (charIdx !== -1) {
+            line_start = resolvedContent.slice(0, charIdx).split('\n').length;
+          }
+        }
 
         return {
           ...edit,
           id: `${Date.now()}-${editIdCounterRef.current}-${idx}`,
           messageId,
           status: 'pending' as const,
+          line_start,
         };
       });
 
@@ -224,12 +252,14 @@ export function useEditProposals(
       // Set success indicator with minimum display time
       if (mapped.length > 0) {
         const pendingStartTime = pendingTimestampRef.current[messageId];
-      const totalCascadeDuration = Math.max(0, mapped.length - 1) * STEP_CASCADE_DELAY_MS;
+        const totalCascadeDuration =
+          Math.max(0, mapped.length - 1) * STEP_CASCADE_DELAY_MS;
 
         const finalizeIndicator = () => {
           setProposalIndicators((prev) => {
             const indicator = prev[messageId];
-            const totalEdits = indicator?.count ?? indicator?.progressCount ?? mapped.length;
+            const totalEdits =
+              indicator?.count ?? indicator?.progressCount ?? mapped.length;
             return {
               ...prev,
               [messageId]: {
@@ -255,11 +285,12 @@ export function useEditProposals(
 
         if (pendingStartTime) {
           const elapsed = Date.now() - pendingStartTime;
-        const remainingTime = Math.max(0, MIN_SUCCESS_DELAY_MS - elapsed);
-        const delay = remainingTime + totalCascadeDuration + POST_CASCADE_BUFFER_MS;
+          const remainingTime = Math.max(0, MIN_SUCCESS_DELAY_MS - elapsed);
+          const delay =
+            remainingTime + totalCascadeDuration + POST_CASCADE_BUFFER_MS;
           scheduleSuccess(delay);
         } else {
-        const delay = totalCascadeDuration + POST_CASCADE_BUFFER_MS;
+          const delay = totalCascadeDuration + POST_CASCADE_BUFFER_MS;
           scheduleSuccess(delay);
         }
       }

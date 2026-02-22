@@ -4,6 +4,7 @@ import { resend, FROM_ADDRESS } from './client';
 import { WelcomeEmail } from './templates/welcome';
 import { SignInEmail } from './templates/sign-in';
 import { TrialStartedEmail } from './templates/trial-started';
+import { ReEngagementEmail } from './templates/re-engagement';
 import { generateUnsubscribeUrl } from './unsubscribe';
 
 function createServiceClient() {
@@ -67,6 +68,22 @@ export async function sendTrialStartedEmail(
       TrialStartedEmail({
         email,
         trialEndsAt,
+        unsubscribeUrl: generateUnsubscribeUrl(email),
+      })
+    ),
+  });
+  if (error) throw new Error(error.message);
+}
+
+export async function sendReEngagementEmail(email: string): Promise<void> {
+  if (await isSuppressed(email)) return;
+  const { error } = await resend.emails.send({
+    from: FROM_ADDRESS,
+    to: email,
+    subject: 'Still interested in Octree?',
+    html: await render(
+      ReEngagementEmail({
+        email,
         unsubscribeUrl: generateUnsubscribeUrl(email),
       })
     ),

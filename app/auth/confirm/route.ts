@@ -12,7 +12,6 @@ export async function GET(request: NextRequest) {
   const next = searchParams.get('next') ?? '/onboarding';
 
   if (token_hash && type) {
-    console.log('[confirm] route hit, type:', type);
     const supabase = await createClient();
 
     const {
@@ -23,18 +22,12 @@ export async function GET(request: NextRequest) {
       token_hash,
     });
 
-    console.log(
-      '[confirm] verifyOtp result — error:',
-      error,
-      'user:',
-      user?.email
-    );
     if (!error) {
-      if (user?.email) {
+      if (user?.email && user?.id) {
         try {
           await inngest.send({
             name: 'user/confirmed',
-            data: { email: user.email },
+            data: { email: user.email, userId: user.id },
           });
         } catch {
           // non-fatal — auth flow must not be blocked by email errors

@@ -179,7 +179,7 @@ export function buildSystemPrompt(
   if (otherFiles.length > 0) {
     const { fullContentFiles, summaryFiles } = filterProjectFilesIntelligently(
       otherFiles,
-      currentFilePath
+      currentFilePath ?? null
     );
 
     if (fullContentFiles.length > 0) {

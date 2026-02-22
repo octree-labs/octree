@@ -3,10 +3,10 @@ import {
   Button,
   Container,
   Head,
-  Hr,
   Html,
   Link,
   Preview,
+  Section,
   Text,
 } from '@react-email/components';
 
@@ -22,22 +22,37 @@ export function WelcomeEmail({ email, unsubscribeUrl }: WelcomeEmailProps) {
       <Preview>Welcome to Octree</Preview>
       <Body style={body}>
         <Container style={container}>
-          <Text style={heading}>Welcome to Octree 🌳</Text>
-          <Text style={paragraph}>
-            Your account is ready. Start writing LaTeX documents with AI
-            assistance — create a project and let Octree handle the rest.
-          </Text>
-          <Button href="https://useoctree.online" style={button}>
-            Open Octree →
-          </Button>
-          <Text style={paragraph}>— Basil</Text>
-          <Hr style={hr} />
-          <Text style={footer}>
-            You're receiving this because you signed up with {email}.{' '}
-            <Link href={unsubscribeUrl} style={footerLink}>
-              Unsubscribe
-            </Link>
-          </Text>
+          <Section style={content}>
+            <Text style={heading}>Welcome aboard!</Text>
+            <Text style={paragraph}>
+              Your account is ready. Octree brings AI assistance to LaTeX writing, letting you focus on your ideas instead of syntax.
+            </Text>
+
+            <Text style={paragraph}>
+              Here's how to get started:
+            </Text>
+
+            <Text style={listItem}>• Create your first project</Text>
+            <Text style={listItem}>• Let AI generate or refine your equations</Text>
+            <Text style={listItem}>• Compile directly to PDF</Text>
+
+            <Section style={buttonContainer}>
+              <Button href="https://useoctree.online" style={button}>
+                Open your dashboard
+              </Button>
+            </Section>
+
+            <Text style={signer}>— The Octree Team</Text>
+          </Section>
+
+          <Section style={footer}>
+            <Text style={footerText}>
+              Sent to {email}.{' '}
+              <Link href={unsubscribeUrl} style={footerLink}>
+                Unsubscribe
+              </Link>
+            </Text>
+          </Section>
         </Container>
       </Body>
     </Html>
@@ -46,53 +61,76 @@ export function WelcomeEmail({ email, unsubscribeUrl }: WelcomeEmailProps) {
 
 const body: React.CSSProperties = {
   backgroundColor: '#ffffff',
-  fontFamily:
-    '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+  padding: '40px 0',
 };
 
 const container: React.CSSProperties = {
-  maxWidth: '560px',
+  maxWidth: '480px',
   margin: '0 auto',
-  padding: '40px 24px',
+};
+
+
+
+const content: React.CSSProperties = {
+  padding: '0',
 };
 
 const heading: React.CSSProperties = {
-  fontSize: '20px',
+  fontSize: '24px',
   fontWeight: '600',
-  color: '#111827',
+  color: '#0a0a0a',
+  letterSpacing: '-0.5px',
   margin: '0 0 16px',
 };
 
 const paragraph: React.CSSProperties = {
   fontSize: '15px',
   lineHeight: '1.6',
-  color: '#374151',
+  color: '#52525b',
   margin: '0 0 16px',
 };
 
-const button: React.CSSProperties = {
-  backgroundColor: '#000000',
-  color: '#ffffff',
-  padding: '12px 24px',
-  borderRadius: '6px',
-  fontSize: '14px',
-  fontWeight: '500',
-  textDecoration: 'none',
-  display: 'inline-block',
-  margin: '0 0 24px',
+const listItem: React.CSSProperties = {
+  fontSize: '15px',
+  color: '#52525b',
+  margin: '8px 0',
 };
 
-const hr: React.CSSProperties = {
-  borderColor: '#e5e7eb',
-  margin: '24px 0',
+const buttonContainer: React.CSSProperties = {
+  marginTop: '24px',
+  marginBottom: '24px',
+};
+
+const button: React.CSSProperties = {
+  backgroundColor: '#1E66FF',
+  color: '#ffffff',
+  padding: '12px 24px',
+  borderRadius: '8px',
+  fontSize: '14px',
+  fontWeight: '600',
+  textDecoration: 'none',
+  display: 'inline-block',
+};
+
+const signer: React.CSSProperties = {
+  fontSize: '15px',
+  color: '#52525b',
+  margin: '0',
+  paddingTop: '32px',
 };
 
 const footer: React.CSSProperties = {
-  fontSize: '12px',
-  color: '#9ca3af',
+  padding: '48px 0 0',
+};
+
+const footerText: React.CSSProperties = {
+  fontSize: '13px',
+  color: '#a1a1aa',
   margin: '0',
 };
 
 const footerLink: React.CSSProperties = {
-  color: '#9ca3af',
+  color: '#71717a',
+  textDecoration: 'underline',
 };

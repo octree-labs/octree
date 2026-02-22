@@ -3,7 +3,7 @@ import { render } from '@react-email/render';
 import { resend, FROM_ADDRESS } from './client';
 import { WelcomeEmail } from './templates/welcome';
 import { SignInEmail } from './templates/sign-in';
-import { TrialStartedEmail } from './templates/trial-started';
+
 import { ReEngagementEmail } from './templates/re-engagement';
 import { generateUnsubscribeUrl } from './unsubscribe';
 
@@ -55,25 +55,7 @@ export async function sendSignInEmail(email: string): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
-export async function sendTrialStartedEmail(
-  email: string,
-  trialEndsAt: Date
-): Promise<void> {
-  if (await isSuppressed(email)) return;
-  const { error } = await resend.emails.send({
-    from: FROM_ADDRESS,
-    to: email,
-    subject: 'Your Octree Pro trial has started',
-    html: await render(
-      TrialStartedEmail({
-        email,
-        trialEndsAt,
-        unsubscribeUrl: generateUnsubscribeUrl(email),
-      })
-    ),
-  });
-  if (error) throw new Error(error.message);
-}
+
 
 export async function sendReEngagementEmail(email: string): Promise<void> {
   if (await isSuppressed(email)) return;

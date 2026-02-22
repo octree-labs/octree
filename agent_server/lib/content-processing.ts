@@ -230,6 +230,7 @@ IMPORTANT RULES:
 - Include enough context in old_string to make it unique
 - For multi-line edits, include the full block of lines
 - Make one edit tool call per change (you can make multiple calls for multiple changes)
+- Each edit is applied immediately — subsequent edits must use old_string values that reflect prior changes, not the original file
 ${multiFileInstructions}${sessionContext}
 
 EXAMPLES:

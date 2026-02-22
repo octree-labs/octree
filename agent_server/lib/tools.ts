@@ -23,6 +23,40 @@ export interface ToolContext {
 }
 
 /**
+ * Apply a string edit to the context, mutating fileContent or the matching
+ * projectFiles entry in place so subsequent reads see the current state.
+ */
+function applyEditToContext(edit: StringEdit, context: ToolContext) {
+  const isCurrentFile = !edit.file_path || edit.file_path === context.currentFilePath;
+
+  if (isCurrentFile) {
+    if (edit.old_string === '') {
+      context.fileContent += edit.new_string;
+    } else {
+      const idx = context.fileContent.indexOf(edit.old_string);
+      if (idx !== -1) {
+        context.fileContent = context.fileContent.slice(0, idx) + edit.new_string + context.fileContent.slice(idx + edit.old_string.length);
+      }
+    }
+    // Keep numberedContent in sync so get_context returns correct line numbers
+    const lines = context.fileContent.split('\n');
+    context.numberedContent = lines.map((line, idx) => `${idx + 1}: ${line}`).join('\n');
+  } else {
+    const file = context.projectFiles?.find(f => f.path === edit.file_path);
+    if (file) {
+      if (edit.old_string === '') {
+        file.content += edit.new_string;
+      } else {
+        const idx = file.content.indexOf(edit.old_string);
+        if (idx !== -1) {
+          file.content = file.content.slice(0, idx) + edit.new_string + file.content.slice(idx + edit.old_string.length);
+        }
+      }
+    }
+  }
+}
+
+/**
  * Create all tools for the Vercel AI SDK agent
  */
 export function createOctraTools(context: ToolContext) {
@@ -44,7 +78,11 @@ export function createOctraTools(context: ToolContext) {
           );
 
           if (requestedFile) {
-            const lines = requestedFile.content.split('\n');
+            // Use the mutated fileContent for the current file
+            const content = requestedFile.path === context.currentFilePath
+              ? context.fileContent
+              : requestedFile.content;
+            const lines = content.split('\n');
             const numberedContent = lines.map((line, idx) => `${idx + 1}: ${line}`).join('\n');
 
             context.writeEvent('tool', { name: 'get_context', file: requestedFile.path });
@@ -74,11 +112,16 @@ export function createOctraTools(context: ToolContext) {
           payload.selectionRange = context.selectionRange;
         }
         if (context.projectFiles?.length) {
-          payload.availableFiles = context.projectFiles.map((file) => ({
-            path: file.path,
-            lineCount: file.content.split('\n').length,
-            isCurrent: context.currentFilePath ? context.currentFilePath === file.path : false,
-          }));
+          payload.availableFiles = context.projectFiles.map((file) => {
+            const content = file.path === context.currentFilePath
+              ? context.fileContent
+              : file.content;
+            return {
+              path: file.path,
+              lineCount: content.split('\n').length,
+              isCurrent: context.currentFilePath ? context.currentFilePath === file.path : false,
+            };
+          });
         }
         context.writeEvent('tool', { name: 'get_context' });
         return JSON.stringify(payload);
@@ -112,9 +155,11 @@ export function createOctraTools(context: ToolContext) {
               f.path.endsWith(`/${edit.file_path}`)
           );
           if (targetFile) {
-            targetContent = targetFile.content;
-            // Normalize file_path to the canonical path
             edit.file_path = targetFile.path;
+            // Use context.fileContent for the current file (it's the mutated copy)
+            targetContent = targetFile.path === context.currentFilePath
+              ? context.fileContent
+              : targetFile.content;
           }
         }
 
@@ -125,8 +170,10 @@ export function createOctraTools(context: ToolContext) {
           return `Edit validation failed: ${validation.error}`;
         }
 
-        // Collect the edit
+        // Collect the edit and update context so subsequent edits validate
+        // against the current content (not the original snapshot)
         context.collectedEdits.push(edit);
+        applyEditToContext(edit, context);
 
         // Emit events
         context.writeEvent('tool', {
@@ -148,42 +195,19 @@ export function createOctraTools(context: ToolContext) {
           return JSON.stringify({ success: false, error: 'Compile service not configured' });
         }
 
-        // Apply collected edits to get current file contents
         const currentPath = context.currentFilePath || 'main.tex';
-        const fileContents = new Map<string, string>();
 
-        // Start with original contents
-        fileContents.set(currentPath, context.fileContent);
+        // Build files payload from context (already up-to-date via applyEditToContext)
+        const files: { path: string; content: string }[] = [
+          { path: currentPath, content: context.fileContent },
+        ];
+        const seen = new Set<string>([currentPath]);
         for (const file of context.projectFiles || []) {
-          if (file.path !== currentPath) {
-            fileContents.set(file.path, file.content);
+          if (!seen.has(file.path)) {
+            seen.add(file.path);
+            files.push({ path: file.path, content: file.content });
           }
         }
-
-        // Apply all collected edits
-        for (const edit of context.collectedEdits) {
-          const targetPath = edit.file_path || currentPath;
-          const content = fileContents.get(targetPath);
-          if (content === undefined) continue;
-
-          if (edit.old_string === '') {
-            fileContents.set(targetPath, content + edit.new_string);
-          } else {
-            const idx = content.indexOf(edit.old_string);
-            if (idx !== -1) {
-              fileContents.set(
-                targetPath,
-                content.slice(0, idx) + edit.new_string + content.slice(idx + edit.old_string.length)
-              );
-            }
-          }
-        }
-
-        // Build files payload
-        const files = Array.from(fileContents.entries()).map(([path, content]) => ({
-          path,
-          content,
-        }));
 
         try {
           const controller = new AbortController();

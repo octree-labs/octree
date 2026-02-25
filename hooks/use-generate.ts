@@ -467,16 +467,16 @@ export function useGenerate(options: UseGenerateOptions = {}) {
           if (isAbort) {
             status = 'error';
             
-            if (isContinuation) {
+            if (isContinuation && currentDocument?.latex) {
               finalAssistantContent = 'Generation cancelled. Here is the last complete document';
-              finalLatex = currentDocument?.latex || null;
+              finalLatex = currentDocument.latex;
             } else {
               finalAssistantContent = 'Generation cancelled.';
-              finalLatex = '';
+              finalLatex = isContinuation ? (currentDocument?.latex || null) : '';
             }
           } else {
             status = 'error';
-            finalAssistantContent = isContinuation 
+            finalAssistantContent = (isContinuation && currentDocument?.latex)
                 ? 'Generation failed. Here is the last complete document.'
                 : 'Generation failed.';
             

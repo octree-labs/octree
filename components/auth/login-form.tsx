@@ -45,6 +45,11 @@ export function LoginForm({
         password,
       });
       if (error) throw error;
+      fetch('/api/email/events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'user/signed-in' }),
+      }).catch(() => {});
       router.push(nextPath);
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : 'An error occurred');

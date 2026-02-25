@@ -40,15 +40,7 @@ export function useGenerate(options: UseGenerateOptions = {}) {
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (error) {
-      const timer = setTimeout(() => {
-        setError(null);
-      }, 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [error]);
+  const lastAttemptRef = useRef<{ prompt: string; files: AttachedFile[] } | null>(null);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -128,6 +120,7 @@ export function useGenerate(options: UseGenerateOptions = {}) {
     setError(null);
     setPrompt('');
     setAttachedFiles([]);
+    lastAttemptRef.current = null;
   }, []);
 
   const restoreSession = useCallback((doc: GeneratedDocument) => {
@@ -164,6 +157,15 @@ export function useGenerate(options: UseGenerateOptions = {}) {
       ];
     }
 
+    if (doc.status === 'error' && doc.last_user_prompt) {
+      lastAttemptRef.current = {
+        prompt: doc.last_user_prompt,
+        files: [],
+      };
+    } else {
+      lastAttemptRef.current = null;
+    }
+
     setCurrentDocument(doc);
     setMessages(restoredMessages);
     setError(null);
@@ -181,8 +183,11 @@ export function useGenerate(options: UseGenerateOptions = {}) {
     });
   }, []);
 
-  const generateDocument = useCallback(async () => {
-    if (!prompt.trim() || isGenerating) return;
+  const generateDocument = useCallback(async (retryOptions?: { prompt: string; files: AttachedFile[] }) => {
+    const promptToUse = retryOptions?.prompt ?? prompt;
+    const filesToUse = retryOptions?.files ?? attachedFiles;
+
+    if (!promptToUse.trim() || isGenerating) return;
     if (!userId) {
       setError('Please log in to generate documents.');
       return;
@@ -194,9 +199,9 @@ export function useGenerate(options: UseGenerateOptions = {}) {
       resetState();
     }
 
-    const userPrompt = prompt.trim();
+    const userPrompt = promptToUse.trim();
     const documentId = isContinuation ? currentDocument.id : crypto.randomUUID();
-    const filesToSend = [...attachedFiles];
+    const filesToSend = [...filesToUse];
 
     const totalSize = filesToSend.reduce((sum, f) => sum + f.file.size, 0);
     if (totalSize > MAX_FILE_SIZE) {
@@ -225,11 +230,16 @@ export function useGenerate(options: UseGenerateOptions = {}) {
     };
 
     setMessages((prev) => [...prev, userMessage, assistantMessage]);
-    setPrompt('');
+    
+    if (!retryOptions) {
+      lastAttemptRef.current = { prompt: userPrompt, files: filesToSend };
+      setPrompt('');
+      setAttachedFiles([]);
+    }
+
     setIsGenerating(true);
     setGenerationMilestone('started');
     setError(null);
-    setAttachedFiles([]);
 
     let persistentUserMessage = userMessage;
 
@@ -441,6 +451,7 @@ export function useGenerate(options: UseGenerateOptions = {}) {
           };
           setCurrentDocument(prev => prev ? { ...prev, ...updates } : prev);
           GenerateActions.updateDocument(documentId, updates);
+          lastAttemptRef.current = null;
           onDocumentCreated?.(documentId);
         }
       }
@@ -456,16 +467,18 @@ export function useGenerate(options: UseGenerateOptions = {}) {
           if (isAbort) {
             status = 'error';
             
-            if (isContinuation) {
+            if (isContinuation && currentDocument?.latex) {
               finalAssistantContent = 'Generation cancelled. Here is the last complete document';
-              finalLatex = currentDocument?.latex || null;
+              finalLatex = currentDocument.latex;
             } else {
               finalAssistantContent = 'Generation cancelled.';
-              finalLatex = '';
+              finalLatex = isContinuation ? (currentDocument?.latex || null) : '';
             }
           } else {
             status = 'error';
-            finalAssistantContent = streamedContent || 'Generation failed.';
+            finalAssistantContent = (isContinuation && currentDocument?.latex)
+                ? 'Generation failed. Here is the last complete document.'
+                : 'Generation failed.';
             
             let partialLatex = isContinuation ? currentDocument?.latex : null;
             if (streamedContent) {
@@ -520,7 +533,6 @@ export function useGenerate(options: UseGenerateOptions = {}) {
       if (isAbort) return;
       
       setError(msg);
-      updateLastMessage((m) => (m.content = `Error: ${msg}`));
     } finally {
       setIsGenerating(false);
       setGenerationMilestone('started');
@@ -537,6 +549,12 @@ export function useGenerate(options: UseGenerateOptions = {}) {
     updateLastMessage,
     onDocumentCreated,
   ]);
+
+  const retry = useCallback(() => {
+    if (lastAttemptRef.current) {
+      generateDocument(lastAttemptRef.current);
+    }
+  }, [generateDocument]);
 
   return {
     prompt,
@@ -558,6 +576,8 @@ export function useGenerate(options: UseGenerateOptions = {}) {
     restoreSession,
     currentDocument,
     generationMilestone,
+    retry,
+    canRetry: !!lastAttemptRef.current,
   };
 }
 

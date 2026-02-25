@@ -11,6 +11,8 @@ import {
   Image as ImageIcon,
   File as FileIcon,
   Square,
+  RotateCcw,
+  AlertCircle,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -157,6 +159,8 @@ export function GeneratePageContent({
     restoreSession,
     currentDocument,
     generationMilestone,
+    retry,
+    canRetry,
   } = useGenerate({ onDocumentCreated: handleDocumentCreated });
 
   const scrollRef = useAutoScroll<HTMLDivElement>();
@@ -281,21 +285,6 @@ export function GeneratePageContent({
             className="relative flex-1 overflow-y-auto"
             data-onboarding-target="generate-welcome"
           >
-            {error && (
-              <div className="sticky top-0 z-50 p-4">
-                <Card className="mx-auto max-w-3xl relative border-destructive bg-destructive/10 p-3 pr-10 shadow-lg">
-                  <p className="text-sm text-destructive">{error}</p>
-                  <button
-                    type="button"
-                    onClick={() => setError(null)}
-                    className="absolute right-2 top-2 rounded-md p-1 hover:bg-destructive/20"
-                  >
-                    <X className="h-4 w-4 text-destructive" />
-                  </button>
-                </Card>
-              </div>
-            )}
-
             {initialDocument && currentSessionId.current !== initialDocument.id ? (
               <ChatSkeleton />
             ) : !messages.length ? (
@@ -310,12 +299,17 @@ export function GeneratePageContent({
                       isGenerating &&
                       !message.content.startsWith(SUCCESS_MESSAGE_PREFIX) &&
                       !error;
+                    
+                    const isLastMessage = index === messages.length - 1;
+
                     return (
                       <MessageBubble
                         key={message.id}
                         message={message}
                         isStreaming={isLastAssistantStreaming}
                         generationMilestone={isLastAssistantStreaming ? generationMilestone : undefined}
+                        onRetry={isLastMessage ? retry : undefined}
+                        canRetry={isLastMessage ? canRetry : false}
                       />
                     );
                   })}

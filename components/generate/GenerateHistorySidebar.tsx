@@ -73,7 +73,6 @@ export function GenerateHistorySidebar() {
 
     const handleSelect = (doc: GeneratedDocument) => {
         if (editingId) return;
-        if (!doc.latex) return;
         
         if (isMobile) {
             setOpenMobile(false);

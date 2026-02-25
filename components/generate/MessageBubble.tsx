@@ -1,7 +1,8 @@
 import { useRef, useEffect, useState } from 'react';
-import { FileText, Check, Copy, AlertCircle } from 'lucide-react';
+import { FileText, Check, Copy, AlertCircle, RotateCcw } from 'lucide-react';
 import { MonacoEditor } from '@/components/editor/monaco-editor';
 import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import {
   GenerationProgressTracker,
   type GenerationMilestone,
@@ -10,6 +11,7 @@ import type monaco from 'monaco-editor';
 
 const SUCCESS_MESSAGE_PREFIX = 'Document generated successfully.';
 const CANCELLED_MESSAGE_PREFIX = 'Generation cancelled.';
+const FAILED_MESSAGE_PREFIX = 'Generation failed.';
 
 export interface MessageAttachment {
     id: string;
@@ -29,12 +31,14 @@ interface MessageBubbleProps {
     message: Message;
     isStreaming?: boolean;
     generationMilestone?: GenerationMilestone;
+    onRetry?: () => void;
+    canRetry?: boolean;
 }
 
-export function MessageBubble({ message, isStreaming, generationMilestone }: MessageBubbleProps) {
+export function MessageBubble({ message, isStreaming, generationMilestone, onRetry, canRetry }: MessageBubbleProps) {
     const isUser = message.role === 'user';
     const isCompletionMessage = message.content.startsWith(SUCCESS_MESSAGE_PREFIX);
-    const isCancelledMessage = message.content.startsWith(CANCELLED_MESSAGE_PREFIX);
+    const isCancelledMessage = message.content.startsWith(CANCELLED_MESSAGE_PREFIX) || message.content.startsWith(FAILED_MESSAGE_PREFIX);
     const [isCopied, setIsCopied] = useState(false);
 
     const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -120,11 +124,22 @@ export function MessageBubble({ message, isStreaming, generationMilestone }: Mes
 
     if (isCancelledMessage) {
         return (
-            <div className="flex w-full justify-start">
+            <div className="flex w-full flex-col items-start gap-2">
                 <div className="flex items-center gap-2 rounded-md bg-muted/50 px-4 py-3 text-sm text-muted-foreground">
                     <AlertCircle className="h-4 w-4 text-orange-600" />
                     <span>{message.content}</span>
                 </div>
+                {canRetry && onRetry && (
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={onRetry}
+                        className="ml-1 h-8 gap-2 text-xs text-muted-foreground hover:text-foreground"
+                    >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                        Regenerate
+                    </Button>
+                )}
             </div>
         );
     }

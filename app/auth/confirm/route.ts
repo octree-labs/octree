@@ -1,9 +1,8 @@
 import { type EmailOtpType } from '@supabase/supabase-js';
 import { type NextRequest } from 'next/server';
-import { redirect } from 'next/navigation';
 
 import { createClient } from '@/lib/supabase/server';
-import { inngest } from '@/lib/inngest/client';
+import { redirect } from 'next/navigation';
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -14,29 +13,17 @@ export async function GET(request: NextRequest) {
   if (token_hash && type) {
     const supabase = await createClient();
 
-    const {
-      data: { user },
-      error,
-    } = await supabase.auth.verifyOtp({
+    const { error } = await supabase.auth.verifyOtp({
       type,
       token_hash,
     });
 
     if (!error) {
-      if (user?.email && user?.id) {
-        try {
-          await inngest.send({
-            name: 'user/confirmed',
-            data: { email: user.email, userId: user.id },
-          });
-        } catch {
-          // non-fatal — auth flow must not be blocked by email errors
-        }
-      }
-
+      // redirect user to onboarding or specified redirect URL
       redirect(next);
     }
   }
 
+  // redirect the user to an error page with some instructions
   redirect('/error');
 }

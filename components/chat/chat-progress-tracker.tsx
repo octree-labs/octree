@@ -6,18 +6,19 @@ import { Check, Loader2, X, ChevronDown, ChevronRight } from 'lucide-react';
 import { ProposalIndicator as ProposalIndicatorType } from './use-edit-proposals';
 import { DiffViewer } from '../ui/diff-viewer';
 import type { EditSuggestion } from '@/types/edit';
+import type { ContentSegmentData } from './chat-message';
+
+interface RenderedSegment extends ContentSegmentData {
+  renderedContent: ReactNode;
+}
 
 interface ChatProgressTrackerProps {
   hasContent: boolean;
   isLoading: boolean;
   proposalIndicator?: ProposalIndicatorType;
   hasGetContext?: boolean;
-  /** Text generated before first tool call (after Thinking) */
-  thinkingContent?: ReactNode;
-  /** Text generated between context and edit tools */
-  contextContent?: ReactNode;
-  /** Text generated after all tool calls (before Done) */
-  finalContent?: ReactNode;
+  /** Ordered segments of text and tool boundaries */
+  segments: RenderedSegment[];
   /** Accepted edit suggestions to show in collapsible "Edits applied" */
   acceptedEdits?: EditSuggestion[];
 }
@@ -222,14 +223,280 @@ function ContentSegment({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * Build an ordered render list from segments and proposal state.
+ *
+ * The render list interleaves text content with step indicators, so that
+ * text between multiple edit rounds is never lost when new boundaries arrive.
+ */
+type RenderItem =
+  | { kind: 'step'; step: Step; hasConnector: boolean }
+  | { kind: 'applied-edits'; step: Step; hasConnector: boolean; edits: EditSuggestion[] }
+  | { kind: 'content'; content: ReactNode; key: string };
+
+function buildRenderList(
+  segments: RenderedSegment[],
+  proposalIndicator: ProposalIndicatorType | undefined,
+  hasGetContext: boolean | undefined,
+  hasContent: boolean,
+  isLoading: boolean,
+  completedEditRounds: number,
+  acceptedEdits: EditSuggestion[]
+): RenderItem[] {
+  const items: RenderItem[] = [];
+  const hasProposals = !!proposalIndicator;
+  const hasAnyProgress = hasGetContext || hasContent || hasProposals;
+
+  // --- Thinking step (always first) ---
+  items.push({
+    kind: 'step',
+    step: {
+      id: 'thinking',
+      label: 'Thinking',
+      status: hasAnyProgress ? 'completed' : 'in-progress',
+    },
+    hasConnector: false, // will be fixed up at the end
+  });
+
+  // --- Walk segments in order ---
+  let editRoundIndex = 0;
+  // Track whether we've seen a context boundary group already
+  let contextStepEmitted = false;
+
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
+
+    if (seg.type === 'text' && seg.renderedContent) {
+      items.push({ kind: 'content', content: seg.renderedContent, key: `text-${i}` });
+    } else if (seg.type === 'tool-boundary') {
+      if (seg.toolName === 'get_context') {
+        // Emit context step only once, even if there are multiple get_context boundaries
+        if (!contextStepEmitted) {
+          contextStepEmitted = true;
+          items.push({
+            kind: 'step',
+            step: {
+              id: 'getting-context',
+              label: 'Getting context',
+              status: hasContent || hasProposals ? 'completed' : 'in-progress',
+            },
+            hasConnector: false,
+          });
+        }
+      } else if (seg.toolName === 'edit') {
+        // Check if this edit boundary is part of a completed round or current
+        const isCurrentRound = editRoundIndex >= completedEditRounds;
+        if (!isCurrentRound) {
+          // Completed round: proposing + applied
+          items.push({
+            kind: 'step',
+            step: {
+              id: `proposing-${editRoundIndex}`,
+              label: 'Proposing edits',
+              status: 'completed',
+            },
+            hasConnector: false,
+          });
+          if (acceptedEdits.length > 0) {
+            items.push({
+              kind: 'applied-edits',
+              step: {
+                id: `applied-${editRoundIndex}`,
+                label: 'Edits applied',
+                status: 'completed',
+              },
+              hasConnector: false,
+              edits: acceptedEdits,
+            });
+          } else {
+            items.push({
+              kind: 'step',
+              step: {
+                id: `applied-${editRoundIndex}`,
+                label: 'Edits applied',
+                status: 'completed',
+              },
+              hasConnector: false,
+            });
+          }
+          editRoundIndex++;
+        } else {
+          // Current/active round
+          if (proposalIndicator?.state === 'pending') {
+            items.push({
+              kind: 'step',
+              step: {
+                id: 'proposing-current',
+                label: 'Proposing edits',
+                status: 'in-progress',
+              },
+              hasConnector: false,
+            });
+          } else if (proposalIndicator?.state === 'success') {
+            items.push({
+              kind: 'step',
+              step: {
+                id: `proposing-${editRoundIndex}`,
+                label: 'Proposing edits',
+                status: 'completed',
+              },
+              hasConnector: false,
+            });
+            if (acceptedEdits.length > 0) {
+              items.push({
+                kind: 'applied-edits',
+                step: {
+                  id: `applied-${editRoundIndex}`,
+                  label: 'Edits applied',
+                  status: 'completed',
+                },
+                hasConnector: false,
+                edits: acceptedEdits,
+              });
+            } else {
+              items.push({
+                kind: 'step',
+                step: {
+                  id: `applied-${editRoundIndex}`,
+                  label: 'Edits applied',
+                  status: 'completed',
+                },
+                hasConnector: false,
+              });
+            }
+          } else if (proposalIndicator?.state === 'error') {
+            items.push({
+              kind: 'step',
+              step: { id: 'error', label: 'Error', status: 'error' },
+              hasConnector: false,
+            });
+          }
+          editRoundIndex++;
+        }
+      }
+      // compile_success and other tool boundaries are noted but don't need step rows
+    }
+  }
+
+  // If proposalIndicator exists but no edit boundaries were in segments yet
+  // (can happen when tool event fires before any text arrives),
+  // emit the edit steps that weren't covered
+  if (proposalIndicator && editRoundIndex === 0) {
+    if (proposalIndicator.state === 'pending') {
+      for (let i = 0; i < completedEditRounds; i++) {
+        items.push({
+          kind: 'step',
+          step: { id: `proposing-${i}`, label: 'Proposing edits', status: 'completed' },
+          hasConnector: false,
+        });
+        if (acceptedEdits.length > 0) {
+          items.push({
+            kind: 'applied-edits',
+            step: { id: `applied-${i}`, label: 'Edits applied', status: 'completed' },
+            hasConnector: false,
+            edits: acceptedEdits,
+          });
+        } else {
+          items.push({
+            kind: 'step',
+            step: { id: `applied-${i}`, label: 'Edits applied', status: 'completed' },
+            hasConnector: false,
+          });
+        }
+      }
+      items.push({
+        kind: 'step',
+        step: { id: 'proposing-current', label: 'Proposing edits', status: 'in-progress' },
+        hasConnector: false,
+      });
+    } else if (proposalIndicator.state === 'success') {
+      const totalRounds = Math.max(completedEditRounds, 1);
+      for (let i = 0; i < totalRounds; i++) {
+        items.push({
+          kind: 'step',
+          step: { id: `proposing-${i}`, label: 'Proposing edits', status: 'completed' },
+          hasConnector: false,
+        });
+        if (acceptedEdits.length > 0) {
+          items.push({
+            kind: 'applied-edits',
+            step: { id: `applied-${i}`, label: 'Edits applied', status: 'completed' },
+            hasConnector: false,
+            edits: acceptedEdits,
+          });
+        } else {
+          items.push({
+            kind: 'step',
+            step: { id: `applied-${i}`, label: 'Edits applied', status: 'completed' },
+            hasConnector: false,
+          });
+        }
+      }
+    } else if (proposalIndicator.state === 'error') {
+      for (let i = 0; i < completedEditRounds; i++) {
+        items.push({
+          kind: 'step',
+          step: { id: `proposing-${i}`, label: 'Proposing edits', status: 'completed' },
+          hasConnector: false,
+        });
+        if (acceptedEdits.length > 0) {
+          items.push({
+            kind: 'applied-edits',
+            step: { id: `applied-${i}`, label: 'Edits applied', status: 'completed' },
+            hasConnector: false,
+            edits: acceptedEdits,
+          });
+        } else {
+          items.push({
+            kind: 'step',
+            step: { id: `applied-${i}`, label: 'Edits applied', status: 'completed' },
+            hasConnector: false,
+          });
+        }
+      }
+      items.push({
+        kind: 'step',
+        step: { id: 'error', label: 'Error', status: 'error' },
+        hasConnector: false,
+      });
+    }
+  }
+
+  // --- Thinking gap (while loading, at the end) ---
+  if (isLoading && hasAnyProgress) {
+    items.push({
+      kind: 'step',
+      step: { id: 'thinking-gap', label: 'Thinking', status: 'in-progress' },
+      hasConnector: false,
+    });
+  }
+
+  // --- Done step ---
+  if (!isLoading && proposalIndicator?.state !== 'error' && hasAnyProgress) {
+    items.push({
+      kind: 'step',
+      step: { id: 'done', label: 'Done', status: 'completed' },
+      hasConnector: false,
+    });
+  }
+
+  // --- Fix up connector lines: each step/applied-edits has a connector if something follows ---
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    if (item.kind === 'step' || item.kind === 'applied-edits') {
+      item.hasConnector = i < items.length - 1;
+    }
+  }
+
+  return items;
+}
+
 export function ChatProgressTracker({
   hasContent,
   isLoading,
   proposalIndicator,
   hasGetContext,
-  thinkingContent,
-  contextContent,
-  finalContent,
+  segments,
   acceptedEdits = [],
 }: ChatProgressTrackerProps) {
   const [completedEditRounds, setCompletedEditRounds] = useState(0);
@@ -246,166 +513,40 @@ export function ChatProgressTracker({
     prevProposalStateRef.current = currentState;
   }, [proposalIndicator?.state]);
 
-  // Build steps — use any signal of progress to advance the timeline
-  const hasProposals = !!proposalIndicator;
-  const hasAnyProgress = hasGetContext || hasContent || hasProposals;
-
-  const thinkingStep: Step = {
-    id: 'thinking',
-    label: 'Thinking',
-    status: hasAnyProgress ? 'completed' : 'in-progress',
-  };
-
-  const contextStep: Step | null = hasGetContext
-    ? {
-        id: 'getting-context',
-        label: 'Getting context',
-        status: hasContent || hasProposals ? 'completed' : 'in-progress',
-      }
-    : null;
-
-  // Edit steps show as soon as proposalIndicator is set (don't wait for text content)
-  const editSteps: Step[] = [];
-  if (proposalIndicator?.state === 'pending') {
-    for (let i = 0; i < completedEditRounds; i++) {
-      editSteps.push({
-        id: `proposing-${i}`,
-        label: 'Proposing edits',
-        status: 'completed',
-      });
-      editSteps.push({
-        id: `applied-${i}`,
-        label: 'Edits applied',
-        status: 'completed',
-      });
-    }
-    editSteps.push({
-      id: 'proposing-current',
-      label: 'Proposing edits',
-      status: 'in-progress',
-    });
-  } else if (proposalIndicator?.state === 'success') {
-    const totalRounds = Math.max(completedEditRounds, 1);
-    for (let i = 0; i < totalRounds; i++) {
-      editSteps.push({
-        id: `proposing-${i}`,
-        label: 'Proposing edits',
-        status: 'completed',
-      });
-      editSteps.push({
-        id: `applied-${i}`,
-        label: 'Edits applied',
-        status: 'completed',
-      });
-    }
-  } else if (proposalIndicator?.state === 'error') {
-    for (let i = 0; i < completedEditRounds; i++) {
-      editSteps.push({
-        id: `proposing-${i}`,
-        label: 'Proposing edits',
-        status: 'completed',
-      });
-      editSteps.push({
-        id: `applied-${i}`,
-        label: 'Edits applied',
-        status: 'completed',
-      });
-    }
-    editSteps.push({ id: 'error', label: 'Error', status: 'error' });
-  }
-
-  // Thinking at the end — always the last thing shown while loading
-  const hasThinkingContent = !!thinkingContent;
-  const hasContextContent = !!contextContent;
-  const thinkingGapStep: Step | null =
-    isLoading && hasAnyProgress
-      ? { id: 'thinking-gap', label: 'Thinking', status: 'in-progress' }
-      : null;
-
-  const doneStep: Step | null =
-    !isLoading && proposalIndicator?.state !== 'error' && hasAnyProgress
-      ? { id: 'done', label: 'Done', status: 'completed' }
-      : null;
-
-  // Determine what comes after each section for connector lines
-  const hasFinalContent = !!finalContent;
-  const hasEditSteps = editSteps.length > 0;
-  const hasThinkingGap = !!thinkingGapStep;
-  const hasDone = !!doneStep;
-
-  const afterThinking =
-    hasThinkingContent ||
-    !!contextStep ||
-    hasContextContent ||
-    hasEditSteps ||
-    hasFinalContent ||
-    hasThinkingGap ||
-    hasDone;
-  const afterContext =
-    hasContextContent ||
-    hasThinkingGap ||
-    hasEditSteps ||
-    hasFinalContent ||
-    hasDone;
-  const afterEdits = hasFinalContent || hasDone;
+  const renderItems = buildRenderList(
+    segments,
+    proposalIndicator,
+    hasGetContext,
+    hasContent,
+    isLoading,
+    completedEditRounds,
+    acceptedEdits
+  );
 
   return (
     <div role="status" aria-live="polite">
-      {/* Thinking step — loads then ticks */}
-      <ol className="m-0 flex list-none flex-col p-0">
-        <StepRow step={thinkingStep} hasConnector={afterThinking} />
-      </ol>
-
-      {/* Text after thinking (before context/edit tools) */}
-      {hasThinkingContent && <ContentSegment>{thinkingContent}</ContentSegment>}
-
-      {/* Getting context step */}
-      {contextStep && (
-        <ol className="m-0 flex list-none flex-col p-0">
-          <StepRow step={contextStep} hasConnector={afterContext} />
-        </ol>
-      )}
-
-      {/* Text after context tools (before edit tools) */}
-      {hasContextContent && <ContentSegment>{contextContent}</ContentSegment>}
-
-      {/* Edit steps */}
-      {hasEditSteps && (
-        <ol className="m-0 flex list-none flex-col p-0">
-          {editSteps.map((step, index) => {
-            const isAppliedStep = step.id.startsWith('applied-');
-            const hasConn = index < editSteps.length - 1 || afterEdits;
-            if (isAppliedStep && acceptedEdits.length > 0) {
-              return (
-                <AppliedEditsRow
-                  key={step.id}
-                  step={step}
-                  hasConnector={hasConn}
-                  edits={acceptedEdits}
-                />
-              );
-            }
-            return <StepRow key={step.id} step={step} hasConnector={hasConn} />;
-          })}
-        </ol>
-      )}
-
-      {/* Text after edit tools (final response) */}
-      {hasFinalContent && <ContentSegment>{finalContent}</ContentSegment>}
-
-      {/* Thinking gap — always at the very end while loading */}
-      {thinkingGapStep && (
-        <ol className="m-0 flex list-none flex-col p-0">
-          <StepRow step={thinkingGapStep} hasConnector={false} />
-        </ol>
-      )}
-
-      {/* Done step */}
-      {doneStep && (
-        <ol className="m-0 flex list-none flex-col p-0">
-          <StepRow step={doneStep} hasConnector={false} />
-        </ol>
-      )}
+      {renderItems.map((item) => {
+        if (item.kind === 'content') {
+          return <ContentSegment key={item.key}>{item.content}</ContentSegment>;
+        }
+        if (item.kind === 'applied-edits') {
+          return (
+            <ol key={item.step.id} className="m-0 flex list-none flex-col p-0">
+              <AppliedEditsRow
+                step={item.step}
+                hasConnector={item.hasConnector}
+                edits={item.edits}
+              />
+            </ol>
+          );
+        }
+        // kind === 'step'
+        return (
+          <ol key={item.step.id} className="m-0 flex list-none flex-col p-0">
+            <StepRow step={item.step} hasConnector={item.hasConnector} />
+          </ol>
+        );
+      })}
 
       {/* Error message */}
       {proposalIndicator?.state === 'error' &&

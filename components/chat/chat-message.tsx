@@ -17,6 +17,12 @@ export interface ToolBoundary {
   textIndex: number;
 }
 
+export interface ContentSegmentData {
+  type: 'text' | 'tool-boundary';
+  text: string;
+  toolName?: string;
+}
+
 interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -36,46 +42,39 @@ interface ChatMessageProps {
 }
 
 /**
- * Split message text into segments based on tool call boundaries.
- * Returns text for each phase: after thinking, after context, after edits.
+ * Split message text into an ordered array of segments based on tool call boundaries.
+ * Each segment is either a text block or a tool boundary marker, preserving all
+ * interleaved text between multiple tool rounds.
  */
-function splitContentByPhases(
+function splitContentIntoSegments(
   text: string,
   boundaries: ToolBoundary[]
-): { thinkingText: string; contextText: string; finalText: string } {
+): ContentSegmentData[] {
   if (!boundaries.length) {
-    return { thinkingText: text, contextText: '', finalText: '' };
+    return [{ type: 'text', text }];
   }
 
-  const firstToolAt = boundaries[0].textIndex;
-  const hasContext = boundaries.some(b => b.toolName === 'get_context');
+  const segments: ContentSegmentData[] = [];
+  let lastIndex = 0;
 
-  // Find the first non-context boundary (edit, compile, etc.)
-  const firstNonContextBoundary = boundaries.find(b => b.toolName !== 'get_context');
-  const lastBoundary = boundaries[boundaries.length - 1];
-
-  if (hasContext && firstNonContextBoundary) {
-    // Has both context and edit/compile phases
-    return {
-      thinkingText: text.slice(0, firstToolAt),
-      contextText: text.slice(firstToolAt, firstNonContextBoundary.textIndex),
-      finalText: text.slice(lastBoundary.textIndex),
-    };
-  } else if (hasContext) {
-    // Only context calls, no edits
-    return {
-      thinkingText: text.slice(0, firstToolAt),
-      contextText: text.slice(firstToolAt, lastBoundary.textIndex),
-      finalText: text.slice(lastBoundary.textIndex),
-    };
-  } else {
-    // No context, just edits
-    return {
-      thinkingText: text.slice(0, firstToolAt),
-      contextText: '',
-      finalText: text.slice(lastBoundary.textIndex),
-    };
+  for (const boundary of boundaries) {
+    // Text before this boundary
+    const segmentText = text.slice(lastIndex, boundary.textIndex);
+    if (segmentText.trim()) {
+      segments.push({ type: 'text', text: segmentText });
+    }
+    // Record the boundary itself
+    segments.push({ type: 'tool-boundary', text: '', toolName: boundary.toolName });
+    lastIndex = boundary.textIndex;
   }
+
+  // Text after last boundary
+  const remaining = text.slice(lastIndex);
+  if (remaining.trim()) {
+    segments.push({ type: 'text', text: remaining });
+  }
+
+  return segments;
 }
 
 function renderMessageContent(content: string): ReactNode {
@@ -185,30 +184,24 @@ export function ChatMessageComponent({
 }: ChatMessageProps) {
   const acceptedSuggestions = suggestions.filter((s) => s.status === 'accepted');
 
-  // Split content into segments based on tool call boundaries
-  const segments = useMemo(() => {
+  // Split content into ordered segments based on tool call boundaries
+  const contentSegments = useMemo(() => {
     if (!message.content) {
-      return { thinkingContent: null, contextContent: null, finalContent: null };
+      return [];
     }
 
-    if (!toolBoundaries?.length) {
-      return {
-        thinkingContent: renderMessageContent(message.content),
-        contextContent: null,
-        finalContent: null,
-      };
-    }
-
-    const { thinkingText, contextText, finalText } = splitContentByPhases(
+    const rawSegments = splitContentIntoSegments(
       message.content,
-      toolBoundaries
+      toolBoundaries || []
     );
 
-    return {
-      thinkingContent: thinkingText.trim() ? renderMessageContent(thinkingText.trim()) : null,
-      contextContent: contextText.trim() ? renderMessageContent(contextText.trim()) : null,
-      finalContent: finalText.trim() ? renderMessageContent(finalText.trim()) : null,
-    };
+    // Render text segments into ReactNodes
+    return rawSegments.map((seg) => ({
+      ...seg,
+      renderedContent: seg.type === 'text' && seg.text.trim()
+        ? renderMessageContent(seg.text.trim())
+        : null,
+    }));
   }, [message.content, toolBoundaries]);
 
   if (message.role === 'user') {
@@ -233,9 +226,7 @@ export function ChatMessageComponent({
         isLoading={!!isLoading}
         proposalIndicator={proposalIndicator}
         hasGetContext={hasGetContext}
-        thinkingContent={segments.thinkingContent}
-        contextContent={segments.contextContent}
-        finalContent={segments.finalContent}
+        segments={contentSegments}
         acceptedEdits={acceptedSuggestions}
       />
 

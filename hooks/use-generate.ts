@@ -157,6 +157,15 @@ export function useGenerate(options: UseGenerateOptions = {}) {
       ];
     }
 
+    if (doc.status === 'error' && doc.last_user_prompt) {
+      lastAttemptRef.current = {
+        prompt: doc.last_user_prompt,
+        files: [],
+      };
+    } else {
+      lastAttemptRef.current = null;
+    }
+
     setCurrentDocument(doc);
     setMessages(restoredMessages);
     setError(null);

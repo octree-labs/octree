@@ -137,12 +137,12 @@ export function MessageBubble({ message, isStreaming, generationMilestone, onRet
                 {canRetry && onRetry && (
                     <Button
                         variant="ghost"
-                        size="sm"
+                        size="icon"
                         onClick={onRetry}
-                        className="ml-1 h-8 gap-2 text-xs text-muted-foreground hover:text-foreground"
+                        className="ml-1 size-8 text-muted-foreground hover:text-foreground"
+                        title="Regenerate"
                     >
-                        <RotateCcw className="h-3.5 w-3.5" />
-                        Regenerate
+                        <RotateCcw className="h-4 w-4" />
                     </Button>
                 )}
             </div>

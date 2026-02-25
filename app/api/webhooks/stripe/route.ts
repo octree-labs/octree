@@ -128,8 +128,6 @@ export async function POST(request: Request) {
               );
             }
           }
-
-
         } catch (error) {
           console.error('Error updating subscription in database:', error);
         }

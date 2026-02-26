@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,7 +15,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Plus, Upload, FileText } from 'lucide-react';
+import { Plus, Upload, FileText, Link2, RefreshCw, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { createClient } from '@/lib/supabase/client';
 import { useProjectFilesRevalidation } from '@/hooks/use-file-editor';
@@ -54,8 +54,12 @@ export function AddFileDialog({
   const [fileContent, setFileContent] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [uploadMode, setUploadMode] = useState<'create' | 'upload'>('create');
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [zoteroUrl, setZoteroUrl] = useState('');
+  const [uploadMode, setUploadMode] = useState<'create' | 'upload' | 'zotero'>(
+    'create'
+  );
+  const [uploadProgress, setUploadProgress] = useState<string | null>(null);
   const { revalidate } = useProjectFilesRevalidation(projectId);
   const { state: zoteroState, syncing, syncFromUrl, syncSaved } =
     useZoteroSync(projectId);
@@ -300,6 +304,131 @@ export function AddFileDialog({
 
   const handleSubmit =
     uploadMode === 'upload' ? handleFileUpload : handleCreateFile;
+
+  const handleImportZotero = async () => {
+    if (!zoteroUrl.trim()) {
+      setError('Please enter a Zotero URL');
+      return;
+    }
+    setError(null);
+    try {
+      const synced = await syncFromUrl(zoteroUrl);
+      toast.success(`Imported ${synced.entries.length} Zotero reference(s)`);
+      setUploadMode('zotero');
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'Failed to import Zotero references'
+      );
+    }
+  };
+
+  const handleSyncZotero = async () => {
+    setError(null);
+    try {
+      const synced = await syncSaved();
+      toast.success(`Synced ${synced.entries.length} Zotero reference(s)`);
+      setUploadMode('zotero');
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'Failed to sync Zotero references'
+      );
+    }
+  };
+
+  const handleSaveZoteroToProject = async () => {
+    if (!zoteroState.refsBib?.trim()) {
+      setError('No imported references to save yet');
+      return;
+    }
+    setIsLoading(true);
+    FileTreeActions.setLoading(true);
+    setError(null);
+    try {
+      const supabase = createClient();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.user) {
+        throw new Error('User not authenticated');
+      }
+      const refsMime = getContentTypeByFilename('refs.bib');
+      const refsPath = `projects/${projectId}/refs.bib`;
+      const refsBlob = new Blob([zoteroState.refsBib], { type: refsMime });
+      const { error: refsUploadError } = await supabase.storage
+        .from('octree')
+        .upload(refsPath, refsBlob, {
+          cacheControl: '3600',
+          upsert: true,
+          contentType: refsMime,
+        });
+      if (refsUploadError) {
+        throw new Error('Failed to save refs.bib');
+      }
+      const mainPath = `projects/${projectId}/main.tex`;
+      const { data: mainBlob } = await supabase.storage
+        .from('octree')
+        .download(mainPath);
+      let patchedMainTex = false;
+      if (mainBlob) {
+        const mainText = await mainBlob.text();
+        const hasBibStyle = /\\bibliographystyle\s*\{[^}]+\}/.test(mainText);
+        const hasBibliography = /\\bibliography\s*\{[^}]+\}/.test(mainText);
+        if (!hasBibStyle || !hasBibliography) {
+          const additions = [
+            !hasBibStyle ? '\\bibliographystyle{plain}' : null,
+            !hasBibliography ? '\\bibliography{refs}' : null,
+          ]
+            .filter(Boolean)
+            .join('\n');
+          const insertion = `\n${additions}\n`;
+          const endTag = '\\end{document}';
+          const idx = mainText.lastIndexOf(endTag);
+          const nextMain =
+            idx >= 0
+              ? `${mainText.slice(0, idx).trimEnd()}${insertion}${endTag}${mainText.slice(idx + endTag.length)}`
+              : `${mainText.trimEnd()}${insertion}`;
+          const mainMime = getContentTypeByFilename('main.tex');
+          const { error: mainUploadError } = await supabase.storage
+            .from('octree')
+            .upload(mainPath, new Blob([nextMain], { type: mainMime }), {
+              cacheControl: '3600',
+              upsert: true,
+              contentType: mainMime,
+            });
+          if (!mainUploadError) {
+            patchedMainTex = true;
+          }
+        }
+      }
+      const { data: storageFiles } = await supabase.storage
+        .from('octree')
+        .list(`projects/${projectId}`);
+      const refsFile = storageFiles?.find((f) => f.name === 'refs.bib');
+      if (refsFile) {
+        FileActions.setSelectedFile({
+          id: refsFile.id,
+          name: refsFile.name,
+          project_id: projectId,
+          size: refsFile.metadata?.size || null,
+          type: refsFile.metadata?.mimetype || null,
+          uploaded_at: refsFile.created_at,
+        });
+      }
+      await revalidate();
+      toast.success(
+        patchedMainTex
+          ? 'Saved refs.bib and updated bibliography commands in main.tex'
+          : 'Saved refs.bib to project'
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'Failed to save references'
+      );
+    } finally {
+      setIsLoading(false);
+      FileTreeActions.setLoading(false);
+    }
+  };
 
   const handleOpenChange = (newOpen: boolean) => {
     setOpen(newOpen);

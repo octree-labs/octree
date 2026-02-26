@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import { EditorSettings } from '@/components/settings/editor-settings';
 import { ChangePasswordDialog } from '@/components/user/change-password-dialog';
 import { EditProfileDialog } from '@/components/user/edit-profile-dialog';
+import { DeleteAccountDialog } from '@/components/user/delete-account-dialog';
 import { User } from 'lucide-react';
 import {
   Card,
@@ -23,7 +24,7 @@ export default async function AccountSettingsPage() {
   }
 
   return (
-    <div className="grid gap-6">
+    <div className="space-y-6">
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -59,6 +60,8 @@ export default async function AccountSettingsPage() {
       </Card>
       
       <EditorSettings />
+
+      <DeleteAccountDialog />
     </div>
   );
 }

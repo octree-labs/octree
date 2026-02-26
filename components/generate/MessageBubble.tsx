@@ -1,7 +1,18 @@
 import { useRef, useEffect, useState } from 'react';
-import { FileText, Check, Loader2, Copy } from 'lucide-react';
+import { FileText, Check, Copy, AlertCircle, RotateCcw } from 'lucide-react';
 import { MonacoEditor } from '@/components/editor/monaco-editor';
 import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import {
+  GenerationProgressTracker,
+  type GenerationMilestone,
+} from '@/components/generate/GenerationProgressTracker';
+import type monaco from 'monaco-editor';
+import { cn } from '@/lib/utils';
+
+const SUCCESS_MESSAGE_PREFIX = 'Document generated successfully.';
+const CANCELLED_MESSAGE_PREFIX = 'Generation cancelled.';
+const FAILED_MESSAGE_PREFIX = 'Generation failed.';
 
 export interface MessageAttachment {
     id: string;
@@ -20,17 +31,21 @@ export interface Message {
 interface MessageBubbleProps {
     message: Message;
     isStreaming?: boolean;
+    generationMilestone?: GenerationMilestone;
+    onRetry?: () => void;
+    canRetry?: boolean;
 }
 
-export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
+export function MessageBubble({ message, isStreaming, generationMilestone, onRetry, canRetry }: MessageBubbleProps) {
     const isUser = message.role === 'user';
-    const isCompletionMessage = message.content.startsWith('Document generated successfully.');
+    const isCompletionMessage = message.content.startsWith(SUCCESS_MESSAGE_PREFIX);
+    const isCancelledMessage = message.content.startsWith(CANCELLED_MESSAGE_PREFIX);
+    const isFailedMessage = message.content.startsWith(FAILED_MESSAGE_PREFIX);
     const [isCopied, setIsCopied] = useState(false);
 
-    // Refs for auto-scrolling
-    const editorRef = useRef<any>(null);
+    const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
 
-    const handleEditorDidMount = (editor: any) => {
+    const handleEditorDidMount = (editor: monaco.editor.IStandaloneCodeEditor) => {
         editorRef.current = editor;
     };
 
@@ -109,36 +124,77 @@ export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
         );
     }
 
-    return (
-        <div className="flex w-full justify-start">
-            <Card className="w-full overflow-hidden bg-muted/50 p-0">
-                <div className="h-64 w-full md:h-80">
-                    <MonacoEditor
-                        content={message.content}
-                        className="h-full"
-                        onMount={handleEditorDidMount}
-                        options={{
-                            readOnly: true,
-                            minimap: { enabled: false },
-                            scrollBeyondLastLine: false,
-                            wordWrap: 'on',
-                            lineNumbers: 'off',
-                            renderLineHighlight: 'none',
-                            folding: false,
-                            scrollbar: {
-                                vertical: 'visible',
-                                verticalScrollbarSize: 10
-                            }
-                        }}
-                    />
+    if (isCancelledMessage || isFailedMessage) {
+        return (
+            <div className="flex w-full flex-col items-start gap-2">
+                <div className="flex items-center gap-2 rounded-md bg-muted/50 px-4 py-3 text-sm text-muted-foreground">
+                    <AlertCircle className={cn(
+                        "h-4 w-4",
+                        isFailedMessage ? "text-red-600" : "text-orange-600"
+                    )} />
+                    <span>{message.content}</span>
                 </div>
-                {isStreaming && (
-                    <div className="flex items-center gap-2 border-t px-4 py-2 text-muted-foreground bg-background/50">
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                        <span className="text-xs">Generating...</span>
-                    </div>
+                {canRetry && onRetry && (
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={onRetry}
+                        className="ml-1 size-8 text-muted-foreground hover:text-foreground"
+                        title="Regenerate"
+                    >
+                        <RotateCcw className="h-4 w-4" />
+                    </Button>
                 )}
-            </Card>
-        </div>
-    );
+            </div>
+        );
+    }
+
+    const showTracker = isStreaming && generationMilestone;
+    const hasContent = message.content.length > 0;
+
+    const monacoEditor = hasContent ? (
+        <Card className="w-full overflow-hidden bg-muted/50 p-0">
+            <div className="h-64 w-full md:h-80">
+                <MonacoEditor
+                    content={message.content}
+                    className="h-full"
+                    onMount={handleEditorDidMount}
+                    options={{
+                        readOnly: true,
+                        minimap: { enabled: false },
+                        scrollBeyondLastLine: false,
+                        wordWrap: 'on',
+                        lineNumbers: 'off',
+                        renderLineHighlight: 'none',
+                        folding: false,
+                        scrollbar: {
+                            vertical: 'visible',
+                            verticalScrollbarSize: 10
+                        }
+                    }}
+                />
+            </div>
+        </Card>
+    ) : null;
+
+    if (showTracker) {
+        return (
+            <div className="flex w-full justify-start">
+                <GenerationProgressTracker milestone={generationMilestone}>
+                    {monacoEditor}
+                </GenerationProgressTracker>
+            </div>
+        );
+    }
+
+    // Non-streaming assistant message with content (e.g. restored from history)
+    if (hasContent) {
+        return (
+            <div className="flex w-full justify-start">
+                {monacoEditor}
+            </div>
+        );
+    }
+
+    return null;
 }

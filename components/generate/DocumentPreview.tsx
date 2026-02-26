@@ -73,12 +73,11 @@ export function DocumentPreview({ latex, title, onOpenInOctree, isCreatingProjec
         setIsCheckoutLoading(true);
         try {
             const checkoutUrl = await createCheckoutSession({
-                annual: isMonthly,
+                annual: !isMonthly,
                 withTrial: false,
             });
             window.location.href = checkoutUrl;
         } catch (error) {
-            console.error('Failed to create checkout session:', error);
             toast.error('Failed to start checkout. Please try again.');
             setIsCheckoutLoading(false);
         }
@@ -111,11 +110,10 @@ export function DocumentPreview({ latex, title, onOpenInOctree, isCreatingProjec
                         setHasCompilationWarnings(true);
                     }
                 } else {
-                    const compilationError: CompilationError = data.error || {
+                    setPdfError(data.error || {
                         message: 'Compilation failed',
                         details: 'Open in Octree to fix LaTeX errors'
-                    };
-                    setPdfError(compilationError);
+                    } as CompilationError);
                     return;
                 }
             } catch (err) {
@@ -169,11 +167,10 @@ export function DocumentPreview({ latex, title, onOpenInOctree, isCreatingProjec
                     setHasCompilationWarnings(true);
                 }
             } else {
-                const compilationError: CompilationError = data.error || {
+                setPdfError(data.error || {
                     message: 'Compilation failed',
                     details: 'Open in Octree to fix LaTeX errors'
-                };
-                setPdfError(compilationError);
+                } as CompilationError);
             }
         } catch (err) {
             setPdfError({

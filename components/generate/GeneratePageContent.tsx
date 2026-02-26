@@ -2,8 +2,6 @@
 
 import { useState, useRef, useEffect, useCallback, memo } from 'react';
 import { useRouter } from 'next/navigation';
-
-const GENERATE_ONBOARDING_STORAGE_KEY = 'octree_generate_onboarding_completed';
 import {
   ArrowUp,
   Loader2,
@@ -13,6 +11,8 @@ import {
   Image as ImageIcon,
   File as FileIcon,
   Square,
+  RotateCcw,
+  AlertCircle,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -38,6 +38,9 @@ import { useGenerate, type AttachedFile } from '@/hooks/use-generate';
 import { useAutoScroll } from '@/hooks/use-auto-scroll';
 import { GenerateOnboarding } from '@/components/generate/generate-onboarding';
 import { markGenerateWalkthroughSeen } from '@/lib/requests/walkthrough';
+
+const GENERATE_ONBOARDING_STORAGE_KEY = 'octree_generate_onboarding_completed';
+const SUCCESS_MESSAGE_PREFIX = 'Document generated successfully.';
 
 interface GeneratePageContentProps {
   userId?: string;
@@ -155,6 +158,9 @@ export function GeneratePageContent({
     stopGeneration,
     restoreSession,
     currentDocument,
+    generationMilestone,
+    retry,
+    canRetry,
   } = useGenerate({ onDocumentCreated: handleDocumentCreated });
 
   const scrollRef = useAutoScroll<HTMLDivElement>();
@@ -171,8 +177,8 @@ export function GeneratePageContent({
       return () => clearTimeout(t);
     }
   }, [shouldShowGenerateWalkthrough]);
+
   const currentSessionId = useRef<string | null>(null);
-  const isInitialLoad = initialDocument && currentSessionId.current !== initialDocument.id;
 
   useEffect(() => {
     if (initialDocument && currentSessionId.current !== initialDocument.id) {
@@ -244,9 +250,7 @@ export function GeneratePageContent({
     markedGenerateWalkthroughRef.current = true;
     try {
       await markGenerateWalkthroughSeen(userId);
-    } catch (error) {
-      console.error('Failed to mark generate walkthrough as seen:', error);
-    }
+    } catch {}
   }, [userId]);
 
   const handleGenerateWalkthroughClose = useCallback(
@@ -281,44 +285,37 @@ export function GeneratePageContent({
             className="relative flex-1 overflow-y-auto"
             data-onboarding-target="generate-welcome"
           >
-            {error && (
-              <div className="sticky top-0 z-50 p-4">
-                <Card className="mx-auto max-w-3xl relative border-destructive bg-destructive/10 p-3 pr-10 shadow-lg">
-                  <p className="text-sm text-destructive">{error}</p>
-                  <button
-                    type="button"
-                    onClick={() => setError(null)}
-                    className="absolute right-2 top-2 rounded-md p-1 hover:bg-destructive/20"
-                  >
-                    <X className="h-4 w-4 text-destructive" />
-                  </button>
-                </Card>
-              </div>
-            )}
-
-            {isInitialLoad ? (
+            {initialDocument && currentSessionId.current !== initialDocument.id ? (
               <ChatSkeleton />
             ) : !messages.length ? (
               <WelcomeState onSelectSuggestion={setPrompt} />
             ) : (
               <div className="p-2 md:p-4">
                 <div className="mx-auto max-w-3xl space-y-4">
-                  {messages.map((message, index) => (
-                    <MessageBubble
-                      key={message.id}
-                      message={message}
-                      isStreaming={
-                        index === messages.length - 1 &&
-                        message.role === 'assistant' &&
-                        isGenerating &&
-                        !message.content.startsWith('Document generated successfully.') &&
-                        !error
-                      }
-                    />
-                  ))}
+                  {messages.map((message, index) => {
+                    const isLastAssistantStreaming =
+                      index === messages.length - 1 &&
+                      message.role === 'assistant' &&
+                      isGenerating &&
+                      !message.content.startsWith(SUCCESS_MESSAGE_PREFIX) &&
+                      !error;
+                    
+                    const isLastMessage = index === messages.length - 1;
+
+                    return (
+                      <MessageBubble
+                        key={message.id}
+                        message={message}
+                        isStreaming={isLastAssistantStreaming}
+                        generationMilestone={isLastAssistantStreaming ? generationMilestone : undefined}
+                        onRetry={isLastMessage ? retry : undefined}
+                        canRetry={isLastMessage ? canRetry : false}
+                      />
+                    );
+                  })}
 
                   <div data-onboarding-target="generate-preview">
-                    {currentLatex && !isGenerating && (
+                    {currentLatex && currentLatex.trim() !== '' && !isGenerating && (
                       <DocumentPreview
                         latex={currentLatex}
                         title={currentTitle}

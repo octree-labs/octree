@@ -9,6 +9,8 @@ import { useProjectRefresh } from '@/app/context/project';
 import { Input } from '@/components/ui/input';
 import { RenameProjectDialog } from './rename-project-dialog';
 import { DeleteProjectDialog } from './delete-project-dialog';
+import { useDuplicateProject } from '@/hooks/duplicate-project-client';
+import { toast } from 'sonner';
 
 export function ProjectsTable({ data }: { data: Project[] }) {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
@@ -19,6 +21,7 @@ export function ProjectsTable({ data }: { data: Project[] }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredRows, setFilteredRows] = useState<Project[]>(data);
   const { refreshProjects } = useProjectRefresh();
+  const { duplicateProjectWithRefresh } = useDuplicateProject();
 
   useEffect(() => {
     setRows(data);
@@ -83,6 +86,15 @@ export function ProjectsTable({ data }: { data: Project[] }) {
     );
   };
 
+  const handleDuplicateClick = async (projectId: string) => {
+    const result = await duplicateProjectWithRefresh(projectId);
+    if (result.success) {
+      toast.success('Project duplicated');
+    } else {
+      toast.error(result.message || 'Failed to duplicate project');
+    }
+  };
+
   const handleDeleteSuccess = (id: string) => {
     setRows((prev) => prev.filter((p) => p.id !== id));
     setFilteredRows((prev) => prev.filter((p) => p.id !== id));
@@ -114,6 +126,7 @@ export function ProjectsTable({ data }: { data: Project[] }) {
         columns={columns({
           onDelete: handleDeleteClick,
           onRename: handleRenameClick,
+          onDuplicate: handleDuplicateClick,
         })}
         data={filteredRows}
       />

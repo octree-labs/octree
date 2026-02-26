@@ -11,12 +11,15 @@ import { useFileAttachments } from './use-file-attachments';
 import { ChatMessageComponent } from './chat-message';
 import { ChatInput, ChatInputRef } from './chat-input';
 import { EmptyState } from './empty-state';
+import { SearchPanel } from './search-panel';
+import { CheckpointDivider } from './checkpoint-divider';
 
 interface ChatProps {
   onEditSuggestion: (edit: EditSuggestion | EditSuggestion[]) => void;
   onAcceptEdit: (suggestionId: string) => void;
   onRejectEdit: (suggestionId: string) => void;
   onAcceptAllEdits?: () => void;
+  onRestoreCheckpoint?: (content: string) => void;
   editSuggestions: EditSuggestion[];
   pendingEditCount?: number;
   fileContent: string;
@@ -62,6 +65,7 @@ export function Chat({
   autoSendMessage,
   setAutoSendMessage,
   projectId,
+  onRestoreCheckpoint,
   autoFocus = true,
 }: ChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -69,12 +73,16 @@ export function Chat({
   const [isLoading, setIsLoading] = useState(false);
   const [conversionStatus, setConversionStatus] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
+  const [activeTab, setActiveTab] = useState<'chat' | 'search'>('chat');
+  const [contextCalledIds, setContextCalledIds] = useState<Set<string>>(new Set());
+  const [toolBoundaries, setToolBoundaries] = useState<Map<string, Array<{ toolName: string; textIndex: number }>>>(new Map());
 
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const shouldStickToBottomRef = useRef<boolean>(true);
   const currentAssistantIdRef = useRef<string | null>(null);
   const chatInputRef = useRef<ChatInputRef>(null);
   const formRef = useRef<HTMLFormElement>(null);
+  const checkpointsRef = useRef<Map<string, string>>(new Map());
 
   useEffect(() => {
     if (isOpen) {
@@ -141,18 +149,16 @@ export function Chat({
     const trimmed = input.trim();
     if (!trimmed || isLoading) return;
 
-
     setError(null);
 
-    // Store user input for display
     const userDisplayContent = trimmed;
 
-    // Show user message immediately (just the text, not the extracted image content)
     const userMsg: ChatMessage = {
       id: `${Date.now()}-user`,
       role: 'user',
       content: userDisplayContent,
     };
+    checkpointsRef.current.set(userMsg.id, fileContent);
     setMessages((prev) => [...prev, userMsg]);
 
     setInput('');
@@ -214,8 +220,11 @@ export function Chat({
               onEditSuggestion(suggestions);
             }
           },
-          onToolCall: (name, count, violations, progressIncrement) => {
-            if (name === 'propose_edits') {
+          onToolCall: (name, count, violations, progressIncrement, textLength) => {
+            if (name === 'get_context') {
+              setContextCalledIds(prev => new Set(prev).add(assistantId));
+            }
+            if (name === 'edit') {
               const violationCount = Array.isArray(violations)
                 ? violations.length
                 : undefined;
@@ -225,6 +234,17 @@ export function Chat({
               if (typeof progressIncrement === 'number') {
                 incrementProgress(assistantId, progressIncrement, true);
               }
+            }
+            if (name === 'compile_success') {
+              window.dispatchEvent(new Event('agent-compile'));
+            }
+            if (typeof textLength === 'number') {
+              setToolBoundaries(prev => {
+                const next = new Map(prev);
+                const existing = next.get(assistantId) || [];
+                next.set(assistantId, [...existing, { toolName: name, textIndex: textLength }]);
+                return next;
+              });
             }
           },
           onError: (errorMsg) => {
@@ -277,12 +297,31 @@ export function Chat({
               onEditSuggestion(suggestions);
             }
           },
-          onToolCall: (name, count, violations) => {
-            if (name === 'propose_edits') {
+          onToolCall: (name, count, violations, progressIncrement, textLength) => {
+            if (name === 'get_context') {
+              setContextCalledIds(prev => new Set(prev).add(assistantId));
+            }
+            if (name === 'edit') {
               const violationCount = Array.isArray(violations)
                 ? violations.length
                 : undefined;
-              setPending(assistantId, count, violationCount);
+              if (typeof count === 'number') {
+                setPending(assistantId, count, violationCount);
+              }
+              if (typeof progressIncrement === 'number') {
+                incrementProgress(assistantId, progressIncrement, true);
+              }
+            }
+            if (name === 'compile_success') {
+              window.dispatchEvent(new Event('agent-compile'));
+            }
+            if (typeof textLength === 'number') {
+              setToolBoundaries(prev => {
+                const next = new Map(prev);
+                const existing = next.get(assistantId) || [];
+                next.set(assistantId, [...existing, { toolName: name, textIndex: textLength }]);
+                return next;
+              });
             }
           },
           onError: (errorMsg) => {
@@ -356,6 +395,17 @@ export function Chat({
 
   const clearHistory = () => {
     setMessages([]);
+    checkpointsRef.current.clear();
+    setToolBoundaries(new Map());
+  };
+
+  const handleRestoreCheckpoint = (messageId: string) => {
+    const snapshot = checkpointsRef.current.get(messageId);
+    if (snapshot === undefined) return;
+    const msgIndex = messages.findIndex((m) => m.id === messageId);
+    if (msgIndex === -1) return;
+    setMessages((prev) => prev.slice(0, msgIndex));
+    onRestoreCheckpoint?.(snapshot);
   };
 
   // Group suggestions by messageId
@@ -383,30 +433,31 @@ export function Chat({
           <div>
             <h3 className="text-sm font-semibold text-slate-800">Octra</h3>
           </div>
+          <div className="flex items-center gap-1 border-l border-slate-200 pl-3">
+            <button
+              onClick={() => setActiveTab('chat')}
+              className={`rounded-md px-1.5 py-0.5 text-xs transition-colors ${
+                activeTab === 'chat'
+                  ? 'font-medium text-slate-700'
+                  : 'text-slate-400 hover:text-slate-600'
+              }`}
+            >
+              Chat
+            </button>
+            <button
+              onClick={() => setActiveTab('search')}
+              className={`rounded-md px-1.5 py-0.5 text-xs transition-colors ${
+                activeTab === 'search'
+                  ? 'font-medium text-slate-700'
+                  : 'text-slate-400 hover:text-slate-600'
+              }`}
+            >
+              Search
+            </button>
+          </div>
         </div>
 
         <div className="flex items-center gap-1">
-          {isLoading && (
-            <div className="flex items-center pr-1" aria-live="polite">
-              <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
-            </div>
-          )}
-          {pendingEditCount > 1 && onAcceptAllEdits && (
-            <Button
-              size="sm"
-              onClick={onAcceptAllEdits}
-              disabled={isLoading}
-              className="h-7 rounded-md bg-green-600 px-2 text-xs text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
-              title={
-                isLoading
-                  ? 'Wait for all edits to finish generating'
-                  : 'Accept all pending edits'
-              }
-            >
-              <CheckCheck size={12} className="mr-1" />
-              Accept All ({pendingEditCount})
-            </Button>
-          )}
           <Button
             variant="ghost"
             size="sm"
@@ -420,81 +471,107 @@ export function Chat({
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col">
-        <div
-          ref={chatContainerRef}
-          className="flex-1 overflow-y-auto overflow-x-hidden p-4 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-neutral-300"
-        >
-          {messages.length === 0 && !isLoading && !conversionStatus && (
-            <EmptyState />
-          )}
-          {messages.map((message) => (
-            <ChatMessageComponent
-              key={message.id}
-              message={message}
-              isLoading={isLoading}
-              proposalIndicator={proposalIndicators[message.id]}
-              textFromEditor={textFromEditor}
-              suggestions={suggestionsByMessage.get(message.id) || []}
-              onAcceptEdit={onAcceptEdit}
-              onRejectEdit={onRejectEdit}
-            />
-          ))}
+        {activeTab === 'search' ? (
+          <SearchPanel />
+        ) : (
+          <>
+            <div
+              ref={chatContainerRef}
+              className="flex-1 overflow-y-auto overflow-x-hidden p-4 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-neutral-300"
+            >
+              {messages.length === 0 && !isLoading && !conversionStatus && (
+                <EmptyState />
+              )}
+              {(() => {
+                let userMsgCount = 0;
+                return messages.map((message, index) => {
+                  const isUser = message.role === 'user';
+                  const showCheckpoint =
+                    isUser &&
+                    userMsgCount > 0 &&
+                    !!onRestoreCheckpoint &&
+                    checkpointsRef.current.has(message.id);
+                  if (isUser) userMsgCount++;
+                  return (
+                    <div key={message.id}>
+                      {showCheckpoint && (
+                        <CheckpointDivider
+                          onRestore={() => handleRestoreCheckpoint(message.id)}
+                        />
+                      )}
+                      <ChatMessageComponent
+                        message={message}
+                        isLoading={isLoading && index === messages.length - 1}
+                        proposalIndicator={proposalIndicators[message.id]}
+                        hasGetContext={contextCalledIds.has(message.id)}
+                        textFromEditor={textFromEditor}
+                        suggestions={suggestionsByMessage.get(message.id) || []}
+                        onAcceptEdit={onAcceptEdit}
+                        onRejectEdit={onRejectEdit}
+                        toolBoundaries={toolBoundaries.get(message.id)}
+                      />
+                    </div>
+                  );
+                });
+              })()}
 
-          {conversionStatus && (
-            <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50/50 px-3 py-2">
-              <div className="flex items-center gap-2 text-sm text-primary">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span className="font-medium">{conversionStatus}</span>
-              </div>
+              {conversionStatus && (
+                <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50/50 px-3 py-2">
+                  <div className="flex items-center gap-2 text-sm text-primary">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span className="font-medium">{conversionStatus}</span>
+                  </div>
+                </div>
+              )}
             </div>
-          )}
-        </div>
 
-        <ChatInput
-          ref={chatInputRef}
-          formRef={formRef}
-          input={input}
-          isLoading={isLoading}
-          textFromEditor={textFromEditor}
-          attachments={attachments}
-          canAddMoreAttachments={canAddMoreAttachments}
-          hasMessages={messages.length > 0}
-          onInputChange={setInput}
-          onSubmit={handleSubmit}
-          onClearEditor={() => setTextFromEditor(null)}
-          onStop={() => {
-            console.log(
-              '[Chat] Stop button clicked, currentAssistantId:',
-              currentAssistantIdRef.current
-            );
-
-            stopStream();
-            clearAllProposalsAndTimeouts();
-
-            const messageIdToRemove = currentAssistantIdRef.current;
-            if (messageIdToRemove) {
-              setMessages((prev) => {
-                const filtered = prev.filter((m) => m.id !== messageIdToRemove);
+            <ChatInput
+              ref={chatInputRef}
+              formRef={formRef}
+              input={input}
+              isLoading={isLoading}
+              textFromEditor={textFromEditor}
+              attachments={attachments}
+              canAddMoreAttachments={canAddMoreAttachments}
+              hasMessages={messages.length > 0}
+              onInputChange={setInput}
+              onSubmit={handleSubmit}
+              onClearEditor={() => setTextFromEditor(null)}
+              onStop={() => {
                 console.log(
-                  '[Chat] Removed message, before:',
-                  prev.length,
-                  'after:',
-                  filtered.length
+                  '[Chat] Stop button clicked, currentAssistantId:',
+                  currentAssistantIdRef.current
                 );
-                return filtered;
-              });
-              currentAssistantIdRef.current = null;
-            }
 
-            setIsLoading(false);
-            setConversionStatus(null);
-            setError(null);
-          }}
-          onFilesSelected={addFiles}
-          onRemoveAttachment={removeAttachment}
-          onResetError={() => setError(null)}
-          onClearHistory={clearHistory}
-        />
+                stopStream();
+                clearAllProposalsAndTimeouts();
+
+                const messageIdToRemove = currentAssistantIdRef.current;
+                if (messageIdToRemove) {
+                  setMessages((prev) => {
+                    const filtered = prev.filter((m) => m.id !== messageIdToRemove);
+                    console.log(
+                      '[Chat] Removed message, before:',
+                      prev.length,
+                      'after:',
+                      filtered.length
+                    );
+                    return filtered;
+                  });
+                  currentAssistantIdRef.current = null;
+                }
+
+                setIsLoading(false);
+                setConversionStatus(null);
+                setError(null);
+              }}
+              onFilesSelected={addFiles}
+              onRemoveAttachment={removeAttachment}
+              onResetError={() => setError(null)}
+              onClearHistory={clearHistory}
+            />
+          </>
+        )}
       </div>
     </div>
   );

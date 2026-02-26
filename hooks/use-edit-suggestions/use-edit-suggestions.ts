@@ -20,17 +20,15 @@ export function useEditSuggestions({
   onSwitchFile,
   onOtherFileEdited,
 }: UseEditSuggestionsProps): EditSuggestionsState {
-  // Use cached edit limit to check before requesting AI suggestions
-  // Note: Quota is consumed on generation (in /api/octra-agent), not on accept
   const { canEdit } = useEditLimitCache();
 
-  // Manage suggestions
+  // Manage suggestions — no editor reference needed for string-matching edits
   const {
     editSuggestions,
     setEditSuggestions,
     totalPendingCount,
     handleEditSuggestion,
-  } = useSuggestionQueue({ editor });
+  } = useSuggestionQueue();
 
   // Manage editor decorations
   const { decorationIds, setDecorationIds } = useSuggestionDecorations({
@@ -48,10 +46,9 @@ export function useEditSuggestions({
     onOtherFileEdited,
   };
 
-  // Accept a single edit
+  // Accept a single edit — Monaco path with direct fallback
   const handleAcceptEdit = useCallback(
     async (suggestionId: string) => {
-      // Fast check using cached status
       if (!canEdit) {
         toast.error(
           `You have reached your edit limit. Please upgrade to Pro for ${PRO_MONTHLY_EDIT_LIMIT} edits per month.`
@@ -59,7 +56,6 @@ export function useEditSuggestions({
         return;
       }
 
-      // If editor is available, use Monaco-based editing (better for undo/redo)
       if (editor && monacoInstance) {
         await acceptSingleEdit(
           suggestionId,
@@ -70,25 +66,24 @@ export function useEditSuggestions({
           acceptOptions
         );
       } else {
-        // No editor available - apply edit directly to file store
         acceptEditDirect(
           suggestionId,
           editSuggestions,
           setEditSuggestions,
-          currentFilePath
+          currentFilePath,
+          onOtherFileEdited
         );
       }
     },
     [canEdit, editor, monacoInstance, editSuggestions, setEditSuggestions, currentFilePath, onSwitchFile, onOtherFileEdited]
   );
 
-  // Accept all pending edits
+  // Accept all pending edits — Monaco if model ready, else direct fallback
   const handleAcceptAllEdits = useCallback(async () => {
     const pendingSuggestions = editSuggestions.filter((s) => s.status === 'pending');
 
     if (pendingSuggestions.length === 0) return;
 
-    // Fast check using cached status
     if (!canEdit) {
       toast.error(
         `You have reached your edit limit. Please upgrade to Pro for ${PRO_MONTHLY_EDIT_LIMIT} edits per month.`
@@ -96,42 +91,34 @@ export function useEditSuggestions({
       return;
     }
 
-    if (editor && monacoInstance) {
-      // Use Monaco-based editing when available
+    // Use Monaco if editor model is available, otherwise fall back to direct
+    if (editor && monacoInstance && editor.getModel()) {
       await acceptAllEdits(
         pendingSuggestions,
         editor,
         monacoInstance,
         () => {
-          setEditSuggestions([]);
+          setEditSuggestions((prev) =>
+            prev.map((s) => s.status === 'pending' ? { ...s, status: 'accepted' as const } : s)
+          );
         },
         (appliedIds) => {
-          setEditSuggestions((prev) => prev.filter((s) => !appliedIds.includes(s.id)));
+          setEditSuggestions((prev) =>
+            prev.map((s) => appliedIds.includes(s.id) ? { ...s, status: 'accepted' as const } : s)
+          );
         },
         acceptOptions
       );
     } else {
-      // No editor - apply each edit directly to file store
-      // Sort from bottom to top to avoid line shifting issues
-      const sorted = [...pendingSuggestions].sort((a, b) => {
-        const lineA = a.position?.line || 1;
-        const lineB = b.position?.line || 1;
-        return lineB - lineA;
-      });
-
-      let appliedCount = 0;
-      for (const suggestion of sorted) {
-        const success = acceptEditDirect(
+      // No editor model — apply directly to file store
+      for (const suggestion of pendingSuggestions) {
+        acceptEditDirect(
           suggestion.id,
           editSuggestions,
           setEditSuggestions,
-          currentFilePath
+          currentFilePath,
+          onOtherFileEdited
         );
-        if (success) appliedCount++;
-      }
-
-      if (appliedCount > 0) {
-        toast.success(`Applied ${appliedCount} edit(s)`, { duration: 2000 });
       }
     }
   }, [
@@ -164,4 +151,3 @@ export function useEditSuggestions({
     handleRejectEdit,
   };
 }
-

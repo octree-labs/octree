@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { EditSuggestion } from '@/types/edit';
 import type * as Monaco from 'monaco-editor';
-import { getStartLine, getOriginalLineCount, getSuggestedText } from './utils';
+import { findOldStringRange } from './utils';
 
 interface UseSuggestionDecorationsProps {
   editor: Monaco.editor.IStandaloneCodeEditor | null;
@@ -24,7 +24,6 @@ export function useSuggestionDecorations({
   const [decorationIds, setDecorationIds] = useState<string[]>([]);
 
   useEffect(() => {
-    // Ensure editor and monaco are ready
     if (!editor || !monacoInstance) {
       return;
     }
@@ -40,62 +39,69 @@ export function useSuggestionDecorations({
     // Only show decorations for pending suggestions that target the current file
     const pendingSuggestions = editSuggestions.filter((s) => {
       if (s.status !== 'pending') return false;
-      // If suggestion has no target file, show it
-      if (!s.targetFile) return true;
-      // If we don't know current file, show all
+      if (!s.file_path) return true;
       if (!currentFilePath) return true;
-      // Only show if target matches current file
-      return s.targetFile === currentFilePath;
+      return s.file_path === currentFilePath;
     });
 
     pendingSuggestions.forEach((suggestion) => {
-      const startLineNumber = getStartLine(suggestion);
-      const originalLineCount = getOriginalLineCount(suggestion);
-      const suggestedText = getSuggestedText(suggestion);
-      
-      // Ensure endLineNumber is valid and >= startLineNumber
-      const endLineNumber = Math.max(
-        startLineNumber,
-        startLineNumber + originalLineCount - 1
-      );
+      if (suggestion.old_string === '') {
+        // Create/append: decoration at end of file
+        const lastLine = model.getLineCount();
+        const lastCol = model.getLineMaxColumn(lastLine);
 
-      // Validate line numbers against the current model state
-      if (
-        startLineNumber <= 0 ||
-        endLineNumber <= 0 ||
-        startLineNumber > model.getLineCount() ||
-        endLineNumber > model.getLineCount()
-      ) {
+        newDecorations.push({
+          range: new monacoInstance.Range(lastLine, lastCol, lastLine, lastCol),
+          options: {
+            glyphMarginClassName: 'octra-suggestion-glyph',
+            glyphMarginHoverMessage: {
+              value: `Suggestion: Append to end of file`,
+            },
+            stickiness:
+              monacoInstance.editor.TrackedRangeStickiness
+                .NeverGrowsWhenTypingAtEdges,
+          },
+        });
+
+        // Show suggested text inline
+        if (showInlinePreview && suggestion.new_string && suggestion.new_string.trim().length > 0) {
+          const inlineSuggestedContent = ` ${suggestion.new_string.replace(/\n/g, ' ↵ ')}`;
+          newDecorations.push({
+            range: new monacoInstance.Range(lastLine, lastCol, lastLine, lastCol),
+            options: {
+              after: {
+                content: inlineSuggestedContent,
+                inlineClassName: 'octra-suggestion-added',
+              },
+              stickiness:
+                monacoInstance.editor.TrackedRangeStickiness
+                  .NeverGrowsWhenTypingAtEdges,
+            },
+          });
+        }
+
+        return;
+      }
+
+      // Find the old_string range in the model
+      const matchRange = findOldStringRange(model, suggestion.old_string);
+      if (!matchRange) {
         console.warn(
-          `Suggestion ${suggestion.id} line numbers [${startLineNumber}-${endLineNumber}] are out of bounds for model line count ${model.getLineCount()}. Skipping decoration.`
+          `Suggestion ${suggestion.id}: old_string not uniquely found in model. Skipping decoration.`
         );
         return;
       }
 
-      // Calculate end column precisely
-      const endColumn =
-        originalLineCount > 0
-          ? model.getLineMaxColumn(endLineNumber)
-          : 1;
-
-      // Define the range for the original text (or insertion point)
-      const originalRange = new monacoInstance.Range(
-        startLineNumber,
-        1,
-        endLineNumber,
-        endColumn
-      );
-
-      // Decoration 1: Mark original text (if any) + Glyph
-      if (originalLineCount > 0) {
-        // Apply red strikethrough to the original range
+      // Decoration 1: Red strikethrough on matched range
+      if (suggestion.new_string !== '') {
+        // Replace: strikethrough + glyph
         newDecorations.push({
-          range: originalRange,
+          range: matchRange,
           options: {
             className: 'octra-suggestion-deleted',
             glyphMarginClassName: 'octra-suggestion-glyph',
             glyphMarginHoverMessage: {
-              value: `Suggestion: Replace Lines ${startLineNumber}-${endLineNumber}`,
+              value: `Suggestion: Replace text`,
             },
             stickiness:
               monacoInstance.editor.TrackedRangeStickiness
@@ -103,18 +109,14 @@ export function useSuggestionDecorations({
           },
         });
       } else {
-        // If it's a pure insertion, just add the glyph marker at the start line
+        // Delete: strikethrough + glyph
         newDecorations.push({
-          range: new monacoInstance.Range(
-            startLineNumber,
-            1,
-            startLineNumber,
-            1
-          ),
+          range: matchRange,
           options: {
+            className: 'octra-suggestion-deleted',
             glyphMarginClassName: 'octra-suggestion-glyph',
             glyphMarginHoverMessage: {
-              value: `Suggestion: Insert at Line ${startLineNumber}`,
+              value: `Suggestion: Delete text`,
             },
             stickiness:
               monacoInstance.editor.TrackedRangeStickiness
@@ -123,17 +125,16 @@ export function useSuggestionDecorations({
         });
       }
 
-      // Decoration 2: Show suggested text inline (if any and allowed)
-      if (showInlinePreview && suggestedText && suggestedText.trim().length > 0) {
+      // Decoration 2: Show new_string inline preview after the range
+      if (showInlinePreview && suggestion.new_string && suggestion.new_string.trim().length > 0) {
         const afterWidgetRange = new monacoInstance.Range(
-          endLineNumber,
-          endColumn,
-          endLineNumber,
-          endColumn
+          matchRange.endLineNumber,
+          matchRange.endColumn,
+          matchRange.endLineNumber,
+          matchRange.endColumn
         );
 
-        // Prepare suggested content, replacing newlines for inline view
-        const inlineSuggestedContent = ` ${suggestedText.replace(/\n/g, ' ↵ ')}`;
+        const inlineSuggestedContent = ` ${suggestion.new_string.replace(/\n/g, ' ↵ ')}`;
 
         newDecorations.push({
           range: afterWidgetRange,
@@ -173,4 +174,3 @@ export function useSuggestionDecorations({
     setDecorationIds,
   };
 }
-

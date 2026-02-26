@@ -2,47 +2,52 @@ import { EditSuggestion } from '@/types/edit';
 import type * as Monaco from 'monaco-editor';
 
 /**
- * Utility functions for working with edit suggestions
+ * Utility functions for working with string-matching edit suggestions
  */
 
 /**
- * Extract the starting line number from a suggestion
+ * Find the range where old_string appears in the Monaco model.
+ * Returns null if not found or not unique.
  */
-export function getStartLine(suggestion: EditSuggestion): number {
-  return suggestion.position?.line || 1;
+export function findOldStringRange(
+  model: Monaco.editor.ITextModel,
+  oldString: string
+): Monaco.Range | null {
+  if (!oldString) return null;
+
+  const matches = model.findMatches(
+    oldString,
+    false, // searchOnlyEditableRange
+    false, // isRegex
+    true,  // matchCase
+    null,  // wordSeparators
+    false  // captureMatches
+  );
+
+  if (matches.length !== 1) return null;
+  return matches[0].range;
 }
 
 /**
- * Get the number of original lines affected by this suggestion
+ * Check if a suggestion's old_string is still uniquely matchable in the model
  */
-export function getOriginalLineCount(suggestion: EditSuggestion): number {
-  // Use the originalLineCount field if provided
-  if (suggestion.originalLineCount !== undefined) {
-    return suggestion.originalLineCount;
-  }
-  
-  // Fallback: determine line count based on edit type
-  const content = suggestion.content || '';
-  
-  if (suggestion.editType === 'insert') {
-    return 0; // Insert operations don't replace existing content
-  } else if (suggestion.editType === 'delete') {
-    // For delete operations, if no originalLineCount provided, use content length as heuristic
-    return content.split('\n').length || 1;
-  } else if (suggestion.editType === 'replace') {
-    // For replace operations, if no originalLineCount provided, use content length as heuristic
-    return content.split('\n').length || 1;
-  }
-  
-  // Default fallback
-  return 1;
-}
+export function isSuggestionStillValid(
+  model: Monaco.editor.ITextModel,
+  suggestion: EditSuggestion
+): boolean {
+  // Insert/append (empty old_string) is always valid
+  if (!suggestion.old_string) return true;
 
-/**
- * Get the suggested text content from a suggestion
- */
-export function getSuggestedText(suggestion: EditSuggestion): string {
-  return suggestion.content || '';
+  const matches = model.findMatches(
+    suggestion.old_string,
+    false,
+    false,
+    true,
+    null,
+    false
+  );
+
+  return matches.length === 1;
 }
 
 /**
@@ -50,60 +55,6 @@ export function getSuggestedText(suggestion: EditSuggestion): string {
  */
 export function normalizeNewlines(text: string): string {
   return text.replace(/\r\n?/g, '\n');
-}
-
-/**
- * Count the number of lines in text
- */
-export function countLines(text: string): number {
-  if (!text) return 0;
-  const norm = normalizeNewlines(text);
-  return norm === '' ? 0 : norm.split('\n').length;
-}
-
-/**
- * Extract original text from the Monaco editor model
- */
-export function getOriginalTextFromModel(
-  model: Monaco.editor.ITextModel,
-  startLine: number,
-  originalLineCount: number
-): string {
-  if (originalLineCount === 0) return '';
-  const endLine = startLine + originalLineCount - 1;
-  if (
-    startLine <= 0 ||
-    endLine <= 0 ||
-    startLine > model.getLineCount() ||
-    endLine > model.getLineCount()
-  ) {
-    return '';
-  }
-  const lines: string[] = [];
-  for (let ln = startLine; ln <= endLine; ln++) {
-    lines.push(model.getLineContent(ln));
-  }
-  return lines.join('\n');
-}
-
-/**
- * Calculate the line delta when applying a suggestion
- */
-export function computeDeltaLines(suggested: string, originalLineCount: number): number {
-  const suggestedLines = countLines(suggested);
-  return suggestedLines - originalLineCount;
-}
-
-/**
- * Check if two line ranges overlap
- */
-export function rangesOverlap(
-  aStart: number,
-  aEnd: number,
-  bStart: number,
-  bEnd: number
-): boolean {
-  return !(aEnd < bStart || aStart > bEnd);
 }
 
 /**
@@ -115,4 +66,3 @@ export function normalizeSuggestions(suggestions: EditSuggestion[]): EditSuggest
     status: 'pending' as const,
   }));
 }
-

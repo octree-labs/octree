@@ -1,5 +1,5 @@
 import { useRef, useCallback } from 'react';
-import { LineEdit } from '@/lib/octra-agent/line-edits';
+import { StringEdit } from '@/lib/octra-agent/edits';
 
 interface ChatMessage {
   id: string;
@@ -26,12 +26,13 @@ interface ProjectContextPayload {
 
 interface StreamCallbacks {
   onTextUpdate: (text: string) => void;
-  onEdits: (edits: LineEdit[]) => void;
+  onEdits: (edits: StringEdit[]) => void;
   onToolCall: (
     name: string,
     count?: number,
     violations?: unknown[],
-    progressIncrement?: number
+    progressIncrement?: number,
+    textLength?: number
   ) => void;
   onError: (error: string) => void;
   onStatus: (state: string) => void;
@@ -148,7 +149,14 @@ export function useChatStream() {
       };
 
       while (true) {
-        const { value, done } = await reader.read();
+        let value: Uint8Array | undefined;
+        let done: boolean;
+        try {
+          ({ value, done } = await reader.read());
+        } catch {
+          // Stream aborted — exit cleanly
+          break;
+        }
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
 
@@ -189,10 +197,17 @@ export function useChatStream() {
           } else if (eventName === 'status') {
             if (payload?.state) callbacks.onStatus(payload.state);
           } else if (eventName === 'tool') {
+            // Force flush pending text so tool boundary text index is accurate
+            if (pendingTextRef.current) {
+              cancelPendingFrame();
+              lastAssistantText += pendingTextRef.current;
+              pendingTextRef.current = '';
+              callbacks.onTextUpdate(lastAssistantText);
+            }
             const name = payload?.name ? String(payload.name) : 'tool';
             const count = typeof payload?.count === 'number' ? payload.count : undefined;
             const progressIncrement = typeof payload?.progress === 'number' ? payload.progress : undefined;
-            callbacks.onToolCall(name, count, payload?.violations, progressIncrement);
+            callbacks.onToolCall(name, count, payload?.violations, progressIncrement, lastAssistantText.length);
           } else if (eventName === 'error') {
             const errorMsg = payload?.message
               ? String(payload.message)
@@ -239,4 +254,3 @@ export function useChatStream() {
     stopStream,
   };
 }
-

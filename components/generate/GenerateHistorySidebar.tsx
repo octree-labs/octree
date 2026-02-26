@@ -73,13 +73,11 @@ export function GenerateHistorySidebar() {
 
     const handleSelect = (doc: GeneratedDocument) => {
         if (editingId) return;
-        if (!doc.latex) return;
         
         if (isMobile) {
             setOpenMobile(false);
         }
 
-        // Optimistically update active state if needed, though URL change will eventually trigger it
         if (activeDocumentId !== doc.id) {
             GenerateActions.setActiveDocument(doc.id);
             router.push(`/generate/${doc.id}`);

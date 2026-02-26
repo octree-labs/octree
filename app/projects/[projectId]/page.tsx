@@ -93,6 +93,10 @@ export default function ProjectPage() {
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<typeof Monaco | null>(null);
 
+  // State mirrors of refs — triggers re-renders so hooks get the editor instance
+  const [editorInstance, setEditorInstance] = useState<Monaco.editor.IStandaloneCodeEditor | null>(null);
+  const [monacoInstanceState, setMonacoInstanceState] = useState<typeof Monaco | null>(null);
+
   const { content, setContent } = useEditorState();
 
   const projectFiles = useProjectFiles();
@@ -160,11 +164,28 @@ export default function ProjectPage() {
     handleAcceptAllEdits,
     handleRejectEdit,
   } = useEditSuggestions({
-    editor: editorRef.current,
-    monacoInstance: monacoRef.current,
+    editor: editorInstance,
+    monacoInstance: monacoInstanceState,
     currentFilePath: selectedFile?.name ?? null,
     onSwitchFile: handleSwitchFile,
   });
+
+  // Auto-accept edits as they arrive
+  useEffect(() => {
+    if (totalPendingCount > 0) {
+      handleAcceptAllEdits();
+    }
+  }, [totalPendingCount, handleAcceptAllEdits]);
+
+  // Recompile in browser when agent compiles
+  useEffect(() => {
+    const onAgentCompile = () => {
+      // Small delay to let auto-accepted edits flush to the editor
+      setTimeout(() => handleCompile(), 300);
+    };
+    window.addEventListener('agent-compile', onAgentCompile);
+    return () => window.removeEventListener('agent-compile', onAgentCompile);
+  }, [handleCompile]);
 
   const {
     showButton,
@@ -296,6 +317,8 @@ export default function ProjectPage() {
   ) => {
     editorRef.current = editor;
     monacoRef.current = monaco;
+    setEditorInstance(editor);
+    setMonacoInstanceState(monaco);
     setupEditorListeners(editor);
   };
 
@@ -382,7 +405,7 @@ export default function ProjectPage() {
   const renderPreview = () => (
       <div className="h-full overflow-hidden border-l border-slate-200" data-onboarding-target="pdf">
           {compilationError && !pdfData ? (
-              <div className="flex h-full overflow-auto">
+              <div className="relative flex h-full overflow-auto">
                   <CompilationError
                       error={compilationError}
                       variant="overlay"
@@ -512,6 +535,7 @@ export default function ProjectPage() {
                             onAcceptEdit={handleAcceptEdit}
                             onRejectEdit={handleRejectEdit}
                             onAcceptAllEdits={handleAcceptAllEdits}
+                            onRestoreCheckpoint={(snapshot) => FileActions.setContent(snapshot)}
                             editSuggestions={editSuggestions}
                             pendingEditCount={totalPendingCount}
                             fileContent={selectedFile && isTextFile(selectedFile.name) ? content : ''}
@@ -701,6 +725,7 @@ export default function ProjectPage() {
           onAcceptEdit={handleAcceptEdit}
           onRejectEdit={handleRejectEdit}
           onAcceptAllEdits={handleAcceptAllEdits}
+          onRestoreCheckpoint={(snapshot) => FileActions.setContent(snapshot)}
           editSuggestions={editSuggestions}
           pendingEditCount={totalPendingCount}
           fileContent={selectedFile && isTextFile(selectedFile.name) ? content : ''}

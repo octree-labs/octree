@@ -1,0 +1,13 @@
+services:
+  agent:
+    image: octra-agent:latest
+    container_name: octra-agent
+    env_file: .env
+    ports:
+      - "8787:8787"
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

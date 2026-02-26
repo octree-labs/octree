@@ -150,6 +150,21 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // If all files sit inside a single top-level folder, strip it to
+    // avoid double-nesting (the project root already acts as that folder).
+    if (extractedFiles.length > 0) {
+      const firstSlash = extractedFiles[0].name.indexOf('/');
+      if (firstSlash > 0) {
+        const root = extractedFiles[0].name.slice(0, firstSlash + 1);
+        const allShareRoot = extractedFiles.every((f) => f.name.startsWith(root));
+        if (allShareRoot) {
+          for (const file of extractedFiles) {
+            file.name = file.name.slice(root.length);
+          }
+        }
+      }
+    }
+
     // Check if we have at least one .tex file
     if (texFiles.length === 0) {
       return NextResponse.json(

@@ -23,7 +23,17 @@ export default async function BillingSettingsPage({
   const { canceled, error } = await searchParams;
 
   return (
-    <div className="space-y-6">
+    <div>
+      <div className="mb-10">
+        <h2 className="text-2xl font-bold tracking-tight text-neutral-900">
+          Billing
+        </h2>
+        <p className="mt-1 text-sm text-neutral-500">
+          Manage your subscription and payment details
+        </p>
+      </div>
+
+      <div className="space-y-6">
       {canceled && (
         <div className="mb-6 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
           <XCircle className="h-4 w-4" />
@@ -43,6 +53,7 @@ export default async function BillingSettingsPage({
       <div className="grid gap-6">
         <SubscriptionStatus />
         <BillingSection />
+      </div>
       </div>
     </div>
   );

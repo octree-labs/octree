@@ -2,14 +2,13 @@ import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import Navbar from '@/components/navbar';
 import { SidebarNav } from '@/components/settings/sidebar-nav';
-import { Settings, CreditCard } from 'lucide-react';
-import { XCircle, AlertCircle } from 'lucide-react';
+import { User, CreditCard } from 'lucide-react';
 
 const sidebarNavItems = [
   {
     title: 'Account',
     href: '/settings/account',
-    icon: <Settings className="h-4 w-4" />,
+    icon: <User className="h-4 w-4" />,
   },
   {
     title: 'Billing',
@@ -37,25 +36,14 @@ export default async function SettingsLayout({
   const userName = user?.user_metadata?.name ?? user?.email ?? null;
 
   return (
-    <div className="flex min-h-screen flex-col bg-neutral-50/50">
+    <div className="flex min-h-screen flex-col bg-white">
       <Navbar userName={userName} />
-      <main className="container mx-auto px-4 py-12 md:max-w-[800px]">
-        <div className="mb-10 text-center">
-          <h1 className="text-2xl font-semibold tracking-tight text-neutral-900">
-            Account
-          </h1>
-          <p className="mt-1 text-sm text-neutral-500">
-            Manage your account
-          </p>
-        </div>
-        
-        <div className="flex flex-col gap-8 lg:flex-row lg:gap-12">
-          <aside className="lg:w-48 flex-shrink-0">
-            <SidebarNav items={sidebarNavItems} />
-          </aside>
-          <div className="flex-1 min-w-0">
-            {children}
-          </div>
+      <main className="flex flex-1 flex-col px-6 py-10 lg:flex-row lg:px-16 lg:py-12">
+        <aside className="mb-8 flex-shrink-0 lg:mb-0 lg:mt-4 lg:w-52 lg:pr-12">
+          <SidebarNav items={sidebarNavItems} />
+        </aside>
+        <div className="flex-1 min-w-0 max-w-2xl">
+          {children}
         </div>
       </main>
     </div>

@@ -13,14 +13,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
-import { Loader2, AlertTriangle } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 export function DeleteAccountDialog() {
@@ -47,65 +40,61 @@ export function DeleteAccountDialog() {
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <AlertTriangle className="h-5 w-5" />
-          Delete Account
-        </CardTitle>
-        <CardDescription>
-          Permanently delete your account and all associated projects.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
+    <div>
+      <h3 className="text-lg font-bold tracking-tight text-red-900">
+        Danger Zone
+      </h3>
+      <p className="mt-1 text-sm text-neutral-500">
+        Permanently delete your account and all associated projects.
+      </p>
+
+      <div className="mt-6 space-y-3">
         <p className="text-sm text-neutral-500">
           This action is practically immediate, and cannot be undone. Please proceed with caution.
         </p>
-        <div className="flex justify-start">
-          <Dialog open={isOpen} onOpenChange={setIsOpen}>
-            <DialogTrigger asChild>
-              <Button 
-                variant="destructive" 
-                size="sm"
+        <Dialog open={isOpen} onOpenChange={setIsOpen}>
+          <DialogTrigger asChild>
+            <Button
+              variant="destructive"
+              size="sm"
+            >
+              Delete Account
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Are you absolutely sure?</DialogTitle>
+              <DialogDescription>
+                This action cannot be undone. This will permanently delete your
+                account and remove your data from our servers.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="mt-4">
+              <Button
+                variant="outline"
+                onClick={() => setIsOpen(false)}
+                disabled={isDeleting}
               >
-                Delete Account
+                Cancel
               </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Are you absolutely sure?</DialogTitle>
-                <DialogDescription>
-                  This action cannot be undone. This will permanently delete your
-                  account and remove your data from our servers.
-                </DialogDescription>
-              </DialogHeader>
-              <DialogFooter className="mt-4">
-                <Button
-                  variant="outline"
-                  onClick={() => setIsOpen(false)}
-                  disabled={isDeleting}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  variant="destructive"
-                  onClick={handleDelete}
-                  disabled={isDeleting}
-                >
-                  {isDeleting ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Deleting...
-                    </>
-                  ) : (
-                    'Delete Permanently'
-                  )}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        </div>
-      </CardContent>
-    </Card>
+              <Button
+                variant="destructive"
+                onClick={handleDelete}
+                disabled={isDeleting}
+              >
+                {isDeleting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  'Delete Permanently'
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+    </div>
   );
 }

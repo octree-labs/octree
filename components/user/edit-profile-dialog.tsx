@@ -52,7 +52,7 @@ export function EditProfileDialog({ currentName }: EditProfileDialogProps) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm">
+        <Button size="sm" variant="gradient">
           Edit Profile
         </Button>
       </DialogTrigger>

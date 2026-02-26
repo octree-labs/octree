@@ -28,7 +28,7 @@ export function SidebarNav({ className, items, ...props }: SidebarNavProps) {
           key={item.href}
           href={item.href}
           className={cn(
-            'flex items-center gap-2 text-[15px] pb-1.5 border-b transition-colors hover:text-neutral-900',
+            'flex w-fit items-center gap-2 text-[15px] pb-1.5 border-b transition-colors hover:text-neutral-900',
             pathname === item.href
               ? 'font-bold text-neutral-900 border-neutral-900'
               : 'font-normal text-neutral-400 border-transparent'

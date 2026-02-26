@@ -40,7 +40,7 @@ export function SignInEmail({ email, unsubscribeUrl }: SignInEmailProps) {
             </Text>
 
             <Section style={buttonContainer}>
-              <Button href="https://useoctree.online/settings" style={button}>
+              <Button href="https://app.useoctree.com/settings" style={button}>
                 Secure your account
               </Button>
             </Section>

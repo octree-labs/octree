@@ -24,10 +24,15 @@ export async function GET(request: Request) {
   }
 
   const supabase = createServiceClient();
-  await supabase
+  const { error } = await supabase
     .from('email_suppressions')
     .upsert({ email: email.toLowerCase() }, { onConflict: 'email' });
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://useoctree.online';
+  if (error) {
+    console.error('Failed to unsubscribe:', error);
+    return NextResponse.json({ error: 'Failed to unsubscribe' }, { status: 500 });
+  }
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.useoctree.com';
   return NextResponse.redirect(`${appUrl}/unsubscribed`);
 }

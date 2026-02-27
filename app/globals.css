@@ -168,8 +168,18 @@
       opacity: 0.5;
     }
   }
-  
+
   .animate-pulse-slow {
     animation: pulse-slow 4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  @keyframes synctex-pulse {
+    0% { opacity: 1; }
+    70% { opacity: 1; }
+    100% { opacity: 0; }
+  }
+
+  .animate-synctex-highlight {
+    animation: synctex-pulse 2s ease-out forwards;
   }
 }

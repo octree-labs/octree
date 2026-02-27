@@ -128,7 +128,9 @@ export default function OnboardingPage() {
           annual: isMonthly,
           withTrial: true,
         });
-        window.rdt?.('track', 'StartTrial');
+        window.rdt?.('track', 'StartTrial', {
+          conversionId: crypto.randomUUID(),
+        });
         window.location.href = checkoutUrl;
         return;
       } catch (error) {

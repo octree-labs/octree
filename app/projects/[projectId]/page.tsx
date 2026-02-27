@@ -10,6 +10,7 @@ import { useEditorCompilation } from '@/hooks/use-editor-compilation';
 import { useEditSuggestions } from '@/hooks/use-edit-suggestions';
 import { useEditorInteractions } from '@/hooks/use-editor-interactions';
 import { useEditorKeyboardShortcuts } from '@/hooks/use-editor-keyboard-shortcuts';
+import { useSynctex } from '@/hooks/use-synctex';
 import { MonacoEditor } from '@/components/editor/monaco-editor';
 import { EditorToolbar } from '@/components/editor/toolbar';
 import { SelectionButton } from '@/components/editor/selection-button';
@@ -130,6 +131,37 @@ export default function ProjectPage() {
     currentFilePath: selectedFile?.name ?? null,
     onSwitchFile: handleSwitchFile,
   });
+
+  const {
+    forwardSyncResult,
+    handleForwardSync,
+    handleReverseSync,
+  } = useSynctex({
+    projectId,
+    currentFile: selectedFile?.name ?? null,
+    editor: editorInstance,
+    pdfData,
+    onSwitchFile: handleSwitchFile,
+  });
+
+  const forwardSyncTarget = forwardSyncResult?.[0] ?? null;
+
+  // Forward sync: double-click in editor → scroll PDF
+  useEffect(() => {
+    if (!editorInstance) return;
+
+    const disposable = editorInstance.onMouseDown((e) => {
+      if (e.event.detail === 2 && e.target.position) {
+        const targetType = e.target.type;
+        // Content text (6) or content widget (7)
+        if (targetType === 6 || targetType === 7) {
+          handleForwardSync(e.target.position.lineNumber, e.target.position.column);
+        }
+      }
+    });
+
+    return () => disposable.dispose();
+  }, [editorInstance, handleForwardSync]);
 
   // Auto-accept edits as they arrive
   useEffect(() => {
@@ -384,6 +416,8 @@ export default function ProjectPage() {
                   compilationError={compilationError}
                   onRetryCompile={handleCompile}
                   onDismissError={() => setCompilationError(null)}
+                  onReverseSync={handleReverseSync}
+                  forwardSyncTarget={forwardSyncTarget}
                   onFixWithAI={
                       compilationError
                           ? () => {

@@ -128,9 +128,15 @@ export default function OnboardingPage() {
           annual: isMonthly,
           withTrial: true,
         });
-        window.rdt?.('track', 'StartTrial', {
-          conversionId: crypto.randomUUID(),
-        });
+        const conversionId = crypto.randomUUID();
+        window.rdt?.('track', 'StartTrial', { conversionId });
+        navigator.sendBeacon(
+          '/api/reddit-capi',
+          new Blob(
+            [JSON.stringify({ eventName: 'StartTrial', conversionId, email: userEmail })],
+            { type: 'application/json' },
+          ),
+        );
         window.location.href = checkoutUrl;
         return;
       } catch (error) {

@@ -64,9 +64,13 @@ export function SignUpForm({
       if (error) throw error;
 
       setSignupSuccess(true);
-      window.rdt?.('track', 'SignUp', {
-        conversionId: crypto.randomUUID(),
-      });
+      const conversionId = crypto.randomUUID();
+      window.rdt?.('track', 'SignUp', { conversionId });
+      fetch('/api/reddit-capi', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ eventName: 'SignUp', conversionId, email }),
+      }).catch(() => {});
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : 'An error occurred');
     } finally {

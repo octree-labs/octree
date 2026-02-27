@@ -128,6 +128,7 @@ export default function OnboardingPage() {
           annual: isMonthly,
           withTrial: true,
         });
+        window.rdt?.('track', 'StartTrial');
         window.location.href = checkoutUrl;
         return;
       } catch (error) {

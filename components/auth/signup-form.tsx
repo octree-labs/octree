@@ -64,6 +64,7 @@ export function SignUpForm({
       if (error) throw error;
 
       setSignupSuccess(true);
+      window.rdt?.('track', 'SignUp');
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : 'An error occurred');
     } finally {

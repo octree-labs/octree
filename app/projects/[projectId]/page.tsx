@@ -314,13 +314,21 @@ export default function ProjectPage() {
     [handleEditSuggestion]
   );
 
+  const isSaveInFlightRef = useRef(false);
+
   useEditorKeyboardShortcuts({
     editor: editorRef.current,
     monacoInstance: monacoRef.current,
     onSave: async (currentContent: string) => {
-      const compiled = await handleCompile();
-      if (compiled) {
-        await handleSaveDocument(currentContent);
+      if (isSaveInFlightRef.current) return;
+      isSaveInFlightRef.current = true;
+      try {
+        const compiled = await handleCompile();
+        if (compiled) {
+          await handleSaveDocument(currentContent);
+        }
+      } finally {
+        isSaveInFlightRef.current = false;
       }
     },
     onCopy: () => {

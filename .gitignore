@@ -47,3 +47,4 @@ digitalocean_compile/README.md
 
 agent_server/node_modules
 agent_server/.env
+config.bat

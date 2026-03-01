@@ -29,15 +29,6 @@ get intelligent edit suggestions, and collaborate in real time.
 
 Octree is an AI-powered LaTeX editor that brings intelligent writing assistance to academic and technical document creation. Write LaTeX in a Monaco-based editor, chat with Claude for help, and compile to PDF — all in one place.
 
-**Key features:**
-
-- **AI edit suggestions** — Claude analyzes your LaTeX and proposes inline edits you can accept or reject
-- **Document generation** — describe what you need in chat and get a full LaTeX document
-- **Live PDF compilation** — compile and preview your document without leaving the editor
-- **Project-based workspace** — organize files into projects with a familiar file tree
-- **Real-time collaboration** — invite collaborators to work on projects together
-- **Zotero integration** — sync your reference library directly into projects
-
 ## Getting Started
 
 ### Prerequisites

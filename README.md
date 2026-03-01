@@ -14,7 +14,7 @@ get intelligent edit suggestions, and collaborate in real time.
 <p align="center">
   <a href="https://useoctree.com">Website</a> &bull;
   <a href="#getting-started">Quick Start</a> &bull;
-  <a href="https://github.com/basilysf1709/octree">GitHub</a>
+  <a href="https://github.com/octree-labs/octree">GitHub</a>
 </p>
 
 <p align="center">
@@ -84,7 +84,7 @@ Octree is an AI-powered LaTeX editor that brings intelligent writing assistance 
 ### Setup
 
 ```bash
-git clone https://github.com/basilysf1709/octree.git
+git clone https://github.com/octree-labs/octree.git
 cd octree
 npm install
 ```

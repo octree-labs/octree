@@ -22,7 +22,7 @@ get intelligent edit suggestions, and collaborate in real time.
   <img src="https://img.shields.io/badge/language-TypeScript-3178C6" alt="language" />
   <img src="https://img.shields.io/badge/database-Supabase-3ECF8E" alt="database" />
   <img src="https://img.shields.io/badge/AI-Vercel_AI_SDK-000000" alt="AI" />
-  <img src="https://img.shields.io/badge/license-MIT-green" alt="license" />
+  <img src="https://img.shields.io/badge/license-LGPL--3.0-blue" alt="license" />
 </p>
 
 ## Architecture
@@ -143,4 +143,4 @@ If you want to self-host Octree, please reach out to **basil@useoctree.online**.
 
 ## License
 
-MIT
+LGPL-3.0 — see [LICENSE](LICENSE) for details.

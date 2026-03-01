@@ -25,40 +25,6 @@ get intelligent edit suggestions, and collaborate in real time.
   <img src="https://img.shields.io/badge/license-LGPL--3.0-blue" alt="license" />
 </p>
 
-## Architecture
-
-```mermaid
-graph TB
-    subgraph Client
-        A[Browser] -->|React 19 + Monaco Editor| B[Next.js 15 App Router]
-    end
-
-    subgraph Vercel
-        B -->|API Routes| C[Compile PDF]
-        B -->|API Routes| D[Import LaTeX]
-        B -->|SSE Stream| E[Octra Agent Proxy]
-    end
-
-    subgraph Agent Server
-        E -->|HTTP + SSE| F[Agent Service<br/>Vercel AI SDK + streamText]
-        F -->|Tool Use| G[LaTeX AST Edits]
-        F -->|Tool Use| H[Intent Inference]
-    end
-
-    subgraph Supabase
-        B -->|Auth + Realtime| I[(PostgreSQL)]
-        I --- J[Projects & Files]
-        I --- K[Generated Documents]
-        I --- L[User Usage & Billing]
-    end
-
-    subgraph External
-        F -->|Anthropic SDK| M[Claude API]
-        C -->|API| N[LaTeX Compiler]
-        B -->|Webhooks| O[Stripe]
-    end
-```
-
 ## What is Octree?
 
 Octree is an AI-powered LaTeX editor that brings intelligent writing assistance to academic and technical document creation. Write LaTeX in a Monaco-based editor, chat with Claude for help, and compile to PDF — all in one place.

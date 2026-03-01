@@ -53,7 +53,7 @@ graph TB
     end
 
     subgraph External
-        F -->|@ai-sdk/anthropic| M[Claude API]
+        F -->|Anthropic SDK| M[Claude API]
         C -->|API| N[LaTeX Compiler]
         B -->|Webhooks| O[Stripe]
     end

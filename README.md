@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="public/octree.svg" alt="Octree Logo" width="100" />
+  <img src="public/Logo.svg" alt="Octree Logo" width="100" />
 </p>
 
 <h1 align="center">Octree</h1>
@@ -21,7 +21,7 @@ get intelligent edit suggestions, and collaborate in real time.
   <img src="https://img.shields.io/badge/framework-Next.js_15-black" alt="framework" />
   <img src="https://img.shields.io/badge/language-TypeScript-3178C6" alt="language" />
   <img src="https://img.shields.io/badge/database-Supabase-3ECF8E" alt="database" />
-  <img src="https://img.shields.io/badge/AI-Claude_Agent_SDK-D97706" alt="AI" />
+  <img src="https://img.shields.io/badge/AI-Vercel_AI_SDK-000000" alt="AI" />
   <img src="https://img.shields.io/badge/license-MIT-green" alt="license" />
 </p>
 
@@ -39,8 +39,8 @@ graph TB
         B -->|SSE Stream| E[Octra Agent Proxy]
     end
 
-    subgraph DigitalOcean VPS
-        E -->|HTTP + SSE| F[Claude Server<br/>Express + Claude Agent SDK]
+    subgraph Agent Server
+        E -->|HTTP + SSE| F[Agent Service<br/>Vercel AI SDK + streamText]
         F -->|Tool Use| G[LaTeX AST Edits]
         F -->|Tool Use| H[Intent Inference]
     end
@@ -53,7 +53,7 @@ graph TB
     end
 
     subgraph External
-        F -->|API| M[Claude API]
+        F -->|@ai-sdk/anthropic| M[Claude API]
         C -->|API| N[LaTeX Compiler]
         B -->|Webhooks| O[Stripe]
     end
@@ -79,7 +79,7 @@ Octree is an AI-powered LaTeX editor that brings intelligent writing assistance 
 - Node.js 18+
 - A [Supabase](https://supabase.com) project
 - A [Stripe](https://stripe.com) account (for billing)
-- A [Deepgram](https://deepgram.com) or Claude API key (for AI features)
+- A [Claude API](https://console.anthropic.com) key (for AI features)
 
 ### Setup
 
@@ -95,19 +95,19 @@ Copy the example environment file and fill in your keys:
 cp .env.example .env.local
 ```
 
-Start the development server:
+Start both the Next.js app and the agent server:
 
 ```bash
+# Terminal 1 — Next.js app
 npm run dev
-```
 
-To run the Claude agent server locally:
-
-```bash
-cd claude_server
+# Terminal 2 — Agent server
+cd agent_server
 npm install
 npm run dev    # starts on port 8787
 ```
+
+Both services need to be running for AI features to work.
 
 ### Commands
 
@@ -129,9 +129,9 @@ npm run dev    # starts on port 8787
 | Editor | Monaco Editor |
 | Database | Supabase (PostgreSQL) |
 | Auth | Supabase Auth |
-| AI | Claude Agent SDK |
+| AI | Vercel AI SDK, @ai-sdk/anthropic |
 | Payments | Stripe |
-| Hosting | Vercel (app), DigitalOcean (agent server) |
+| Hosting | Vercel |
 
 ## Security
 

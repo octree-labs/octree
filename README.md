@@ -96,7 +96,7 @@ If you find a security vulnerability, please email **basil@useoctree.online** in
 
 ## Self-Hosting
 
-If you want to self-host Octree, please reach out to **basil@useoctree.online**.
+If you want to self-host Octree with compile, please reach out to **basil@useoctree.online**.
 
 ## License
 

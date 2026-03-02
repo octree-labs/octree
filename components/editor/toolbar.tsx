@@ -32,6 +32,7 @@ import {
   MessageSquare,
   PanelRightClose,
   BookOpen,
+  RefreshCw,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
@@ -52,6 +53,8 @@ interface EditorToolbarProps {
   onExportPDF: () => void;
   onExportZIP: () => void;
   onOpenCitationPicker: () => void;
+  onSyncZotero?: () => void;
+  zoteroSyncing?: boolean;
   onOpenChat: () => void;
   onToggleChat: () => void;
   chatOpen: boolean;
@@ -68,6 +71,8 @@ export function EditorToolbar({
   onExportPDF,
   onExportZIP,
   onOpenCitationPicker,
+  onSyncZotero,
+  zoteroSyncing,
   onOpenChat,
   onToggleChat,
   chatOpen,
@@ -236,6 +241,24 @@ export function EditorToolbar({
             <BookOpen className="h-3.5 w-3.5" />
             <span className="font-medium">Cite</span>
           </Button>
+
+          {onSyncZotero && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onSyncZotero}
+              className="gap-1.5"
+              title="Sync Zotero references"
+              disabled={zoteroSyncing}
+            >
+              <RefreshCw
+                className={`h-3.5 w-3.5 ${
+                  zoteroSyncing ? 'animate-spin' : ''
+                }`}
+              />
+              <span className="font-medium">Sync Zotero</span>
+            </Button>
+          )}
 
           <Button
             variant="default"

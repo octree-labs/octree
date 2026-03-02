@@ -42,6 +42,7 @@ import { FileTree } from '@/components/projects/file-tree';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import type { CitationEntry } from '@/types/citation';
+import { toast } from 'sonner';
 
 const CHAT_WIDTH_DEFAULT = 340;
 const CHAT_WIDTH_MIN = 280;
@@ -207,7 +208,8 @@ export default function ProjectPage() {
   const [isChatResizing, setIsChatResizing] = useState(false);
   const [citationPickerOpen, setCitationPickerOpen] = useState(false);
   const [citationQuery, setCitationQuery] = useState('');
-  const { state: zoteroState, searchEntries } = useZoteroSync(projectId);
+  const { state: zoteroState, searchEntries, syncSaved, syncing } =
+    useZoteroSync(projectId);
 
   const chatStartXRef = useRef(0);
   const chatStartWidthRef = useRef(0);
@@ -276,6 +278,22 @@ export default function ProjectPage() {
     () => searchEntries(citationQuery),
     [citationQuery, searchEntries]
   );
+
+  const handleSyncZoteroFromEditor = useCallback(async () => {
+    try {
+      const next = await syncSaved();
+      const count = next.entries.length;
+      toast.success(
+        `Synced ${count} Zotero reference${count === 1 ? '' : 's'}.`
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : 'Failed to sync Zotero references'
+      );
+    }
+  }, [syncSaved]);
 
   useEffect(() => {
     FileActions.reset();
@@ -609,6 +627,8 @@ export default function ProjectPage() {
         onExportPDF={handleExportPDF}
         onExportZIP={handleExportZIP}
         onOpenCitationPicker={() => setCitationPickerOpen(true)}
+        onSyncZotero={handleSyncZoteroFromEditor}
+        zoteroSyncing={syncing}
         onOpenChat={() => {
           if (selectedText.trim()) {
             setTextFromEditor(selectedText);

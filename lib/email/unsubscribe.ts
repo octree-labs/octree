@@ -7,7 +7,7 @@ export function generateUnsubscribeToken(email: string): string {
 }
 
 export function generateUnsubscribeUrl(email: string): string {
-  const base = process.env.NEXT_PUBLIC_APP_URL ?? 'https://useoctree.online';
+  const base = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.useoctree.com';
   const token = generateUnsubscribeToken(email);
   return `${base}/api/email/unsubscribe?email=${encodeURIComponent(email.toLowerCase())}&token=${token}`;
 }

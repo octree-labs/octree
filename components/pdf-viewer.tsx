@@ -8,6 +8,7 @@ import 'react-pdf/dist/Page/TextLayer.css';
 import dynamic from 'next/dynamic';
 import PDFErrorBoundary from './pdf-error-boundary';
 import type { CompilationError } from '@/types/compilation';
+import type { SynctexForwardResult } from '@/lib/utils/synctex';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.min.mjs',
@@ -35,6 +36,8 @@ interface PDFViewerWrapperProps {
   onRetryCompile?: () => void;
   onDismissError?: () => void;
   onFixWithAI?: () => void;
+  onReverseSync?: (page: number, h: number, v: number) => void;
+  forwardSyncTarget?: SynctexForwardResult | null;
 }
 
 function PDFViewerWrapper({
@@ -44,6 +47,8 @@ function PDFViewerWrapper({
   onRetryCompile,
   onDismissError,
   onFixWithAI,
+  onReverseSync,
+  forwardSyncTarget,
 }: PDFViewerWrapperProps) {
   return (
     <PDFErrorBoundary>
@@ -54,6 +59,8 @@ function PDFViewerWrapper({
         onRetryCompile={onRetryCompile}
         onDismissError={onDismissError}
         onFixWithAI={onFixWithAI}
+        onReverseSync={onReverseSync}
+        forwardSyncTarget={forwardSyncTarget}
       />
     </PDFErrorBoundary>
   );

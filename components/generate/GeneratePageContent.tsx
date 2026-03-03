@@ -156,6 +156,7 @@ export function GeneratePageContent({
     handleRemoveFile,
     generateDocument,
     stopGeneration,
+    resetState,
     restoreSession,
     currentDocument,
     generationMilestone,
@@ -186,6 +187,14 @@ export function GeneratePageContent({
       restoreSession(initialDocument);
     }
   }, [initialDocument, restoreSession]);
+
+  useEffect(() => {
+    if (!initialDocument && currentSessionId.current) {
+      stopGeneration();
+      currentSessionId.current = null;
+      resetState();
+    }
+  }, [initialDocument, resetState, stopGeneration]);
 
   const currentLatex = currentDocument?.latex ?? null;
   const currentTitle = currentDocument?.title ?? 'Untitled Document';

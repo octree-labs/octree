@@ -39,7 +39,7 @@ export function ReEngagementEmail({
             </Text>
 
             <Section style={buttonContainer}>
-              <Button href="https://useoctree.online" style={button}>
+              <Button href="https://app.useoctree.com" style={button}>
                 Create your first project
               </Button>
             </Section>

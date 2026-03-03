@@ -359,6 +359,7 @@ export function useGenerate(options: UseGenerateOptions = {}) {
 
       let finalLatex: string | null = null;
       let docTitle = 'Untitled Document';
+      let completed = false;
 
       await readStream(reader, (event, data) => {
         switch (event) {
@@ -382,6 +383,7 @@ export function useGenerate(options: UseGenerateOptions = {}) {
           case 'complete':
             finalLatex = data.latex as string;
             docTitle = (data.title as string) || docTitle;
+            completed = true;
             setGenerationMilestone('complete');
             updateLastMessage(
               (m) =>
@@ -393,6 +395,10 @@ export function useGenerate(options: UseGenerateOptions = {}) {
             throw new Error(data.message as string);
         }
       });
+
+      if (!completed) {
+        throw new Error('Generation timed out before completion. Please try again.');
+      }
 
       if (finalLatex && userId) {
         const successMessage = 'Document generated successfully. Preview it below or open it in Octree.';

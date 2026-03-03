@@ -16,6 +16,7 @@ import 'react-pdf/dist/Page/TextLayer.css';
 import { CompilationError } from '@/components/latex/compilation-error';
 import { CompilationLoading } from '@/components/latex/compilation-loading';
 import type { CompilationError as CompilationErrorType } from '@/types/compilation';
+import type { SynctexForwardResult } from '@/lib/utils/synctex';
 
 // Initialize the worker
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
@@ -39,6 +40,8 @@ interface PDFViewerProps {
   onRetryCompile?: () => void;
   onDismissError?: () => void;
   onFixWithAI?: () => void;
+  onReverseSync?: (page: number, h: number, v: number) => void;
+  forwardSyncTarget?: SynctexForwardResult | null;
 }
 
 function DynamicPDFViewer({
@@ -48,6 +51,8 @@ function DynamicPDFViewer({
   onRetryCompile,
   onDismissError,
   onFixWithAI,
+  onReverseSync,
+  forwardSyncTarget,
 }: PDFViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
@@ -62,6 +67,42 @@ function DynamicPDFViewer({
   } | null>(null);
   const [zoom, setZoom] = useState<number>(1.0);
   const [containerWidth, setContainerWidth] = useState<number>(800);
+  const [syncHighlight, setSyncHighlight] = useState<{
+    page: number;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null>(null);
+
+  // Forward sync: react to forwardSyncTarget changes
+  useEffect(() => {
+    if (!forwardSyncTarget || !pageDimensions) return;
+
+    const { page, h, v, w, height } = forwardSyncTarget;
+    scrollToPage(page);
+
+    // Measure the actual rendered canvas to get accurate scale
+    const pageDiv = pageRefs.current.get(page);
+    const canvas = pageDiv?.querySelector('canvas');
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = rect.width / pageDimensions.width;
+    const scaleY = rect.height / pageDimensions.height;
+
+    setSyncHighlight({
+      page,
+      x: h * scaleX,
+      y: v * scaleY - height * scaleY,
+      width: Math.max(w * scaleX, 200),
+      height: Math.max(height * scaleY, 20),
+    });
+
+    const timer = setTimeout(() => setSyncHighlight(null), 2000);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [forwardSyncTarget]);
 
   // Track initial loading state to show success flash
   useEffect(() => {
@@ -222,6 +263,24 @@ function DynamicPDFViewer({
     };
   }
 
+  function handlePageDoubleClick(pageNum: number, e: React.MouseEvent<HTMLDivElement>) {
+    if (!onReverseSync || !pageDimensions) return;
+
+    const pageDiv = e.currentTarget;
+    const canvas = pageDiv.querySelector('canvas');
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const clickY = e.clientY - rect.top;
+
+    // Use the actual rendered canvas CSS size for accurate conversion
+    const pdfH = (clickX / rect.width) * pageDimensions.width;
+    const pdfV = (clickY / rect.height) * pageDimensions.height;
+
+    onReverseSync(pageNum, pdfH, pdfV);
+  }
+
   if (showSuccess && pdfData) {
     return <CompilationLoading completed />;
   }
@@ -319,7 +378,8 @@ function DynamicPDFViewer({
                       }
                     }}
                     data-page-number={pageNum}
-                    className="mb-4"
+                    className="relative mb-4"
+                    onDoubleClick={(e) => handlePageDoubleClick(pageNum, e)}
                   >
                     <Page
                       pageNumber={pageNum}
@@ -335,6 +395,17 @@ function DynamicPDFViewer({
                         </div>
                       }
                     />
+                    {syncHighlight && syncHighlight.page === pageNum && (
+                      <div
+                        className="animate-synctex-highlight pointer-events-none absolute rounded-sm bg-blue-400/30 ring-2 ring-blue-400/50"
+                        style={{
+                          left: `${syncHighlight.x}px`,
+                          top: `${syncHighlight.y}px`,
+                          width: `${syncHighlight.width}px`,
+                          height: `${syncHighlight.height}px`,
+                        }}
+                      />
+                    )}
                   </div>
                 );
               })}

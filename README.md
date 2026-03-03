@@ -1,4 +1,103 @@
-# Octree
+<p align="center">
+  <img src="public/Logo.svg" alt="Octree Logo" width="100" />
+</p>
 
-- If you find a security bug, please email basil@useoctree.online
-- If you want to self-host, please reach out to basil@useoctree.online
+<h1 align="center">Octree</h1>
+
+<p align="center"><strong>AI-Powered LaTeX Editor</strong></p>
+
+<p align="center">
+Write, edit, and compile LaTeX with AI assistance. Chat with Claude to generate documents,<br/>
+get intelligent edit suggestions, and collaborate in real time.
+</p>
+
+<p align="center">
+  <a href="https://useoctree.com">Website</a> &bull;
+  <a href="#getting-started">Quick Start</a> &bull;
+  <a href="https://github.com/octree-labs/octree">GitHub</a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/framework-Next.js_15-black" alt="framework" />
+  <img src="https://img.shields.io/badge/language-TypeScript-3178C6" alt="language" />
+  <img src="https://img.shields.io/badge/database-Supabase-3ECF8E" alt="database" />
+  <img src="https://img.shields.io/badge/AI-Vercel_AI_SDK-000000" alt="AI" />
+  <img src="https://img.shields.io/badge/license-LGPL--3.0-blue" alt="license" />
+</p>
+
+## What is Octree?
+
+Octree is an AI-powered LaTeX editor that brings intelligent writing assistance to academic and technical document creation. Write LaTeX in a Monaco-based editor, chat with Claude for help, and compile to PDF — all in one place.
+
+## Getting Started
+
+### Prerequisites
+
+- Node.js 18+
+- A [Supabase](https://supabase.com) project
+- A [Stripe](https://stripe.com) account (for billing)
+- A [Claude API](https://console.anthropic.com) key (for AI features)
+
+### Setup
+
+```bash
+git clone https://github.com/octree-labs/octree.git
+cd octree
+npm install
+```
+
+Copy the example environment file and fill in your keys:
+
+```bash
+cp .env.example .env.local
+```
+
+Start both the Next.js app and the agent server:
+
+```bash
+# Terminal 1 — Next.js app
+npm run dev
+
+# Terminal 2 — Agent server
+cd agent_server
+npm install
+npm run dev    # starts on port 8787
+```
+
+Both services need to be running for AI features to work.
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start dev server with Turbopack |
+| `npm run build` | Production build |
+| `npm run lint` | Run ESLint |
+| `npm run test` | Run all tests (Vitest) |
+| `npm run test:watch` | Watch mode |
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|------------|
+| Framework | Next.js 15 (App Router) |
+| Language | TypeScript (strict mode) |
+| UI | React 19, shadcn/ui, Tailwind CSS |
+| Editor | Monaco Editor |
+| Database | Supabase (PostgreSQL) |
+| Auth | Supabase Auth |
+| AI | Vercel AI SDK, @ai-sdk/anthropic |
+| Payments | Stripe |
+| Hosting | Vercel |
+
+## Security
+
+If you find a security vulnerability, please email **basil@useoctree.online** instead of opening a public issue.
+
+## Self-Hosting
+
+If you want to self-host Octree with compile, please reach out to **basil@useoctree.online**.
+
+## License
+
+LGPL-3.0 — see [LICENSE](LICENSE) for details.

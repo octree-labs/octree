@@ -37,7 +37,7 @@ export function WelcomeEmail({ email, unsubscribeUrl }: WelcomeEmailProps) {
             <Text style={listItem}>• Compile directly to PDF</Text>
 
             <Section style={buttonContainer}>
-              <Button href="https://useoctree.online" style={button}>
+              <Button href="https://app.useoctree.com" style={button}>
                 Open your dashboard
               </Button>
             </Section>

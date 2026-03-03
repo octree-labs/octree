@@ -85,7 +85,7 @@ Both services need to be running for AI features to work.
 | UI | React 19, shadcn/ui, Tailwind CSS |
 | Editor | Monaco Editor |
 | Database | Supabase (PostgreSQL) |
-| Auth | Supabase Auth |
+| Auth | Supabase Auth and Googel OAuth |
 | AI | Vercel AI SDK, @ai-sdk/anthropic |
 | Payments | Stripe |
 | Hosting | Vercel |

@@ -117,6 +117,7 @@ export function Chat({
     incrementProgress,
     setError: setProposalError,
     convertEditsToSuggestions,
+    finalizeAllPending,
   } = useEditProposals(fileContent, projectFiles, currentFilePath);
   const {
     attachments,
@@ -346,6 +347,10 @@ export function Chat({
         }
       }
     } finally {
+      // Ensure no proposal indicator is left stuck in 'pending' state.
+      // This handles race conditions where setPending for a later round
+      // clears the finalizeIndicator timeout of an earlier round.
+      finalizeAllPending();
       setIsLoading(false);
       setInput('');
       currentAssistantIdRef.current = null;

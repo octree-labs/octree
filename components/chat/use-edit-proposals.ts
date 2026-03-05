@@ -171,33 +171,6 @@ export function useEditProposals(
     }));
   }, []);
 
-  /**
-   * Safety net: force all pending indicators to success.
-   * Called when the stream ends to ensure no spinner is left stuck due to
-   * race conditions between setPending / finalizeIndicator timeouts.
-   */
-  const finalizeAllPending = useCallback(() => {
-    setProposalIndicators((prev) => {
-      let changed = false;
-      const next: Record<string, ProposalIndicator> = {};
-      for (const [id, indicator] of Object.entries(prev)) {
-        if (indicator.state === 'pending') {
-          changed = true;
-          const total = indicator.count ?? indicator.progressCount ?? 1;
-          next[id] = {
-            state: 'success',
-            count: total,
-            progressCount: total,
-            stepStates: buildStepStates(total, total),
-          };
-        } else {
-          next[id] = indicator;
-        }
-      }
-      return changed ? next : prev;
-    });
-  }, []);
-
   const convertEditsToSuggestions = useCallback(
     (edits: StringEdit[], messageId: string): EditSuggestion[] => {
       // Deduplicate per-edit to handle batches of different sizes
@@ -272,9 +245,7 @@ export function useEditProposals(
           const timeoutId = window.setTimeout(() => {
             incrementProgress(messageId, 1);
           }, idx * STEP_CASCADE_DELAY_MS);
-          const arr = progressTimeoutsRef.current[messageId];
-          if (arr) arr.push(timeoutId);
-          else progressTimeoutsRef.current[messageId] = [timeoutId];
+          progressTimeoutsRef.current[messageId]?.push(timeoutId);
         });
       }
 
@@ -309,9 +280,7 @@ export function useEditProposals(
 
         const scheduleSuccess = (delay: number) => {
           const timeoutId = window.setTimeout(finalizeIndicator, delay);
-          const arr = progressTimeoutsRef.current[messageId];
-          if (arr) arr.push(timeoutId);
-          else progressTimeoutsRef.current[messageId] = [timeoutId];
+          progressTimeoutsRef.current[messageId]?.push(timeoutId);
         };
 
         if (pendingStartTime) {
@@ -339,6 +308,5 @@ export function useEditProposals(
     setError,
     incrementProgress,
     convertEditsToSuggestions,
-    finalizeAllPending,
   };
 }

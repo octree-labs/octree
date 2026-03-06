@@ -1,36 +1,10 @@
 import { create } from 'zustand';
 import { createClient } from '@/lib/supabase/client';
-import type { ConversationSummary } from '@/types/conversation';
-import { Tables } from '@/database.types';
+import { normalizeGeneratedDocument } from '@/lib/generate/document';
+import type { GeneratedDocument } from '@/lib/generate/document';
 
 export type DocumentStatus = GeneratedDocument['status'];
-
-export interface StoredAttachment {
-  id: string;
-  name: string;
-  type: 'image' | 'document';
-  url: string;
-}
-
-export interface StoredMessage {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  attachments?: Array<{
-    id: string;
-    name: string;
-    type: 'image' | 'document';
-    preview: string | null;
-  }>;
-}
-
-export interface GeneratedDocument extends Omit<Tables<'generated_documents'>, 'attachments' | 'message_history' | 'conversation_summary' | 'status'> {
-  attachments: StoredAttachment[];
-  message_history: StoredMessage[];
-  conversation_summary: ConversationSummary | null;
-  status: Tables<'generated_documents'>['status'];
-  created_at: string;
-}
+export type { GeneratedDocument, StoredAttachment, StoredMessage } from '@/lib/generate/document';
 
 type GenerateStoreState = {
   documents: GeneratedDocument[];
@@ -50,12 +24,6 @@ export const useDocuments = () => useGenerateStore((state) => state.documents);
 export const useActiveDocumentId = () => useGenerateStore((state) => state.activeDocumentId);
 export const useIsLoading = () => useGenerateStore((state) => state.isLoading);
 
-export const useActiveDocument = () =>
-  useGenerateStore((state) => {
-    if (!state.activeDocumentId) return null;
-    return state.documents.find((d) => d.id === state.activeDocumentId) ?? null;
-  });
-
 const getState = useGenerateStore.getState;
 const setState = useGenerateStore.setState;
 
@@ -64,7 +32,8 @@ export const GenerateActions = {
     const supabase = createClient();
     setState({ isLoading: true });
 
-    const { data, error } = await (supabase.from('generated_documents') as any)
+    const { data, error } = await supabase
+      .from('generated_documents')
       .select('*')
       .order('created_at', { ascending: false })
       .limit(50);
@@ -75,34 +44,10 @@ export const GenerateActions = {
       return;
     }
 
-    setState({ documents: (data ?? []) as unknown as GeneratedDocument[], isLoading: false });
-  },
-
-  fetchDocument: async (id: string): Promise<GeneratedDocument | null> => {
-    const supabase = createClient();
-    const { data, error } = await (supabase.from('generated_documents') as any)
-      .select('*')
-      .eq('id', id)
-      .single();
-
-    if (error || !data) {
-      console.error('Failed to fetch document:', error);
-      return null;
-    }
-
-    const doc = data as unknown as GeneratedDocument;
-
-    setState((state) => {
-      const exists = state.documents.some((d) => d.id === doc.id);
-      return {
-        documents: exists
-          ? state.documents.map((d) => (d.id === doc.id ? doc : d))
-          : [doc, ...state.documents],
-        activeDocumentId: doc.id,
-      };
+    setState({
+      documents: (data ?? []).map(normalizeGeneratedDocument),
+      isLoading: false,
     });
-
-    return doc;
   },
 
   setActiveDocument: (id: string | null) => {
@@ -134,8 +79,8 @@ export const GenerateActions = {
 
   deleteDocument: async (id: string) => {
     const supabase = createClient();
-    const { error } = await (supabase
-      .from('generated_documents') as any)
+    const { error } = await supabase
+      .from('generated_documents')
       .delete()
       .eq('id', id);
 
@@ -162,7 +107,8 @@ export const GenerateActions = {
       ),
     }));
 
-    const { error } = await (supabase.from('generated_documents') as any)
+    const { error } = await (supabase
+      .from('generated_documents') as any)
       .update({ title: newTitle })
       .eq('id', id);
 

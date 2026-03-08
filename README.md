@@ -96,7 +96,72 @@ If you find a security vulnerability, please email **basil@useoctree.online** in
 
 ## Self-Hosting
 
-If you want to self-host Octree with compile, please reach out to **basil@useoctree.online**.
+### Compile API status (important)
+
+The `/api/compile-pdf` endpoint in this repo is **not a full compiler implementation**. It is a relay that forwards compile requests to an external compile backend via `COMPILE_SERVICE_URL`.
+
+- Code path: `app/api/compile-pdf/route.ts` → `app/api/compile-pdf/compiler.ts`
+- Runtime dependency: `COMPILE_SERVICE_URL` must point to a service exposing `POST /compile`
+
+The production compile backend used by Octree is currently closed-source.
+
+### Fallback option if you are self-hosting
+
+If you are self-hosting and need compile to work, you can run your own LaTeX compile service and wire it in:
+
+1. Host any HTTP service that accepts `POST /compile` with:
+   - Request JSON: `{ files: [{ path, content }], projectId?, lastModifiedFile? }`
+   - Auth header: `Authorization: Bearer <supabase-access-token>` (or adjust auth in your own service)
+2. Make your service return either:
+   - Success: raw PDF bytes in response body (content-type `application/pdf`), or
+   - Error: JSON with fields such as `error`, `details/message`, `log`, `stdout`, `stderr`
+3. Set `COMPILE_SERVICE_URL` in `.env.local` to your hosted service URL.
+4. If your API shape differs, update `app/api/compile-pdf/compiler.ts` (and if needed `app/api/compile-pdf/route.ts`) so this relay matches your service contract.
+
+This gives you a practical path to run compilation even without the closed-source backend.
+
+### Hosting the agent server
+
+The AI editing agent is included in this repo under `agent_server/` and can be hosted independently.
+
+#### Local/dev run
+
+```bash
+cd agent_server
+npm install
+cp ../.env.example .env
+# Fill required values in agent_server/.env (see below)
+npm run dev
+```
+
+The service starts on `http://localhost:8787` and exposes `POST /agent`.
+
+#### Production (Docker)
+
+```bash
+cd agent_server
+docker build -t octra-agent:latest .
+docker compose up -d
+```
+
+`docker-compose.yml` maps port `8787:8787` and reads environment variables from `agent_server/.env`.
+
+#### Required environment variables for agent server
+
+- `ANTHROPIC_API_KEY` (required)
+- `SUPABASE_JWT_SECRET` (optional but recommended; when set, `/agent` requires Bearer JWT)
+- `COMPILE_SERVICE_URL` (optional; enables agent compile tool)
+- `PORT` (optional; defaults to `8787`)
+
+#### Connect the Next.js app to your hosted agent
+
+Set in `.env.local`:
+
+```bash
+CLAUDE_AGENT_SERVICE_URL=http://localhost:8787
+```
+
+If hosting remotely, replace with your public/internal URL.
 
 ## License
 

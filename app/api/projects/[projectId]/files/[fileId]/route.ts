@@ -24,6 +24,19 @@ export async function GET(
 
     const { projectId, fileId } = await params;
 
+    const typedSupabase = supabase as unknown as SupabaseClient<Database>;
+    
+    const { data: project } = await typedSupabase
+      .from('projects')
+      .select('id')
+      .eq('id', projectId)
+      .eq('user_id', user.id)
+      .single();
+
+    if (!project) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
     const { data: storageFiles, error: listError } = await supabase.storage
       .from('octree')
       .list(`projects/${projectId}`);
@@ -106,6 +119,19 @@ export async function PUT(
     }
 
     const { projectId, fileId } = await params;
+
+    const typedSupabase = supabase as unknown as SupabaseClient<Database>;
+    const { data: project } = await typedSupabase
+      .from('projects')
+      .select('id')
+      .eq('id', projectId)
+      .eq('user_id', user.id)
+      .single();
+
+    if (!project) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
     const { content } = await request.json();
 
     if (content === undefined || content === null) {
@@ -163,7 +189,6 @@ export async function PUT(
     }
 
     // Update project's updated_at so it moves up in the projects list
-    const typedSupabase = supabase as unknown as SupabaseClient<Database>;
     await typedSupabase
       .from('projects')
       .update({ updated_at: new Date().toISOString() })

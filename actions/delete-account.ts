@@ -33,22 +33,6 @@ export async function deleteAccount() {
 
     const projectIds = projects?.map((p) => p.id) || [];
 
-    const { data: documents } = await supabaseAdmin
-      .from('documents')
-      .select('id')
-      .eq('owner_id', userId);
-
-    const documentIds = documents?.map((d) => d.id) || [];
-
-    if (documentIds.length > 0) {
-      await supabaseAdmin
-        .from('document_versions')
-        .delete()
-        .in('document_id', documentIds);
-    }
-
-    await supabaseAdmin.from('documents').delete().eq('owner_id', userId);
-
     await supabaseAdmin
       .from('generated_documents')
       .delete()
@@ -81,27 +65,6 @@ export async function deleteAccount() {
         .delete()
         .in('project_id', projectIds);
 
-      await supabaseAdmin
-        .from('project_collaborators')
-        .delete()
-        .in('project_id', projectIds);
-
-      await supabaseAdmin
-        .from('project_invitations')
-        .delete()
-        .in('project_id', projectIds);
-    }
-
-    await supabaseAdmin
-      .from('project_collaborators')
-      .delete()
-      .eq('user_id', userId);
-
-    if (user.email) {
-      await supabaseAdmin
-        .from('project_invitations')
-        .delete()
-        .eq('email', user.email);
     }
 
     await supabaseAdmin.from('projects').delete().eq('user_id', userId);

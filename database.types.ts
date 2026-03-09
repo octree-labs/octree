@@ -14,91 +14,6 @@ export type Database = {
   }
   public: {
     Tables: {
-      document_versions: {
-        Row: {
-          change_summary: string | null
-          content: string
-          created_at: string | null
-          created_by: string | null
-          document_id: string | null
-          id: string
-        }
-        Insert: {
-          change_summary?: string | null
-          content: string
-          created_at?: string | null
-          created_by?: string | null
-          document_id?: string | null
-          id?: string
-        }
-        Update: {
-          change_summary?: string | null
-          content?: string
-          created_at?: string | null
-          created_by?: string | null
-          document_id?: string | null
-          id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "document_versions_document_id_fkey"
-            columns: ["document_id"]
-            isOneToOne: false
-            referencedRelation: "documents"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      documents: {
-        Row: {
-          compile_settings: Json | null
-          content: string
-          created_at: string | null
-          document_type: string | null
-          filename: string | null
-          id: string
-          is_public: boolean | null
-          owner_id: string
-          project_id: string | null
-          title: string
-          updated_at: string | null
-        }
-        Insert: {
-          compile_settings?: Json | null
-          content?: string
-          created_at?: string | null
-          document_type?: string | null
-          filename?: string | null
-          id?: string
-          is_public?: boolean | null
-          owner_id: string
-          project_id?: string | null
-          title: string
-          updated_at?: string | null
-        }
-        Update: {
-          compile_settings?: Json | null
-          content?: string
-          created_at?: string | null
-          document_type?: string | null
-          filename?: string | null
-          id?: string
-          is_public?: boolean | null
-          owner_id?: string
-          project_id?: string | null
-          title?: string
-          updated_at?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "documents_project_id_fkey"
-            columns: ["project_id"]
-            isOneToOne: false
-            referencedRelation: "projects"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       drafts: {
         Row: {
           content: string
@@ -120,6 +35,21 @@ export type Database = {
           id?: string
           source?: string | null
           title?: string | null
+        }
+        Relationships: []
+      }
+      email_suppressions: {
+        Row: {
+          created_at: string
+          email: string
+        }
+        Insert: {
+          created_at?: string
+          email: string
+        }
+        Update: {
+          created_at?: string
+          email?: string
         }
         Relationships: []
       }
@@ -174,7 +104,7 @@ export type Database = {
           latex: string | null
           message_history: Json | null
           prompt: string
-          status: 'pending' | 'generating' | 'complete' | 'error'
+          status: string
           title: string
           user_id: string
         }
@@ -190,7 +120,7 @@ export type Database = {
           latex?: string | null
           message_history?: Json | null
           prompt: string
-          status?: 'pending' | 'generating' | 'complete' | 'error'
+          status?: string
           title: string
           user_id: string
         }
@@ -206,86 +136,60 @@ export type Database = {
           latex?: string | null
           message_history?: Json | null
           prompt?: string
-          status?: 'pending' | 'generating' | 'complete' | 'error'
+          status?: string
           title?: string
           user_id?: string
         }
         Relationships: []
       }
-      project_collaborators: {
+      project_zotero_sources: {
         Row: {
-          created_at: string | null
-          id: string
-          invited_by: string | null
+          collection_key: string | null
+          created_at: string
+          entries: Json
+          last_sync_error: string | null
+          last_sync_status: string
+          last_synced_at: string | null
+          owner_id: string
+          owner_type: string
           project_id: string
-          role: string
-          user_id: string
+          refs_bib: string
+          source_url: string
+          updated_at: string
         }
         Insert: {
-          created_at?: string | null
-          id?: string
-          invited_by?: string | null
+          collection_key?: string | null
+          created_at?: string
+          entries?: Json
+          last_sync_error?: string | null
+          last_sync_status?: string
+          last_synced_at?: string | null
+          owner_id: string
+          owner_type: string
           project_id: string
-          role: string
-          user_id: string
+          refs_bib?: string
+          source_url: string
+          updated_at?: string
         }
         Update: {
-          created_at?: string | null
-          id?: string
-          invited_by?: string | null
+          collection_key?: string | null
+          created_at?: string
+          entries?: Json
+          last_sync_error?: string | null
+          last_sync_status?: string
+          last_synced_at?: string | null
+          owner_id?: string
+          owner_type?: string
           project_id?: string
-          role?: string
-          user_id?: string
+          refs_bib?: string
+          source_url?: string
+          updated_at?: string
         }
         Relationships: [
           {
-            foreignKeyName: "project_collaborators_project_id_fkey"
+            foreignKeyName: "project_zotero_sources_project_id_fkey"
             columns: ["project_id"]
-            isOneToOne: false
-            referencedRelation: "projects"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      project_invitations: {
-        Row: {
-          accepted_at: string | null
-          created_at: string | null
-          email: string | null
-          expires_at: string | null
-          id: string
-          invited_by: string
-          project_id: string
-          role: string
-          token: string
-        }
-        Insert: {
-          accepted_at?: string | null
-          created_at?: string | null
-          email?: string | null
-          expires_at?: string | null
-          id?: string
-          invited_by: string
-          project_id: string
-          role?: string
-          token: string
-        }
-        Update: {
-          accepted_at?: string | null
-          created_at?: string | null
-          email?: string | null
-          expires_at?: string | null
-          id?: string
-          invited_by?: string
-          project_id?: string
-          role?: string
-          token?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "project_invitations_project_id_fkey"
-            columns: ["project_id"]
-            isOneToOne: false
+            isOneToOne: true
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },

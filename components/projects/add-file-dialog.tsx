@@ -672,42 +672,54 @@ export function AddFileDialog({
 
               {error && <p className="text-sm text-red-600">{error}</p>}
 
-              <DialogFooter>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => handleOpenChange(false)}
-                  disabled={syncing}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handleSyncZotero}
-                  disabled={syncing || !zoteroState.sourceUrl}
-                >
-                  <RefreshCw className={cn('h-4 w-4', syncing && 'animate-spin')} />
-                  {syncing ? 'Syncing...' : 'Sync'}
-                </Button>
-                <Button
-                  type="button"
-                  variant="gradient"
-                  onClick={handleImportZotero}
-                  disabled={syncing || !zoteroUrl.trim()}
-                >
-                  <Link2 className="h-4 w-4" />
-                  {syncing ? 'Importing...' : 'Import'}
-                </Button>
-                <Button
-                  type="button"
-                  variant="gradient"
-                  onClick={handleSaveZoteroToProject}
-                  disabled={isLoading || syncing || zoteroState.entries.length === 0}
-                >
-                  {isLoading ? 'Saving...' : 'Save to Project'}
-                </Button>
-              </DialogFooter>
+              {(() => {
+                const hasLinkedLibrary = !!zoteroState.sourceUrl;
+                const isUrlChanged = zoteroUrl.trim() !== zoteroState.sourceUrl;
+                const showLinkButton = !hasLinkedLibrary || isUrlChanged;
+                return (
+                  <DialogFooter>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => handleOpenChange(false)}
+                      disabled={syncing}
+                    >
+                      Cancel
+                    </Button>
+                    {showLinkButton ? (
+                      <Button
+                        type="button"
+                        variant="gradient"
+                        onClick={handleImportZotero}
+                        disabled={syncing || !zoteroUrl.trim()}
+                      >
+                        <Link2 className="h-4 w-4" />
+                        {syncing ? 'Linking…' : hasLinkedLibrary ? 'Link New Library' : 'Link Library'}
+                      </Button>
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={handleSyncZotero}
+                        disabled={syncing}
+                      >
+                        <RefreshCw className={cn('h-4 w-4', syncing && 'animate-spin')} />
+                        {syncing ? 'Syncing…' : 'Sync'}
+                      </Button>
+                    )}
+                    {zoteroState.entries.length > 0 && (
+                      <Button
+                        type="button"
+                        variant="gradient"
+                        onClick={handleSaveZoteroToProject}
+                        disabled={isLoading || syncing}
+                      >
+                        {isLoading ? 'Saving…' : 'Save to Project'}
+                      </Button>
+                    )}
+                  </DialogFooter>
+                );
+              })()}
             </div>
           </TabsContent>
         </Tabs>

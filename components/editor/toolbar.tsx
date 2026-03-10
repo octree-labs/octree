@@ -231,34 +231,29 @@ export function EditorToolbar({
             </ButtonGroupItem>
           </ButtonGroup>
 
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onOpenCitationPicker}
-            className="gap-1.5"
-            title="Insert citation"
-          >
-            <BookOpen className="h-3.5 w-3.5" />
-            <span className="font-medium">Cite</span>
-          </Button>
-
-          {onSyncZotero && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onSyncZotero}
-              className="gap-1.5"
-              title="Sync Zotero references"
-              disabled={zoteroSyncing}
-            >
-              <RefreshCw
-                className={`h-3.5 w-3.5 ${
-                  zoteroSyncing ? 'animate-spin' : ''
-                }`}
-              />
-              <span className="font-medium">Sync Zotero</span>
-            </Button>
-          )}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" className="gap-1.5">
+                <BookOpen className="h-3.5 w-3.5" />
+                <span className="font-medium">Zotero</span>
+                <ChevronDown className="h-3 w-3" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuItem onClick={onOpenCitationPicker}>
+                <BookOpen className="mr-2 h-4 w-4" />
+                Cite
+              </DropdownMenuItem>
+              {onSyncZotero && (
+                <DropdownMenuItem onClick={onSyncZotero} disabled={zoteroSyncing}>
+                  <RefreshCw
+                    className={`mr-2 h-4 w-4${zoteroSyncing ? ' animate-spin' : ''}`}
+                  />
+                  {zoteroSyncing ? 'Syncing…' : 'Sync'}
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
 
           <Button
             variant="default"

@@ -196,7 +196,7 @@ export function AddFileDialog({
         );
         if (uploadedFile) {
           FileActions.setSelectedFile({
-            id: uploadedFile.id,
+            id: uploadedFile.id ?? '',
             name: firstUploadedFullPath,
             project_id: projectId,
             size: uploadedFile.metadata?.size || null,
@@ -286,7 +286,7 @@ export function AddFileDialog({
 
       if (createdFile) {
         FileActions.setSelectedFile({
-          id: createdFile.id,
+          id: createdFile.id ?? '',
           name: createdFile.name,
           project_id: projectId,
           size: createdFile.metadata?.size || null,
@@ -406,7 +406,7 @@ export function AddFileDialog({
       const refsFile = storageFiles?.find((f) => f.name === 'refs.bib');
       if (refsFile) {
         FileActions.setSelectedFile({
-          id: refsFile.id,
+          id: refsFile.id ?? '',
           name: refsFile.name,
           project_id: projectId,
           size: refsFile.metadata?.size || null,

@@ -31,6 +31,8 @@ import {
   Lock,
   MessageSquare,
   PanelRightClose,
+  BookOpen,
+  RefreshCw,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
@@ -50,6 +52,9 @@ interface EditorToolbarProps {
   onCompile: () => void;
   onExportPDF: () => void;
   onExportZIP: () => void;
+  onOpenCitationPicker: () => void;
+  onSyncZotero?: () => void;
+  zoteroSyncing?: boolean;
   onOpenChat: () => void;
   onToggleChat: () => void;
   chatOpen: boolean;
@@ -65,6 +70,9 @@ export function EditorToolbar({
   onCompile,
   onExportPDF,
   onExportZIP,
+  onOpenCitationPicker,
+  onSyncZotero,
+  zoteroSyncing,
   onOpenChat,
   onToggleChat,
   chatOpen,
@@ -222,6 +230,30 @@ export function EditorToolbar({
               <span className="underline">U</span>
             </ButtonGroupItem>
           </ButtonGroup>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" className="gap-1.5">
+                <BookOpen className="h-3.5 w-3.5" />
+                <span className="font-medium">Zotero</span>
+                <ChevronDown className="h-3 w-3" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuItem onClick={onOpenCitationPicker}>
+                <BookOpen className="mr-2 h-4 w-4" />
+                Cite
+              </DropdownMenuItem>
+              {onSyncZotero && (
+                <DropdownMenuItem onClick={onSyncZotero} disabled={zoteroSyncing}>
+                  <RefreshCw
+                    className={`mr-2 h-4 w-4${zoteroSyncing ? ' animate-spin' : ''}`}
+                  />
+                  {zoteroSyncing ? 'Syncing…' : 'Sync'}
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
 
           <Button
             variant="default"

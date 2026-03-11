@@ -10,6 +10,7 @@ import { useEditorCompilation } from '@/hooks/use-editor-compilation';
 import { useEditSuggestions } from '@/hooks/use-edit-suggestions';
 import { useEditorInteractions } from '@/hooks/use-editor-interactions';
 import { useEditorKeyboardShortcuts } from '@/hooks/use-editor-keyboard-shortcuts';
+import { useZoteroSync } from '@/hooks/use-zotero-sync';
 import { useSynctex } from '@/hooks/use-synctex';
 import { MonacoEditor } from '@/components/editor/monaco-editor';
 import { EditorToolbar } from '@/components/editor/toolbar';
@@ -39,11 +40,50 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { Code, Eye, MessageSquare, Play, Loader2, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { FileTree } from '@/components/projects/file-tree';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import type { CitationEntry } from '@/types/citation';
+import { toast } from 'sonner';
 
 const CHAT_WIDTH_DEFAULT = 340;
 const CHAT_WIDTH_MIN = 280;
 const CHAT_WIDTH_MAX = 600;
 const CHAT_WIDTH_STORAGE_KEY = 'chat_sidebar_width';
+
+function insertCitationAtCursor(
+  editor: Monaco.editor.IStandaloneCodeEditor | null,
+  key: string
+) {
+  if (!editor) return;
+
+  const model = editor.getModel();
+  const selection = editor.getSelection();
+  if (!model || !selection) return;
+
+  const content = model.getValue();
+  const offset = model.getOffsetAt(selection.getPosition());
+  const before = content.slice(0, offset);
+  const citeStart = before.lastIndexOf('\\cite{');
+  const lastClose = before.lastIndexOf('}');
+  const insideCite = citeStart !== -1 && lastClose < citeStart;
+
+  let insertText = `\\cite{${key}}`;
+  if (insideCite) {
+    const braceStart = citeStart + '\\cite{'.length;
+    const textInCiteSoFar = content.slice(braceStart, offset).trim();
+    const needsComma = textInCiteSoFar.length > 0 && !textInCiteSoFar.endsWith(',');
+    insertText = `${needsComma ? ', ' : ''}${key}`;
+  }
+
+  editor.executeEdits('insert-citation', [
+    {
+      range: selection,
+      text: insertText,
+      forceMoveMarkers: true,
+    },
+  ]);
+  editor.focus();
+}
 
 export default function ProjectPage() {
   const params = useParams();
@@ -198,6 +238,10 @@ export default function ProjectPage() {
 
   const [chatWidth, setChatWidth] = useState(CHAT_WIDTH_DEFAULT);
   const [isChatResizing, setIsChatResizing] = useState(false);
+  const [citationPickerOpen, setCitationPickerOpen] = useState(false);
+  const [citationQuery, setCitationQuery] = useState('');
+  const { state: zoteroState, searchEntries, syncSaved, syncing } =
+    useZoteroSync(projectId);
 
   const chatStartXRef = useRef(0);
   const chatStartWidthRef = useRef(0);
@@ -261,6 +305,27 @@ export default function ProjectPage() {
         : [],
     [projectFiles]
   );
+
+  const filteredCitations = useMemo(
+    () => searchEntries(citationQuery),
+    [citationQuery, searchEntries]
+  );
+
+  const handleSyncZoteroFromEditor = useCallback(async () => {
+    try {
+      const next = await syncSaved();
+      const count = next.entries.length;
+      toast.success(
+        `Synced ${count} Zotero reference${count === 1 ? '' : 's'}.`
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : 'Failed to sync Zotero references'
+      );
+    }
+  }, [syncSaved]);
 
   useEffect(() => {
     FileActions.reset();
@@ -355,6 +420,7 @@ export default function ProjectPage() {
                     content={content}
                     onChange={handleEditorChange}
                     onMount={handleEditorMount}
+                    citationEntries={zoteroState.entries}
                     className="h-full"
                 />
                 <SelectionButton
@@ -594,6 +660,9 @@ export default function ProjectPage() {
         onCompile={handleCompile}
         onExportPDF={handleExportPDF}
         onExportZIP={handleExportZIP}
+        onOpenCitationPicker={() => setCitationPickerOpen(true)}
+        onSyncZotero={handleSyncZoteroFromEditor}
+        zoteroSyncing={syncing}
         onOpenChat={() => {
           if (selectedText.trim()) {
             setTextFromEditor(selectedText);
@@ -608,6 +677,60 @@ export default function ProjectPage() {
         lastSaved={lastSaved}
         hasPdfData={!!pdfData}
       />
+
+      <Dialog open={citationPickerOpen} onOpenChange={setCitationPickerOpen}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Insert Citation</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-3">
+            <Input
+              value={citationQuery}
+              onChange={(e) => setCitationQuery(e.target.value)}
+              placeholder="Search by key, title, author, or year"
+            />
+            <div className="max-h-80 overflow-auto rounded-md border border-neutral-200">
+              {filteredCitations.length === 0 ? (
+                <div className="p-4 text-sm text-neutral-500">
+                  {zoteroState.entries.length === 0
+                    ? 'No Zotero references imported yet.'
+                    : 'No references match your search.'}
+                </div>
+              ) : (
+                <ul className="divide-y divide-neutral-100">
+                  {filteredCitations.map((entry: CitationEntry) => (
+                    <li
+                      key={entry.key}
+                      className="flex items-start justify-between gap-3 p-3"
+                    >
+                      <div className="min-w-0">
+                        <p className="font-mono text-xs text-primary">{entry.key}</p>
+                        <p className="truncate text-sm font-medium text-neutral-900">
+                          {entry.title}
+                        </p>
+                        <p className="text-xs text-neutral-500">
+                          {entry.author} ({entry.year})
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="gradient"
+                        onClick={() => {
+                          insertCitationAtCursor(editorRef.current, entry.key);
+                          setCitationPickerOpen(false);
+                        }}
+                      >
+                        Insert
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <div className="flex min-h-0 flex-1">
         <ResizablePanelGroup

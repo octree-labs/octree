@@ -45,7 +45,7 @@ async function listAllStorageFiles(
   for (const item of items) {
     if (item.id) {
       const fullPath = path ? `${path}/${item.name}` : item.name;
-      allFiles.push({ ...item, name: fullPath });
+      allFiles.push({ ...item, name: fullPath } as StorageFile);
     } else if (item.name !== '.emptyFolderPlaceholder') {
       const subPath = path ? `${path}/${item.name}` : item.name;
       const subFiles = await listAllStorageFiles(supabase, projectId, subPath);

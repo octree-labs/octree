@@ -1,10 +1,19 @@
 import { NextResponse } from 'next/server';
 import { Resend } from 'resend';
+import escape from 'escape-html';
+import { createClient } from '@/lib/supabase/server';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 export async function POST(request: Request) {
   try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const body = await request.json();
     const { name, email, subject, message } = body;
 
@@ -24,12 +33,12 @@ export async function POST(request: Request) {
       subject: `Contact Form: ${subject}`,
       html: `
         <h2>New Contact Form Submission</h2>
-        <p><strong>Name:</strong> ${name}</p>
-        <p><strong>Email:</strong> ${email}</p>
-        <p><strong>Subject:</strong> ${subject}</p>
+        <p><strong>Name:</strong> ${escape(name)}</p>
+        <p><strong>Email:</strong> ${escape(email)}</p>
+        <p><strong>Subject:</strong> ${escape(subject)}</p>
         <hr />
         <p><strong>Message:</strong></p>
-        <p>${message.replace(/\n/g, '<br>')}</p>
+        <p>${escape(message).replace(/\n/g, '<br>')}</p>
       `,
     });
 

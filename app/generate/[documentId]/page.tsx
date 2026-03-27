@@ -1,6 +1,7 @@
 import { redirect, notFound } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
-import { GenerateSessionContent } from '@/components/generate/GenerateSessionContent';
+import { normalizeGeneratedDocument } from '@/lib/generate/document';
+import { GeneratePageContent } from '@/components/generate/GeneratePageContent';
 
 interface PageProps {
   params: Promise<{ documentId: string }>;
@@ -26,5 +27,10 @@ export default async function GenerateSessionPage({ params }: PageProps) {
     notFound();
   }
 
-  return <GenerateSessionContent initialDocument={document} />;
+  return (
+    <GeneratePageContent
+      userId={user.id}
+      initialDocument={normalizeGeneratedDocument(document)}
+    />
+  );
 }

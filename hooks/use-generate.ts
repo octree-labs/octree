@@ -1,6 +1,7 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo, ChangeEvent } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { normalizeGeneratedDocument } from '@/lib/generate/document';
 import {
   GenerateActions,
   type GeneratedDocument,
@@ -8,7 +9,7 @@ import {
 } from '@/stores/generate';
 import { Message, MessageAttachment } from '@/components/generate/MessageBubble';
 import type { GenerationMilestone } from '@/components/generate/GenerationProgressTracker';
-import type { Json } from '@/database.types';
+import type { Json, TablesInsert, TablesUpdate } from '@/database.types';
 
 export interface AttachedFile {
   id: string;
@@ -124,6 +125,7 @@ export function useGenerate(options: UseGenerateOptions = {}) {
   }, []);
 
   const restoreSession = useCallback((doc: GeneratedDocument) => {
+    GenerateActions.addDocumentWithoutActivating(doc);
     GenerateActions.setActiveDocument(doc.id);
 
     let restoredMessages: Message[];
@@ -135,7 +137,7 @@ export function useGenerate(options: UseGenerateOptions = {}) {
         attachments: msg.attachments,
       }));
     } else {
-      const restoredAttachments: MessageAttachment[] = (doc.attachments || []).map((att) => ({
+      const restoredAttachments: MessageAttachment[] = doc.attachments.map((att) => ({
         id: att.id,
         name: att.name,
         type: att.type,
@@ -183,6 +185,20 @@ export function useGenerate(options: UseGenerateOptions = {}) {
     });
   }, []);
 
+  const updateDocumentRecord = useCallback(
+    async (id: string, updates: TablesUpdate<'generated_documents'>) => {
+      const { error: updateError } = await (supabase.from('generated_documents') as any)
+        .update(updates)
+        .eq('id', id);
+      if (updateError) {
+        console.error('DB Update Error:', updateError);
+        return false;
+      }
+      return true;
+    },
+    [supabase]
+  );
+
   const generateDocument = useCallback(async (retryOptions?: { prompt: string; files: AttachedFile[] }) => {
     const promptToUse = retryOptions?.prompt ?? prompt;
     const filesToUse = retryOptions?.files ?? attachedFiles;
@@ -201,6 +217,9 @@ export function useGenerate(options: UseGenerateOptions = {}) {
 
     const userPrompt = promptToUse.trim();
     const documentId = isContinuation ? currentDocument.id : crypto.randomUUID();
+    const nextInteractionCount = isContinuation
+      ? (currentDocument.interaction_count || 1) + 1
+      : 1;
     const filesToSend = [...filesToUse];
 
     const totalSize = filesToSend.reduce((sum, f) => sum + f.file.size, 0);
@@ -276,19 +295,19 @@ export function useGenerate(options: UseGenerateOptions = {}) {
       const initialAssistantMessage: Message = { ...assistantMessage, content: '' };
       
       if (isContinuation) {
-        const existingAttachments = currentDocument.attachments || [];
+        const existingAttachments = currentDocument.attachments;
         const mergedAttachments = [...existingAttachments, ...uploadedAttachments];
-        const newInteractionCount = (currentDocument.interaction_count || 1) + 1;
-        const updatedHistory = [...(currentDocument.message_history || []), persistentUserMessage, initialAssistantMessage];
+        const newInteractionCount = nextInteractionCount;
+        const updatedHistory = [...currentDocument.message_history, persistentUserMessage, initialAssistantMessage];
         expectedHistory = updatedHistory;
 
-        await (supabase.from('generated_documents') as any).update({
+        await updateDocumentRecord(documentId, {
           status: 'generating',
           attachments: mergedAttachments as unknown as Json,
           last_user_prompt: userPrompt,
           interaction_count: newInteractionCount,
           message_history: updatedHistory as unknown as Json,
-        }).eq('id', documentId);
+        });
 
         const updates = {
           status: 'generating' as const,
@@ -304,7 +323,7 @@ export function useGenerate(options: UseGenerateOptions = {}) {
         expectedHistory = initialHistory;
         const tempTitle = userPrompt.slice(0, 50) + (userPrompt.length > 50 ? '...' : '');
         
-        const { data: doc, error: dbError } = await (supabase.from('generated_documents') as any).insert({
+        const payload: TablesInsert<'generated_documents'> = {
           id: documentId,
           user_id: userId,
           title: tempTitle,
@@ -316,13 +335,20 @@ export function useGenerate(options: UseGenerateOptions = {}) {
           last_assistant_response: '',
           interaction_count: 1,
           message_history: initialHistory as unknown as Json,
-        }).select().single();
+        };
+        const { data: doc, error: dbError } = await (supabase.from('generated_documents') as any)
+          .insert(payload)
+          .select()
+          .single();
+
+        if (dbError) {
+          throw dbError;
+        }
 
         if (doc) {
-          const createdDoc = doc as GeneratedDocument;
+          const createdDoc = normalizeGeneratedDocument(doc);
           setCurrentDocument(createdDoc);
           GenerateActions.addDocument(createdDoc);
-          window.history.replaceState(null, '', `/generate/${documentId}`);
         }
       }
 
@@ -334,7 +360,6 @@ export function useGenerate(options: UseGenerateOptions = {}) {
       if (isContinuation) {
         requestBody.documentId = currentDocument.id;
         requestBody.currentLatex = currentDocument.latex;
-        requestBody.conversationSummary = currentDocument.conversation_summary;
         requestBody.lastUserPrompt = currentDocument.last_user_prompt;
         requestBody.lastAssistantResponse = currentDocument.last_assistant_response;
       }
@@ -412,19 +437,15 @@ export function useGenerate(options: UseGenerateOptions = {}) {
           const historyForDb = [...expectedHistory];
           historyForDb[historyForDb.length - 1] = successAssistantMessage;
 
-          const { error: updateError } = await (supabase.from('generated_documents') as any)
-            .update({
+          const saved = await updateDocumentRecord(documentId, {
               latex: finalLatex,
               last_user_prompt: userPrompt,
               last_assistant_response: successMessage,
               message_history: historyForDb as unknown as Json,
               status: 'complete'
-            })
-            .eq('id', documentId);
+            });
 
-          if (updateError) {
-            console.error('DB Update Error:', updateError);
-          } else {
+          if (saved) {
             const updates = {
               latex: finalLatex,
               last_user_prompt: userPrompt,
@@ -438,15 +459,13 @@ export function useGenerate(options: UseGenerateOptions = {}) {
         } else {
           const historyForDb = [persistentUserMessage, successAssistantMessage];
           
-          const { error: updateError } = await (supabase.from('generated_documents') as any).update({
+          const saved = await updateDocumentRecord(documentId, {
               latex: finalLatex,
               title: docTitle,
               status: 'complete',
               last_assistant_response: successMessage,
               message_history: historyForDb as unknown as Json
-          }).eq('id', documentId);
-
-          if (updateError) console.error('DB Error:', updateError);
+          });
 
           const updates = {
             latex: finalLatex,
@@ -457,8 +476,10 @@ export function useGenerate(options: UseGenerateOptions = {}) {
           };
           setCurrentDocument(prev => prev ? { ...prev, ...updates } : prev);
           GenerateActions.updateDocument(documentId, updates);
-          lastAttemptRef.current = null;
-          onDocumentCreated?.(documentId);
+          if (saved) {
+            lastAttemptRef.current = null;
+            onDocumentCreated?.(documentId);
+          }
         }
       }
     } catch (err) {
@@ -466,19 +487,19 @@ export function useGenerate(options: UseGenerateOptions = {}) {
       const msg = err instanceof Error ? err.message : 'Generation failed';
       
       if (documentId && userId) {
-          let finalLatex: string | null = null;
+          let finalLatex = '';
           let finalAssistantContent: string;
-          let status: 'complete' | 'error';
+          let status: 'error';
 
           if (isAbort) {
             status = 'error';
             
             if (isContinuation && currentDocument?.latex) {
-              finalAssistantContent = 'Generation cancelled. Here is the last complete document';
+              finalAssistantContent = 'Generation cancelled. Here is the last complete document.';
               finalLatex = currentDocument.latex;
             } else {
               finalAssistantContent = 'Generation cancelled.';
-              finalLatex = isContinuation ? (currentDocument?.latex || null) : '';
+              finalLatex = isContinuation ? (currentDocument?.latex || '') : '';
             }
           } else {
             status = 'error';
@@ -486,7 +507,7 @@ export function useGenerate(options: UseGenerateOptions = {}) {
                 ? 'Generation failed. Here is the last complete document.'
                 : 'Generation failed.';
             
-            let partialLatex = isContinuation ? currentDocument?.latex : null;
+            let partialLatex = isContinuation ? (currentDocument?.latex || '') : '';
             if (streamedContent) {
               const codeBlockMatch = streamedContent.match(/```(?:latex|tex)?\s*([\s\S]*)/i);
               if (codeBlockMatch) {
@@ -517,18 +538,18 @@ export function useGenerate(options: UseGenerateOptions = {}) {
           }
 
           if (historyForDb.length > 0) {
-             await (supabase.from('generated_documents') as any).update({
+             await updateDocumentRecord(documentId, {
                   status,
                   latex: finalLatex,
                   last_assistant_response: finalAssistantContent,
                   message_history: historyForDb as unknown as Json
-              }).eq('id', documentId);
+              });
 
              const updates = {
-                status: status as any,
+                status,
                 latex: finalLatex,
                 last_assistant_response: finalAssistantContent,
-                message_history: historyForDb as any
+                message_history: historyForDb
              };
              setCurrentDocument((prev) => prev ? { ...prev, ...updates } : prev);
              GenerateActions.updateDocument(documentId, updates);
@@ -554,6 +575,7 @@ export function useGenerate(options: UseGenerateOptions = {}) {
     resetState,
     updateLastMessage,
     onDocumentCreated,
+    updateDocumentRecord,
   ]);
 
   const retry = useCallback(() => {

@@ -47,18 +47,3 @@ export async function markEditorWalkthroughSeen(userId: string) {
     throw error;
   }
 }
-
-export async function markGeneratedFirst(userId: string) {
-  const supabase = createClient();
-  const { error } = await (supabase.from('user_walkthroughs') as any).upsert(
-    {
-      user_id: userId,
-      generated_first_at: new Date().toISOString(),
-    },
-    { onConflict: 'user_id' }
-  );
-
-  if (error) {
-    throw error;
-  }
-}

@@ -243,6 +243,7 @@ export function GeneratePageContent({
       }
     } catch {
       setError('Failed to create project');
+    } finally {
       setIsCreatingProject(false);
     }
   }, [currentLatex, currentTitle, isCreatingProject, router, setError]);

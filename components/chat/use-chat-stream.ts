@@ -1,5 +1,6 @@
 import { useRef, useCallback } from 'react';
 import { StringEdit } from '@/lib/octra-agent/edits';
+import { createClient } from '@/lib/supabase/client';
 
 interface ChatMessage {
   id: string;
@@ -42,6 +43,7 @@ export function useChatStream() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const rafIdRef = useRef<number | null>(null);
   const pendingTextRef = useRef<string>('');
+  const supabaseRef = useRef(createClient());
 
   const startStream = useCallback(
     async (
@@ -71,9 +73,80 @@ export function useChatStream() {
       const controller = new AbortController();
       abortControllerRef.current = controller;
 
-      const res = await fetch('/api/octra-agent', {
+      const remoteUrl = process.env.NEXT_PUBLIC_CLAUDE_AGENT_SERVICE_URL;
+      if (!remoteUrl) {
+        return {
+          response: new Response(
+            JSON.stringify({ error: 'Agent service URL is not configured' }),
+            {
+              status: 503,
+              headers: { 'Content-Type': 'application/json' },
+            }
+          ),
+          controller,
+        };
+      }
+
+      const usageRes = await fetch('/api/track-edit', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+      });
+
+      if (!usageRes.ok) {
+        return { response: usageRes, controller };
+      }
+
+      let usagePayload: {
+        canEdit?: boolean;
+        limitReached?: boolean;
+        error?: string;
+      } | null = null;
+      try {
+        usagePayload = await usageRes.json();
+      } catch {}
+
+      if (usagePayload?.limitReached || usagePayload?.canEdit === false) {
+        return {
+          response: new Response(
+            JSON.stringify({
+              error:
+                usagePayload.error ||
+                "You've reached your edit limit. Upgrade to Pro for more edits.",
+              limitReached: true,
+            }),
+            {
+              status: 429,
+              headers: { 'Content-Type': 'application/json' },
+            }
+          ),
+          controller,
+        };
+      }
+
+      const {
+        data: { session },
+      } = await supabaseRef.current.auth.getSession();
+
+      if (!session?.access_token) {
+        return {
+          response: new Response(
+            JSON.stringify({ error: 'Unauthorized. Please log in to use AI features.' }),
+            {
+              status: 401,
+              headers: { 'Content-Type': 'application/json' },
+            }
+          ),
+          controller,
+        };
+      }
+
+      const res = await fetch(remoteUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          accept: 'text/event-stream',
+          authorization: `Bearer ${session.access_token}`,
+        },
         body: JSON.stringify({
           messages,
           fileContent,

@@ -48,7 +48,7 @@ Never mix these — don't call `lib/requests` from server components or `actions
 
 - `app/projects/[projectId]/` — Main editor workspace (layout loads project, files, subscription)
 - `app/generate/` — AI document generation from chat
-- `app/api/` — API routes: `compile-pdf`, `octra-agent`, `generate-document`, `import-latex`, Stripe webhooks, etc.
+- `app/api/` — API routes: `compile-pdf`, `octra-agent`, `generate-document`, `import-latex` (called from `tools.useoctree.com`), Stripe webhooks, etc.
 - `lib/octra-agent/` — In-app agent utilities (SSE streaming, line edits)
 - `claude_server/lib/octra-agent/` — Standalone copy of agent library for the Express server (tools, intent inference, AST edits)
 - `hooks/` — Custom React hooks, notably `use-editor-*.ts` for Monaco editor integration and `use-edit-suggestions.ts` for AI edit flow

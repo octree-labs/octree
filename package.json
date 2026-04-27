@@ -51,7 +51,7 @@
     "clsx": "^2.1.1",
     "dayjs": "^1.11.13",
     "framer-motion": "^12.5.0",
-    "inngest": "^3.52.3",
+    "inngest": "^3.54.0",
     "jszip": "^3.10.1",
     "katex": "^0.16.22",
     "lucide-react": "^0.482.0",

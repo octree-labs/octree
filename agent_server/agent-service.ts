@@ -17,17 +17,17 @@ import type { StringEdit } from './lib/edits.js';
 import { createSSEHeaders, processFullStream } from './lib/stream-handling.js';
 import { SessionManager } from './lib/session-manager.js';
 
+const SUPABASE_JWT_SECRET = process.env.SUPABASE_JWT_SECRET;
+if (!SUPABASE_JWT_SECRET) {
+  console.error('[FATAL] SUPABASE_JWT_SECRET is not set. Refusing to start to prevent unauthenticated /agent access.');
+  process.exit(1);
+}
+
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
 function jwtAuthMiddleware(req: express.Request, res: express.Response, next: express.NextFunction) {
-  const jwtSecret = process.env.SUPABASE_JWT_SECRET;
-  if (!jwtSecret) {
-    next();
-    return;
-  }
-
   const authHeader = req.headers.authorization;
   if (!authHeader) {
     res.status(401).json({ error: 'Authorization header required' });
@@ -43,7 +43,7 @@ function jwtAuthMiddleware(req: express.Request, res: express.Response, next: ex
   const token = authHeader.slice(prefix.length);
 
   try {
-    jwt.verify(token, jwtSecret, { algorithms: ['HS256'] });
+    jwt.verify(token, SUPABASE_JWT_SECRET, { algorithms: ['HS256'] });
     next();
   } catch {
     res.status(401).json({ error: 'Invalid or expired token' });

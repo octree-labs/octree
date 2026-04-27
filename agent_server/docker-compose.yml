@@ -1,5 +1,6 @@
 services:
   agent:
+    build: .
     image: octra-agent:latest
     container_name: octra-agent
     env_file: .env

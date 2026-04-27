@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import jwt from 'jsonwebtoken';
-import { streamText } from 'ai';
+import { streamText, stepCountIs } from 'ai';
 import { anthropic } from '@ai-sdk/anthropic';
 
 import {
@@ -17,11 +17,14 @@ import type { StringEdit } from './lib/edits.js';
 import { createSSEHeaders, processFullStream } from './lib/stream-handling.js';
 import { SessionManager } from './lib/session-manager.js';
 
-const SUPABASE_JWT_SECRET = process.env.SUPABASE_JWT_SECRET;
-if (!SUPABASE_JWT_SECRET) {
-  console.error('[FATAL] SUPABASE_JWT_SECRET is not set. Refusing to start to prevent unauthenticated /agent access.');
-  process.exit(1);
-}
+const SUPABASE_JWT_SECRET: string = (() => {
+  const s = process.env.SUPABASE_JWT_SECRET;
+  if (!s) {
+    console.error('[FATAL] SUPABASE_JWT_SECRET is not set. Refusing to start to prevent unauthenticated /agent access.');
+    process.exit(1);
+  }
+  return s;
+})();
 
 const app = express();
 app.use(cors());
@@ -157,8 +160,8 @@ app.post('/agent', jwtAuthMiddleware, async (req: express.Request, res: express.
       system: systemPrompt,
       prompt: userText,
       tools,
-      maxSteps: 25,
-      maxTokens: 16384,
+      stopWhen: stepCountIs(25),
+      maxOutputTokens: 16384,
     });
 
     const finalText = await processFullStream(result.fullStream, writeEvent, collectedEdits);

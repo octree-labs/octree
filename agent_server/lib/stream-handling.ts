@@ -40,12 +40,12 @@ export async function processFullStream(
 
   try {
     for await (const part of fullStream) {
-      const p = part as { type: string; textDelta?: string; toolName?: string; args?: unknown; result?: unknown; error?: unknown };
+      const p = part as { type: string; text?: string; toolName?: string; args?: unknown; result?: unknown; error?: unknown };
 
       switch (p.type) {
         case 'text-delta': {
-          if (p.textDelta) {
-            const text = p.textDelta
+          if (p.text) {
+            const text = p.text
               .split('\r\n').join('\n')
               .split('\r').join('\n');
             finalText += text;
@@ -65,8 +65,8 @@ export async function processFullStream(
           break;
         }
 
-        case 'step-finish': {
-          const sf = p as { type: string; finishReason?: string; usage?: { promptTokens?: number; completionTokens?: number } };
+        case 'finish-step': {
+          const sf = p as { type: string; finishReason?: string; usage?: { inputTokens?: number; outputTokens?: number } };
           console.log(`[Stream] Step finished: reason=${sf.finishReason || 'unknown'}, usage=${JSON.stringify(sf.usage || {})}`);
           break;
         }
@@ -78,8 +78,8 @@ export async function processFullStream(
         }
 
         case 'finish': {
-          const f = p as { type: string; finishReason?: string; usage?: { promptTokens?: number; completionTokens?: number } };
-          console.log(`[Stream] Finished: reason=${f.finishReason || 'unknown'}, usage=${JSON.stringify(f.usage || {})}, edits=${collectedEdits.length}`);
+          const f = p as { type: string; finishReason?: string; totalUsage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number } };
+          console.log(`[Stream] Finished: reason=${f.finishReason || 'unknown'}, usage=${JSON.stringify(f.totalUsage || {})}, edits=${collectedEdits.length}`);
           break;
         }
       }

@@ -63,7 +63,7 @@ export function createOctraTools(context: ToolContext) {
   return {
     get_context: tool({
       description: 'Retrieve file context with numbered lines. Use filePath to fetch a specific project file, or omit to get the currently open file.',
-      parameters: z.object({
+      inputSchema: z.object({
         filePath: z.string().optional().describe('Specific file to fetch (omit for current file)'),
         includeNumbered: z.boolean().optional().default(true),
         includeSelection: z.boolean().optional().default(true),
@@ -130,7 +130,7 @@ export function createOctraTools(context: ToolContext) {
 
     edit: tool({
       description: 'Edit a LaTeX file using exact string matching. Specify old_string (text to find) and new_string (replacement). old_string must match exactly one location. Use empty old_string to append to end of file.',
-      parameters: z.object({
+      inputSchema: z.object({
         file_path: z.string().describe('Path of the file to edit'),
         old_string: z.string().describe('Exact text to find and replace (empty string to append)'),
         new_string: z.string().describe('Replacement text (empty string to delete)'),
@@ -189,7 +189,7 @@ export function createOctraTools(context: ToolContext) {
 
     compile: tool({
       description: 'Compile the LaTeX project to check for errors. Returns compilation log. Use after making edits to verify they compile correctly. If there are errors, read the log, fix the issues with the edit tool, and compile again.',
-      parameters: z.object({}),
+      inputSchema: z.object({}),
       execute: async () => {
         if (!context.compileServiceUrl) {
           return JSON.stringify({ success: false, error: 'Compile service not configured' });

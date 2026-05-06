@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useDebouncedCallback } from 'use-debounce';
 import { saveDocument } from '@/lib/requests/document';
 import { useSelectedFile, useFileContent } from '@/stores/file';
@@ -20,11 +20,13 @@ export function useDocumentSave(): DocumentSaveState {
   const selectedFile = useSelectedFile();
 
   const [isSaving, setIsSaving] = useState(false);
+  const isSavingRef = useRef(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
 
   const handleSaveDocument = async (
     contentToSave?: string
   ): Promise<boolean> => {
+    if (isSavingRef.current) return false;
     try {
       if (!project?.id || !selectedFile) {
         return false;
@@ -37,6 +39,7 @@ export function useDocumentSave(): DocumentSaveState {
         return false;
       }
 
+      isSavingRef.current = true;
       setIsSaving(true);
 
       const result = await saveDocument(
@@ -56,6 +59,7 @@ export function useDocumentSave(): DocumentSaveState {
       console.error('Error saving document:', error);
       return false;
     } finally {
+      isSavingRef.current = false;
       setIsSaving(false);
     }
   };

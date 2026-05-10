@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createSSEHeaders } from '@/lib/octra-agent/stream-handling';
 import type { ConversationSummary } from '@/types/conversation';
+import type { Json, Tables } from '@/database.types';
 
 export const runtime = 'nodejs';
 export const maxDuration = 600;
@@ -46,6 +47,18 @@ STRICT COMPILATION CONSTRAINTS (MUST FOLLOW):
 4. **Output**: Complete, compilable document from \\documentclass to \\end{document}.
 5. **Format**: Output ONLY valid LaTeX code. NO markdown, NO code fences, NO explanations.`;
 
+const SUMMARY_PROMPT = `You are a concise summarizer. Given a conversation about a LaTeX document, produce a JSON summary.
+
+Output ONLY valid JSON matching this schema:
+{
+  "original_intent": "What the user originally wanted to create",
+  "modifications_made": ["List of changes made so far"],
+  "current_state": "Brief description of the document's current state",
+  "interaction_count": <number>
+}
+
+Keep total summary under 500 words. Be factual and concise.`;
+
 interface FileData {
   mimeType: string;
   data: string;
@@ -58,7 +71,6 @@ interface GenerateRequest {
   files?: FileData[];
   documentId?: string;
   currentLatex?: string;
-  conversationSummary?: ConversationSummary | null;
   lastUserPrompt?: string | null;
   lastAssistantResponse?: string | null;
 }
@@ -93,7 +105,6 @@ export async function POST(request: Request) {
       files,
       documentId,
       currentLatex,
-      conversationSummary,
       lastUserPrompt,
       lastAssistantResponse,
     } = body;
@@ -105,24 +116,64 @@ export async function POST(request: Request) {
       );
     }
 
-    const isContinuation = !!(documentId && currentLatex);
+    const isContinuation = !!documentId;
     const sessionId = documentId || crypto.randomUUID();
 
     let systemPrompt: string;
     let userContent: string;
+    let effectiveLatex = currentLatex ?? '';
+    let effectiveLastUserPrompt = lastUserPrompt ?? null;
+    let effectiveLastAssistantResponse = lastAssistantResponse ?? null;
+    let effectiveSummary: ConversationSummary | null = null;
+    let fallbackExchanges: Exchange[] = [];
 
     if (isContinuation) {
+      const continuationDocumentId = documentId as string;
+      const { data: document, error: documentError } = await (supabase
+        .from('generated_documents') as any)
+        .select('id, latex, message_history, conversation_summary, last_user_prompt, last_assistant_response, interaction_count')
+        .eq('id', continuationDocumentId)
+        .eq('user_id', user.id)
+        .single();
+
+      if (documentError || !document) {
+        return NextResponse.json({ error: 'Document not found' }, { status: 404 });
+      }
+
+      const continuationDocument = document as ContinuationDocument;
+
+      effectiveLatex = currentLatex || continuationDocument.latex || '';
+      if (!effectiveLatex.trim()) {
+        return NextResponse.json({ error: 'Current document is required for continuation' }, { status: 400 });
+      }
+
+      effectiveLastUserPrompt = continuationDocument.last_user_prompt ?? effectiveLastUserPrompt;
+      effectiveLastAssistantResponse = continuationDocument.last_assistant_response ?? effectiveLastAssistantResponse;
+      fallbackExchanges = extractCompleteExchanges(continuationDocument.message_history).slice(-3);
+      effectiveSummary = await ensureConversationSummary({
+        supabase,
+        apiKey,
+        userId: user.id,
+        document: continuationDocument,
+      });
+
       systemPrompt = CONTINUATION_PROMPT;
 
       const contextParts: string[] = [];
-      contextParts.push(`CURRENT DOCUMENT:\n\`\`\`latex\n${currentLatex}\n\`\`\``);
+      contextParts.push(`CURRENT DOCUMENT:\n\`\`\`latex\n${effectiveLatex}\n\`\`\``);
 
-      if (conversationSummary) {
-        contextParts.push(`\nCONVERSATION CONTEXT:\n- Original intent: ${conversationSummary.original_intent}\n- Modifications made: ${conversationSummary.modifications_made.join(', ') || 'None yet'}\n- Current state: ${conversationSummary.current_state}`);
+      if (effectiveSummary) {
+        contextParts.push(`\nCONVERSATION CONTEXT:\n- Original intent: ${effectiveSummary.original_intent}\n- Modifications made: ${effectiveSummary.modifications_made.join(', ') || 'None yet'}\n- Current state: ${effectiveSummary.current_state}`);
+      } else if (fallbackExchanges.length > 0) {
+        contextParts.push(
+          `\nRECENT EXCHANGES:\n${fallbackExchanges
+            .map((exchange, index) => `${index + 1}. User: ${exchange.userPrompt}\nAssistant: ${exchange.assistantResponse}`)
+            .join('\n')}`
+        );
       }
 
-      if (lastUserPrompt && lastAssistantResponse) {
-        contextParts.push(`\nLAST EXCHANGE:\nUser asked: ${lastUserPrompt}\nResult: Document was updated accordingly.`);
+      if (effectiveLastUserPrompt && effectiveLastAssistantResponse) {
+        contextParts.push(`\nLAST EXCHANGE:\nUser asked: ${effectiveLastUserPrompt}\nResult: Document was updated accordingly.`);
       }
 
       contextParts.push(`\nNEW REQUEST:\n${prompt}`);
@@ -301,6 +352,177 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
+}
+
+interface Exchange {
+  userPrompt: string;
+  assistantResponse: string;
+}
+
+type ContinuationDocument = Pick<
+  Tables<'generated_documents'>,
+  'id' | 'latex' | 'message_history' | 'conversation_summary' | 'last_user_prompt' | 'last_assistant_response' | 'interaction_count'
+>;
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function parseConversationSummary(value: Json | null): ConversationSummary | null {
+  if (!isObject(value)) return null;
+  const { original_intent, modifications_made, current_state, interaction_count } = value;
+  if (
+    typeof original_intent === 'string' &&
+    Array.isArray(modifications_made) &&
+    modifications_made.every((entry) => typeof entry === 'string') &&
+    typeof current_state === 'string' &&
+    typeof interaction_count === 'number'
+  ) {
+    return {
+      original_intent,
+      modifications_made,
+      current_state,
+      interaction_count,
+    };
+  }
+  return null;
+}
+
+function extractCompleteExchanges(history: Json | null): Exchange[] {
+  if (!Array.isArray(history)) return [];
+  const exchanges: Exchange[] = [];
+  let pendingUserPrompt: string | null = null;
+
+  for (const entry of history) {
+    if (!isObject(entry)) continue;
+    const role = entry.role;
+    const content = entry.content;
+    if (role === 'user' && typeof content === 'string' && content.trim()) {
+      pendingUserPrompt = content.trim();
+      continue;
+    }
+    if (role === 'assistant' && pendingUserPrompt && typeof content === 'string' && content.trim()) {
+      exchanges.push({
+        userPrompt: pendingUserPrompt,
+        assistantResponse: content.trim(),
+      });
+      pendingUserPrompt = null;
+    }
+  }
+
+  return exchanges;
+}
+
+function parseSummaryFromModel(text: string, fallback: ConversationSummary | null, interactionCount: number): ConversationSummary {
+  try {
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('No JSON found');
+    const parsed = JSON.parse(jsonMatch[0]) as ConversationSummary;
+    if (
+      typeof parsed.original_intent === 'string' &&
+      Array.isArray(parsed.modifications_made) &&
+      parsed.modifications_made.every((entry) => typeof entry === 'string') &&
+      typeof parsed.current_state === 'string' &&
+      typeof parsed.interaction_count === 'number'
+    ) {
+      return parsed;
+    }
+    throw new Error('Invalid summary schema');
+  } catch {
+    if (fallback) {
+      return {
+        ...fallback,
+        interaction_count: interactionCount,
+      };
+    }
+    return {
+      original_intent: 'Document creation',
+      modifications_made: [],
+      current_state: 'Document updated',
+      interaction_count: interactionCount,
+    };
+  }
+}
+
+async function generateSummary(
+  apiKey: string,
+  currentSummary: ConversationSummary | null,
+  exchanges: Exchange[],
+  interactionCount: number
+): Promise<ConversationSummary | null> {
+  if (exchanges.length === 0) return currentSummary;
+
+  const prompt = currentSummary
+    ? `Previous summary:\n${JSON.stringify(currentSummary, null, 2)}\n\nNew exchanges to incorporate:\n${exchanges
+        .map((e, i) => `Exchange ${i + 1}:\nUser: ${e.userPrompt}\nAssistant: ${e.assistantResponse}`)
+        .join('\n\n')}\n\nUpdate the summary to include these new interactions. Set interaction_count to ${interactionCount}.`
+    : `Conversation so far:\n${exchanges
+        .map((e, i) => `Exchange ${i + 1}:\nUser: ${e.userPrompt}\nAssistant: ${e.assistantResponse}`)
+        .join('\n\n')}\n\nCreate an initial summary. Set interaction_count to ${interactionCount}.`;
+
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-3-5-haiku-20241022',
+        max_tokens: 1024,
+        system: SUMMARY_PROMPT,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+    if (!response.ok) return currentSummary;
+    const result = await response.json();
+    const content = result.content?.[0]?.text || '';
+    return parseSummaryFromModel(content, currentSummary, interactionCount);
+  } catch {
+    return currentSummary;
+  }
+}
+
+async function ensureConversationSummary(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  apiKey: string;
+  userId: string;
+  document: ContinuationDocument;
+}): Promise<ConversationSummary | null> {
+  const { supabase, apiKey, userId, document } = params;
+  const currentSummary = parseConversationSummary(document.conversation_summary);
+  const exchanges = extractCompleteExchanges(document.message_history);
+  const completedInteractionCount = exchanges.length;
+
+  if (completedInteractionCount < 2) {
+    return currentSummary;
+  }
+
+  if (currentSummary && currentSummary.interaction_count >= completedInteractionCount) {
+    return currentSummary;
+  }
+
+  const unsummarizedExchanges =
+    currentSummary && currentSummary.interaction_count > 0
+      ? exchanges.slice(currentSummary.interaction_count)
+      : exchanges;
+
+  const updatedSummary = await generateSummary(
+    apiKey,
+    currentSummary,
+    unsummarizedExchanges,
+    completedInteractionCount
+  );
+
+  if (!updatedSummary) return currentSummary;
+
+  await (supabase.from('generated_documents') as any)
+    .update({ conversation_summary: updatedSummary })
+    .eq('id', document.id)
+    .eq('user_id', userId);
+
+  return updatedSummary;
 }
 
 function extractLatex(content: string): string | null {

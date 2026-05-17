@@ -162,7 +162,7 @@ export function GenerateHistorySidebar() {
                                                         {doc.title}
                                                     </span>
                                                     <span className="text-xs text-muted-foreground">
-                                                        {doc.created_at ? new Date(doc.created_at).toLocaleDateString() : ''}
+                                                        {doc.created_at ? new Date(doc.created_at).toLocaleDateString('en-US') : ''}
                                                     </span>
                                                 </div>
                                             </Button>

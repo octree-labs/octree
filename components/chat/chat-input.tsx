@@ -1,4 +1,4 @@
-import { useRef, useImperativeHandle, forwardRef, type FormEvent } from 'react';
+import { useRef, useImperativeHandle, forwardRef, type ClipboardEvent, type FormEvent } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -94,6 +94,27 @@ export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(
       noKeyboard: true,
     });
 
+    const handlePasteCapture = (e: ClipboardEvent<HTMLTextAreaElement>) => {
+      if (!onFilesSelected || !canAddMoreAttachments || isLoading) return;
+
+      const clipboardData = e.clipboardData;
+      const files = Array.from(clipboardData.files ?? []).filter((file) => file.type.startsWith('image/'));
+
+      if (files.length === 0) {
+        const items = Array.from(clipboardData.items ?? []);
+        for (const item of items) {
+          if (!item.type.startsWith('image/')) continue;
+          const file = item.getAsFile();
+          if (file) files.push(file);
+        }
+      }
+
+      if (files.length === 0) return;
+
+      e.preventDefault();
+      onFilesSelected(files);
+    };
+
     return (
       <div className="relative px-2 pb-2">
         {textFromEditor && (
@@ -151,6 +172,7 @@ export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(
               placeholder="Prompt to edit your document..."
               onChange={(e) => onInputChange(e.target.value)}
               onKeyDown={handleKeyDown}
+              onPasteCapture={handlePasteCapture}
               className="min-h-[72px] flex-1 resize-none border-none p-1 shadow-none scrollbar-thin scrollbar-track-transparent scrollbar-thumb-neutral-300 focus-visible:ring-0"
             />
 

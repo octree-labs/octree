@@ -428,12 +428,12 @@ export function Chat({
   return (
     <div className="flex h-full flex-col bg-white">
       <div className="flex flex-shrink-0 items-center justify-between border-b border-slate-200 px-4 py-2">
-        <div className="flex items-center space-x-3">
+        <div className="flex items-center gap-1.5">
           <OctreeLogo className="h-5 w-5" />
           <div>
             <h3 className="text-sm font-semibold text-slate-800">Octra</h3>
           </div>
-          <div className="flex items-center gap-1 border-l border-slate-200 pl-3">
+          <div className="ml-1.5 flex items-center gap-1 border-l border-slate-200 pl-3">
             <button
               onClick={() => setActiveTab('chat')}
               className={`rounded-md px-1.5 py-0.5 text-xs transition-colors ${

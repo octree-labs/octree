@@ -77,7 +77,7 @@ export function UpgradeButton() {
       size="sm"
       onClick={handleSubscribe}
       disabled={isLoading}
-      className="h-8 gap-1.5 bg-gradient-to-b from-primary-light to-primary px-3 text-white hover:from-primary-light/90 hover:to-primary/90"
+      className="h-8 gap-1.5 px-3"
     >
       <CreditCard className="h-3.5 w-3.5" />
       <span className="font-medium">
@@ -259,13 +259,14 @@ export function UsageIndicator({ className }: UsageIndicatorProps) {
 
               {!usageData.isPro && (
                 <div className="border-t border-neutral-100 px-3 py-2.5">
-                  <button
+                  <Button
+                    size="xs"
                     onClick={handleSubscribe}
-                    className="flex w-full items-center justify-center gap-1.5 rounded-md bg-gradient-to-b from-primary-light to-primary px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90"
+                    className="w-full"
                   >
                     <Sparkles className="h-3 w-3" />
                     Upgrade to Pro
-                  </button>
+                  </Button>
                 </div>
               )}
             </div>
@@ -277,7 +278,7 @@ export function UsageIndicator({ className }: UsageIndicatorProps) {
         <Button
           size="sm"
           onClick={handleSubscribe}
-          className="h-7 gap-1.5 bg-gradient-to-b from-primary-light to-primary px-3 text-white hover:from-primary-light/90 hover:to-primary/90"
+          className="h-7 gap-1.5 px-3"
         >
           <CreditCard className="h-3 w-3" />
           <span className="text-xs font-medium">Subscribe</span>

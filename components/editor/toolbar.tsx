@@ -227,7 +227,7 @@ export function EditorToolbar({
             variant="default"
             size="sm"
             onClick={onOpenChat}
-            className="h-8 gap-1.5 border-slate-300 bg-gradient-to-b from-primary-light to-primary px-3 text-white hover:bg-gradient-to-b hover:from-primary-light/90 hover:to-primary/90"
+            className="h-8 gap-1.5 px-3"
             title="Edit with AI (⌘B)"
             data-onboarding-target="editor-ai"
           >

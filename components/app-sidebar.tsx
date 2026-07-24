@@ -1,6 +1,7 @@
 'use client';
 
 import { FileText, X } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import {
   Sidebar,
   SidebarContent,
@@ -69,7 +70,7 @@ export function AppSidebar({ userName }: AppSidebarProps) {
         </button>
       </SidebarHeader>
       <SidebarContent
-        className={isLoading ? 'pointer-events-none opacity-50' : ''}
+        className={cn('pt-2', isLoading && 'pointer-events-none opacity-50')}
         data-onboarding-target="fileSidebar"
       >
         <SidebarGroup>

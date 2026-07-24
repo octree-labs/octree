@@ -10,7 +10,7 @@
   --card-foreground: 0 0% 3.9%;
   --popover: 0 0% 100%;
   --popover-foreground: 0 0% 3.9%;
-  --primary: 217 100% 55%;
+  --primary: 219 99% 53%; /* Editorial Blue #0F62FE */
   --primary-foreground: 210 40% 98%;
   --secondary: 210 40% 96%;
   --secondary-foreground: 222.2 84% 4.9%;
@@ -36,7 +36,7 @@
   --sidebar-accent-foreground: 0 0% 9%;
   --sidebar-border: 0 0% 89.8%;
   --sidebar-ring: 0 0% 3.9%;
-  --primary-light: 217 100% 71%;
+  --primary-light: 219 99% 59%; /* #3178FE — gradient top stop */
 }
 
 .dark {
@@ -46,8 +46,8 @@
   --card-foreground: 0 0% 98%;
   --popover: 0 0% 3.9%;
   --popover-foreground: 0 0% 98%;
-  --primary: 0 0% 98%;
-  --primary-foreground: 0 0% 9%;
+  --primary: 219 99% 53%; /* Editorial Blue #0F62FE — brand blue in both themes */
+  --primary-foreground: 210 40% 98%;
   --secondary: 0 0% 14.9%;
   --secondary-foreground: 0 0% 98%;
   --muted: 0 0% 14.9%;
@@ -72,7 +72,7 @@
   --sidebar-accent-foreground: 0 0% 98%;
   --sidebar-border: 0 0% 14.9%;
   --sidebar-ring: 0 0% 83.1%;
-  --primary-light: 217 100% 71%;
+  --primary-light: 219 99% 59%; /* #3178FE — gradient top stop */
 }
 
 @layer base {

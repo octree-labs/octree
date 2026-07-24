@@ -32,7 +32,7 @@ import {
   USE_CASE_OPTIONS,
   TOTAL_STEPS,
 } from './constants';
-import { OctreeLogo } from '@/components/icons/octree-logo';
+import { OctreeLogo, OctreeWordmark } from '@/components/icons/octree-logo';
 import { createCheckoutSession } from '@/lib/requests/subscription';
 import { getUserUsageStatus, upsertUserUsage } from '@/lib/requests/user';
 import { AuthMarketingSection } from '@/components/auth/auth-marketing-section';
@@ -328,9 +328,7 @@ export default function OnboardingPage() {
         {/* Logo and name at top */}
         <div className="mb-8 flex items-center gap-2">
           <OctreeLogo className="h-6 w-6" />
-          <span className="text-lg font-medium tracking-tight text-neutral-900">
-            Octree
-          </span>
+          <OctreeWordmark className="text-lg" />
         </div>
 
         {/* Center the form */}

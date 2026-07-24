@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Mail, Send, CheckCircle2, ArrowLeft } from 'lucide-react';
+import { HelpCircle, Send, CheckCircle2, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 
 export default function ContactPage() {
@@ -84,10 +84,10 @@ export default function ContactPage() {
           {/* Header */}
           <div className="mb-12 text-center">
             <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-full bg-blue-50">
-              <Mail className="h-6 w-6 text-blue-600" />
+              <HelpCircle className="h-6 w-6 text-blue-600" />
             </div>
             <h1 className="mb-2 text-3xl font-semibold text-neutral-900">
-              Contact Us
+              Help
             </h1>
             <p className="text-neutral-600">
               Have a question or feedback? We'd love to hear from you.

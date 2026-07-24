@@ -68,7 +68,7 @@ export default async function Success({ searchParams }: SuccessPageProps) {
             <p className="text-center text-xs text-neutral-500">
               Need help?{' '}
               <Link
-                href="/contact"
+                href="/help"
                 className="font-medium text-neutral-700 hover:underline"
               >
                 Contact support

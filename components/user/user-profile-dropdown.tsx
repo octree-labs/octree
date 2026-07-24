@@ -18,7 +18,7 @@ import {
   Settings,
   LogOut,
   ChevronDown,
-  MessageCircle,
+  HelpCircle,
 } from 'lucide-react';
 
 interface UserProfileDropdownProps {
@@ -58,9 +58,9 @@ export function UserProfileDropdown({ userName }: UserProfileDropdownProps) {
             Settings
           </DropdownMenuItem>
 
-          <DropdownMenuItem onClick={() => router.push('/contact')}>
-            <MessageCircle className="mr-2 h-4 w-4" />
-            Contact Us
+          <DropdownMenuItem onClick={() => router.push('/help')}>
+            <HelpCircle className="mr-2 h-4 w-4" />
+            Help
           </DropdownMenuItem>
 
           <DropdownMenuSeparator />

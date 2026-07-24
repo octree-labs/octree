@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Check, CircleCheck, Loader2 } from 'lucide-react';
+import { Check, Loader2 } from 'lucide-react';
 
 const TIPS = [
   'Use \\usepackage{hyperref} to make URLs and cross-references clickable in your PDF.',
@@ -81,8 +81,10 @@ export function CompilationLoading({ completed = false }: CompilationLoadingProp
     return (
       <div className="flex h-full items-center justify-center">
         <div className="flex flex-col items-center gap-2 animate-in fade-in duration-300">
-          <CircleCheck className="h-8 w-8 text-green-500" />
-          <span className="text-sm font-medium text-green-600">
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-green-500">
+            <Check className="h-5 w-5 text-white" strokeWidth={3} />
+          </div>
+          <span className="text-sm font-medium text-neutral-900">
             Compiled successfully
           </span>
         </div>

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { flushSync } from 'react-dom';
-import { SparkCluster } from '@/components/icons/spark-cluster';
+import { Sparkles } from '@/components/icons/sparkles';
 import { Button } from '@/components/ui/button';
 import Navbar from '@/components/navbar';
 import { CreateProjectDialog } from '@/components/projects/create-project-dialog';
@@ -86,7 +86,7 @@ export function DashboardWithWalkthrough({
                 onClick={handleGenerateClick}
               >
                 <Button variant="outline-gradient" size="sm">
-                  <SparkCluster className="h-4 w-4" />
+                  <Sparkles className="h-4 w-4 text-primary" />
                   Generate with AI
                 </Button>
               </Link>

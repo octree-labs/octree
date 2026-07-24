@@ -3,7 +3,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { CreditCard, Info, Sparkles } from 'lucide-react';
+import { CreditCard, Info } from 'lucide-react';
+import { Sparkles } from '@/components/icons/sparkles';
 import {
   FREE_DAILY_EDIT_LIMIT,
   PRO_MONTHLY_EDIT_LIMIT,
@@ -264,7 +265,7 @@ export function UsageIndicator({ className }: UsageIndicatorProps) {
                     onClick={handleSubscribe}
                     className="w-full"
                   >
-                    <Sparkles className="h-3 w-3" />
+                    <Sparkles className="size-3" />
                     Upgrade to Pro
                   </Button>
                 </div>

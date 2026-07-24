@@ -182,7 +182,7 @@ export default function ContactPage() {
                 <Button
                   type="submit"
                   disabled={isSubmitting}
-                  className="h-11 w-full bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                  className="h-11 w-full"
                 >
                   {isSubmitting ? (
                     <span className="flex items-center justify-center">

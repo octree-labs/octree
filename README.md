@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="public/Logo.svg" alt="Octree Logo" width="100" />
+  <img src="app/icon.svg" alt="Octree Logo" width="100" />
 </p>
 
 <h1 align="center">Octree</h1>

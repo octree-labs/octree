@@ -1,10 +1,10 @@
-// Two-star AI spark cluster, fixed brand blue
-export function SparkCluster({ className = 'w-4 h-4' }: { className?: string }) {
+// Two-star AI spark cluster; inherits text color — callers set e.g. text-primary
+export function Sparkles({ className = 'w-4 h-4' }: { className?: string }) {
   return (
     <svg
       viewBox="0 0 24 24"
-      fill="#0F62FE"
-      stroke="#0F62FE"
+      fill="currentColor"
+      stroke="currentColor"
       strokeWidth="2"
       strokeLinejoin="round"
       xmlns="http://www.w3.org/2000/svg"

@@ -1,6 +1,4 @@
-// @ts-expect-error - express types are provided at runtime on the server deployment
 import express from 'express';
-// @ts-expect-error - cors types are provided at runtime on the server deployment
 import cors from 'cors';
 import { query, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk';
 import {
@@ -14,13 +12,34 @@ import { SessionManager } from './lib/session-manager';
 import jwt from 'jsonwebtoken';
 
 const app = express();
-app.use(cors());
+
+const allowedOrigins = ['https://useoctree.com', 'https://www.useoctree.com', 'http://localhost:3000', 'http://localhost:3001'];
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Allow requests with no origin (e.g. server-to-server) only in dev
+      if (!origin) {
+        if (process.env.NODE_ENV === 'production') {
+          return callback(new Error('Origin required in production'));
+        }
+        return callback(null, true);
+      }
+      
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      callback(new Error(`CORS: origin ${origin} not allowed`));
+    },
+    credentials: true,
+  })
+);
 app.use(express.json({ limit: '10mb' }));
 
 function jwtAuthMiddleware(req: any, res: any, next: any) {
   const jwtSecret = process.env.SUPABASE_JWT_SECRET;
   if (!jwtSecret) {
-    next();
+    res.status(503).json({ error: 'Service misconfigured' });
     return;
   }
 

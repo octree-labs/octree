@@ -1,5 +1,12 @@
-import { useRef, useImperativeHandle, forwardRef, type ClipboardEvent, type FormEvent } from 'react';
+import {
+  useRef,
+  useImperativeHandle,
+  forwardRef,
+  type ClipboardEvent,
+  type FormEvent,
+} from 'react';
 import { useDropzone } from 'react-dropzone';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { X, ArrowUp, Loader2, Upload, Square, Trash2 } from 'lucide-react';
@@ -14,6 +21,7 @@ interface ChatInputProps {
   textFromEditor: string | null;
   attachments?: FileAttachment[];
   canAddMoreAttachments?: boolean;
+  isProcessingAttachments?: boolean;
   hasMessages?: boolean;
   onInputChange: (value: string) => void;
   onSubmit: (e: FormEvent<HTMLFormElement>) => void;
@@ -38,6 +46,7 @@ export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(
       textFromEditor,
       attachments = [],
       canAddMoreAttachments = true,
+      isProcessingAttachments = false,
       hasMessages = false,
       onInputChange,
       onSubmit,
@@ -62,6 +71,8 @@ export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(
     const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
+        if (isProcessingAttachments) return;
+
         const formEvent = new Event('submit', {
           bubbles: true,
           cancelable: true,
@@ -87,6 +98,8 @@ export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(
 
     const { getRootProps, getInputProps, isDragActive } = useDropzone({
       onDrop,
+      onDropRejected: () =>
+        toast.error('File exceeds the 10 MB limit', { duration: 1000 }),
       maxSize: MAX_FILE_SIZE,
       multiple: true,
       disabled: isLoading || !canAddMoreAttachments || !onFilesSelected,
@@ -95,15 +108,13 @@ export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(
     });
 
     const handlePasteCapture = (e: ClipboardEvent<HTMLTextAreaElement>) => {
-      if (!onFilesSelected || !canAddMoreAttachments || isLoading) return;
-
       const clipboardData = e.clipboardData;
-      const files = Array.from(clipboardData.files ?? []).filter((file) => file.type.startsWith('image/'));
+      const files = Array.from(clipboardData.files ?? []);
 
       if (files.length === 0) {
         const items = Array.from(clipboardData.items ?? []);
         for (const item of items) {
-          if (!item.type.startsWith('image/')) continue;
+          if (item.kind !== 'file') continue;
           const file = item.getAsFile();
           if (file) files.push(file);
         }
@@ -112,7 +123,17 @@ export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(
       if (files.length === 0) return;
 
       e.preventDefault();
-      onFilesSelected(files);
+
+      if (!onFilesSelected || !canAddMoreAttachments || isLoading) return;
+
+      const acceptedFiles = files.filter((file) => file.size <= MAX_FILE_SIZE);
+      if (acceptedFiles.length < files.length) {
+        toast.error('File exceeds the 10 MB limit', { duration: 1000 });
+      }
+
+      if (acceptedFiles.length > 0) {
+        onFilesSelected(acceptedFiles);
+      }
     };
 
     return (
@@ -151,7 +172,7 @@ export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(
               <div className="flex flex-col items-center gap-2">
                 <Upload className="h-8 w-8 text-blue-600" />
                 <span className="text-sm font-medium text-blue-600">
-                  Drop files hereasdas
+                  Drop files here
                 </span>
               </div>
             </div>
@@ -197,6 +218,7 @@ export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(
                   onFilesSelected={onFilesSelected}
                   disabled={isLoading}
                   canAddMore={canAddMoreAttachments}
+                  isProcessing={isProcessingAttachments}
                 />
               )}
 
@@ -217,7 +239,7 @@ export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(
                 type="submit"
                 size="icon"
                 variant="default"
-                disabled={isLoading}
+                disabled={isLoading || isProcessingAttachments}
                 className="size-6 rounded-full"
               >
                 {isLoading ? (

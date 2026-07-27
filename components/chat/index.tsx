@@ -147,7 +147,7 @@ export function Chat({
     e.preventDefault();
 
     const trimmed = input.trim();
-    if (!trimmed || isLoading) return;
+    if (!trimmed || isLoading || isProcessingAttachments) return;
 
     setError(null);
 
@@ -533,6 +533,7 @@ export function Chat({
               textFromEditor={textFromEditor}
               attachments={attachments}
               canAddMoreAttachments={canAddMoreAttachments}
+              isProcessingAttachments={isProcessingAttachments}
               hasMessages={messages.length > 0}
               onInputChange={setInput}
               onSubmit={handleSubmit}

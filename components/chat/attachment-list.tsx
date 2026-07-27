@@ -37,16 +37,12 @@ function getFileIcon(attachment: FileAttachment) {
 }
 
 export function AttachmentList({ attachments, onRemove }: AttachmentListProps) {
-  const readyAttachments = attachments.filter(
-    (attachment) => attachment.status === 'ready'
-  );
-
-  if (readyAttachments.length === 0) return null;
+  if (attachments.length === 0) return null;
 
   return (
     <div className="max-h-14 w-full overflow-y-auto overflow-x-hidden border-b border-slate-200 pb-2 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-neutral-300">
       <div className="flex flex-wrap gap-1">
-        {readyAttachments.map((attachment) => (
+        {attachments.map((attachment) => (
           <div
             key={attachment.id}
             className={cn(

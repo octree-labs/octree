@@ -1,5 +1,6 @@
 import { useDropzone } from 'react-dropzone';
 import { Paperclip } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { MAX_ATTACHMENTS, MAX_FILE_SIZE } from '@/types/attachment';
@@ -25,6 +26,8 @@ export function AttachmentUpload({
 
   const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
     onDrop,
+    onDropRejected: () =>
+      toast.error('File exceeds the 10 MB limit', { duration: 1000 }),
     maxSize: MAX_FILE_SIZE,
     multiple: true,
     disabled: disabled || !canAddMore,

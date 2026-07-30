@@ -10,7 +10,7 @@ Octree is an AI-powered LaTeX editor built with Next.js 15 (App Router), React 1
 
 ```bash
 npm run dev          # Start dev server with Turbopack
-npm run build        # Production build (runs create-dummy-cli.js first)
+npm run build        # Production build
 npm run lint         # ESLint
 npm run test         # Run all tests (vitest)
 npm run test:watch   # Watch mode

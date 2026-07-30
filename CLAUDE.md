@@ -17,9 +17,9 @@ npm run test:watch   # Watch mode
 vitest run @__tests__/unit/use-edit-suggestions.single-edit.test.ts  # Single test file
 ```
 
-The `claude_server/` is a separate Node.js project (Express + Claude Agent SDK) with its own package.json:
+The `agent_server/` is a separate Node.js project (Express + Vercel AI SDK) with its own package.json:
 ```bash
-cd claude_server && npm run dev   # Local agent server with hot reload (port 8787)
+cd agent_server && npm run dev   # Local agent server with hot reload (port 8787)
 ```
 
 ## Architecture
@@ -27,7 +27,7 @@ cd claude_server && npm run dev   # Local agent server with hot reload (port 878
 ### Two-Service Design
 
 1. **Next.js App** (Vercel) — the main web application
-2. **Claude Server** (`claude_server/`) — standalone Express server running Claude Agent SDK on a DigitalOcean VPS, avoiding serverless timeout limits. The Next.js app calls it via `CLAUDE_AGENT_SERVICE_URL`. Responses stream as SSE events.
+2. **Agent Server** (`agent_server/`) — standalone Express server running the Vercel AI SDK (`streamText` + `@ai-sdk/anthropic`) in Docker on a DigitalOcean droplet, avoiding serverless timeout limits. The Next.js app calls it via `CLAUDE_AGENT_SERVICE_URL`; requests are authenticated with the Supabase JWT. Responses stream as SSE events. Deploy with `agent_server/scripts/deploy.sh`.
 
 ### Database Layer — Client vs Server Pattern
 
@@ -50,7 +50,7 @@ Never mix these — don't call `lib/requests` from server components or `actions
 - `app/generate/` — AI document generation from chat
 - `app/api/` — API routes: `compile-pdf`, `octra-agent`, `generate-document`, `import-latex`, Stripe webhooks, etc.
 - `lib/octra-agent/` — In-app agent utilities (SSE streaming, line edits)
-- `claude_server/lib/octra-agent/` — Standalone copy of agent library for the Express server (tools, intent inference, AST edits)
+- `agent_server/lib/` — Agent library for the Express server (tools, intent inference, content processing, session memory)
 - `hooks/` — Custom React hooks, notably `use-editor-*.ts` for Monaco editor integration and `use-edit-suggestions.ts` for AI edit flow
 - `components/editor/` — Monaco-based LaTeX editor components
 - `types/` — TypeScript types (`project.ts`, `document.ts`, `compilation.ts`, `edit.ts`, `conversation.ts`)

@@ -73,15 +73,12 @@ Active tables:
 - **files** — id, project_id (→ projects), name, type, size, uploaded_at, url
 - **generated_documents** — id, user_id, title, prompt, latex, status, error, created_at, attachments (jsonb), conversation_summary (jsonb), last_user_prompt, last_assistant_response, interaction_count, message_history (jsonb)
 - **drafts** — id, title, content, source, created_at
-- **project_collaborators** — id, project_id, user_id, role, invited_by, created_at
-- **project_invitations** — id, project_id, email, token, role, invited_by, created_at, expires_at, accepted_at
+- **email_suppressions** — email, created_at
 - **project_zotero_sources** — project_id, source_url, owner_type, owner_id, collection_key, last_synced_at, last_sync_status, last_sync_error, entries (jsonb), refs_bib, created_at, updated_at
 - **user_usage** — id, user_id, edit_count, is_pro, stripe_customer_id, stripe_subscription_id, subscription_status, current_period_start/end, cancel_at_period_end, monthly_edit_count, monthly_reset_date, daily_edit_count, daily_reset_date, referral_source, onboarding_completed, role
 - **user_walkthroughs** — user_id, dashboard_seen, dashboard_seen_at, generated_first_at, generate_seen, generate_seen_at, editor_seen, editor_seen_at, created_at
 
-Legacy/unused tables (do not use):
-- **documents** — superseded; not referenced in app code
-- **document_versions** — superseded; not referenced in app code
+The full schema is `supabase/migrations/20250101000000_baseline.sql` (dumped from prod); new changes go in migrations after it.
 
 ### Testing
 

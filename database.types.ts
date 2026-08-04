@@ -12,6 +12,31 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "12.2.3 (519615d)"
   }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       drafts: {
@@ -340,26 +365,7 @@ export type Database = {
           signup_week: string
         }[]
       }
-      get_document_with_collaborators: {
-        Args: { doc_id: string }
-        Returns: {
-          collaborators: Json
-          content: string
-          document_type: string
-          id: string
-          is_public: boolean
-          owner_id: string
-          owner_name: string
-          title: string
-        }[]
-      }
-      get_user_collab_project_ids: { Args: never; Returns: string[] }
-      has_project_access: {
-        Args: { p_project_id: string; p_user_id: string }
-        Returns: boolean
-      }
       increment_edit_count: { Args: { p_user_id: string }; Returns: boolean }
-      is_project_owner: { Args: { p_project_id: string }; Returns: boolean }
       update_user_subscription_status: {
         Args: {
           p_cancel_at_period_end: boolean
@@ -500,6 +506,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {},
   },

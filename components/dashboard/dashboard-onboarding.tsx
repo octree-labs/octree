@@ -11,7 +11,6 @@ const DASHBOARD_STEPS = [
     title: 'Create documents with AI',
     description:
       'Click the "Generate with AI" button above to open the generator. There you can describe what you want and get a LaTeX document in seconds.',
-    hideNext: true,
   },
   {
     target: 'dashboard-header',
@@ -286,11 +285,9 @@ export function DashboardOnboarding({
                   Back
                 </Button>
               )}
-              {!('hideNext' in current && current.hideNext) && (
-                <Button variant="gradient" size="sm" onClick={handleNext}>
-                  {isLast ? 'Get started' : 'Next'}
-                </Button>
-              )}
+              <Button variant="gradient" size="sm" onClick={handleNext}>
+                {isLast ? 'Get started' : 'Next'}
+              </Button>
             </div>
           </div>
         </div>
@@ -335,11 +332,9 @@ export function DashboardOnboarding({
                   Back
                 </Button>
               )}
-              {!('hideNext' in current && current.hideNext) && (
-                <Button variant="gradient" size="sm" onClick={handleNext}>
-                  {isLast ? 'Get started' : 'Next'}
-                </Button>
-              )}
+              <Button variant="gradient" size="sm" onClick={handleNext}>
+                {isLast ? 'Get started' : 'Next'}
+              </Button>
             </div>
           </div>
         </div>

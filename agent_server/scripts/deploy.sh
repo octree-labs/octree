@@ -1,13 +1,4 @@
-RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" "http://$DEPLOY_HOST:8787/health" \
-  --max-time 5 || echo "000")
-
-if [ "$RESPONSE" = "200" ]; then
-    echo -e "${GREEN}  Health check passed (HTTP 200)${NC}"
-elif [ "$RESPONSE" = "000" ]; then
-    echo -e "${RED}  Health check: Connection failed${NC}"
-else
-    echo -e "${RED}  Health check failed (HTTP $RESPONSE)${NC}"
-fi#!/bin/bash
+#!/bin/bash
 
 # Agent Server Deployment Script
 # Syncs files to the server, builds the Docker image remotely, and runs via docker compose.

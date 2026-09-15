@@ -1,4 +1,13 @@
-#!/bin/bash
+RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" "http://$DEPLOY_HOST:8787/health" \
+  --max-time 5 || echo "000")
+
+if [ "$RESPONSE" = "200" ]; then
+    echo -e "${GREEN}  Health check passed (HTTP 200)${NC}"
+elif [ "$RESPONSE" = "000" ]; then
+    echo -e "${RED}  Health check: Connection failed${NC}"
+else
+    echo -e "${RED}  Health check failed (HTTP $RESPONSE)${NC}"
+fi#!/bin/bash
 
 # Agent Server Deployment Script
 # Syncs files to the server, builds the Docker image remotely, and runs via docker compose.
@@ -86,17 +95,15 @@ echo ""
 echo -e "${YELLOW}Step 4/4: Health check...${NC}"
 sleep 3
 
-RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "http://$DEPLOY_HOST:8787/agent" \
-  -H "Content-Type: application/json" \
-  -d '{"messages":[{"role":"user","content":"test"}],"fileContent":"test"}' \
+RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" "http://$DEPLOY_HOST:8787/health" \
   --max-time 5 || echo "000")
 
-if [ "$RESPONSE" = "000" ]; then
-    echo -e "${RED}  Endpoint test: Connection failed${NC}"
-elif [ "$RESPONSE" = "401" ] || [ "$RESPONSE" = "400" ] || [ "$RESPONSE" = "503" ]; then
-    echo -e "${GREEN}  Service responding (HTTP $RESPONSE — server is alive)${NC}"
+if [ "$RESPONSE" = "200" ]; then
+    echo -e "${GREEN}  Health check passed (HTTP 200)${NC}"
+elif [ "$RESPONSE" = "000" ]; then
+    echo -e "${RED}  Health check: Connection failed${NC}"
 else
-    echo -e "${GREEN}  Endpoint responding (HTTP $RESPONSE)${NC}"
+    echo -e "${RED}  Health check failed (HTTP $RESPONSE)${NC}"
 fi
 
 echo ""

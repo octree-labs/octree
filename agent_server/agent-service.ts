@@ -30,6 +30,10 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
+app.get('/health', (_req: express.Request, res: express.Response) => {
+  res.json({ status: 'ok' });
+});
+
 function jwtAuthMiddleware(req: express.Request, res: express.Response, next: express.NextFunction) {
   const authHeader = req.headers.authorization;
   if (!authHeader) {

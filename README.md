@@ -34,7 +34,7 @@ Octree is an AI-powered LaTeX editor that brings intelligent writing assistance 
 ### Prerequisites
 
 - Node.js 18+
-- A [Supabase](https://supabase.com) project
+- [Docker](https://docs.docker.com/get-docker/) and the [Supabase CLI](https://supabase.com/docs/guides/cli) for the local database, or a hosted [Supabase](https://supabase.com) project
 - A [Stripe](https://stripe.com) account (for billing)
 - A [Claude API](https://console.anthropic.com) key (for AI features)
 
@@ -52,19 +52,26 @@ Copy the example environment file and fill in your keys:
 cp .env.example .env.local
 ```
 
-Start both the Next.js app and the agent server:
+Start each service in its own terminal from the repo root:
 
 ```bash
-# Terminal 1 — Next.js app
-npm run dev
+# Terminal 1 — Local Supabase (database + auth, port 54321; requires Docker)
+supabase start
 
-# Terminal 2 — Agent server
+# Terminal 2 — Agent server (AI features, port 8787)
 cd agent_server
 npm install
-npm run dev    # starts on port 8787
+npm run dev
+
+# Terminal 3 — LaTeX compile service (port 3001; see Self-Hosting below)
+cd ../octree-compile
+make run
+
+# Terminal 4 — Next.js app (http://localhost:3000)
+npm run dev
 ```
 
-Both services need to be running for AI features to work.
+Supabase and the agent server are required for auth and AI features. The compile service is only needed for PDF compilation. To use a hosted Supabase project instead of the local stack, skip `supabase start` and point the Supabase variables in `.env.local` at your project.
 
 ### Commands
 

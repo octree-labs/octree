@@ -14,6 +14,7 @@ import {
   processFileContent,
   makeCompilationRequest,
 } from '@/lib/utils/compilation';
+import { uploadProjectPreview } from '@/lib/utils/project-preview';
 
 export interface CompilationState {
   compiling: boolean;
@@ -213,29 +214,20 @@ export function useEditorCompilation({
         projectId
       );
 
+      // A PDF produced despite errors is still shown without error UI
+      if (data?.pdf) {
+        setPdfData(data.pdf);
+        setCompilationError(null);
+        if (projectId) uploadProjectPreview(projectId, data.pdf).catch(console.error);
+        return true;
+      }
+
       if (!response.ok) {
         const errorMessage =
           data?.error || `Compilation failed with status ${response.status}`;
-
-        // If a PDF was produced despite errors, show it without error UI
-        if (data?.pdf) {
-          setPdfData(data.pdf);
-          setCompilationError(null);
-          return true;
-        }
-
-        // No PDF produced - show the error
-        const structuredError = createCompilationError(data, errorMessage);
-        setCompilationError(structuredError);
-
+        setCompilationError(createCompilationError(data, errorMessage));
         handled = true;
         throw new Error(errorMessage);
-      }
-
-      if (data.pdf) {
-        setPdfData(data.pdf);
-        setCompilationError(null);
-        return true;
       }
 
       throw new Error('No PDF data received');

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Project } from '@/types/project';
@@ -12,12 +12,9 @@ export function ProjectGrid({
   data,
   ...actions
 }: { data: Project[] } & ProjectCardActions) {
-  const [page, setPage] = useState(0);
+  const [selectedPage, setSelectedPage] = useState(0);
   const pageCount = Math.max(1, Math.ceil(data.length / PAGE_SIZE));
-
-  useEffect(() => {
-    setPage(0);
-  }, [data]);
+  const page = Math.min(selectedPage, pageCount - 1);
 
   const visible = data.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
@@ -26,11 +23,7 @@ export function ProjectGrid({
       {visible.length ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {visible.map((project) => (
-            <ProjectCard
-              key={project.id}
-              project={project}
-              {...actions}
-            />
+            <ProjectCard key={project.id} project={project} {...actions} />
           ))}
         </div>
       ) : (
@@ -47,7 +40,7 @@ export function ProjectGrid({
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setPage((p) => p - 1)}
+            onClick={() => setSelectedPage(page - 1)}
             disabled={page === 0}
           >
             <ChevronLeft className="mr-1 h-4 w-4" />
@@ -56,7 +49,7 @@ export function ProjectGrid({
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setPage((p) => p + 1)}
+            onClick={() => setSelectedPage(page + 1)}
             disabled={page >= pageCount - 1}
           >
             Next

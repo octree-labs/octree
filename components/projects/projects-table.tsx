@@ -93,6 +93,7 @@ export function ProjectsTable({
       )}
 
       <ProjectGrid
+        key={searchQuery}
         data={filteredRows}
         onDelete={handleDeleteClick}
         onRename={handleRenameClick}

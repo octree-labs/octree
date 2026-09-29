@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { z } from 'zod';
+import { previewPath } from '@/lib/utils/project-preview-path';
 
 const DeleteProject = z.object({
   projectId: z.string().uuid('Invalid project ID'),
@@ -59,19 +60,20 @@ export async function deleteProject(projectId: string) {
 
     if (listError) {
       console.error('Error listing storage files:', listError);
-    } else if (storageFiles && storageFiles.length > 0) {
-      const filePaths = storageFiles.map(
-        (file) => `${projectFolderPath}/${file.name}`
-      );
+    }
 
-      const { error: storageDeleteError } = await supabase.storage
-        .from('octree')
-        .remove(filePaths);
+    const filePaths = [
+      previewPath(validatedProjectId),
+      ...(storageFiles ?? []).map((file) => `${projectFolderPath}/${file.name}`),
+    ];
 
-      if (storageDeleteError) {
-        console.error('Error deleting storage files:', storageDeleteError);
-        throw new Error('Failed to delete project files from storage');
-      }
+    const { error: storageDeleteError } = await supabase.storage
+      .from('octree')
+      .remove(filePaths);
+
+    if (storageDeleteError) {
+      console.error('Error deleting storage files:', storageDeleteError);
+      throw new Error('Failed to delete project files from storage');
     }
 
     const { error: documentsError } = await supabase

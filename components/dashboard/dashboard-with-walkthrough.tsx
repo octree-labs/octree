@@ -4,8 +4,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { flushSync } from 'react-dom';
+import { Search } from 'lucide-react';
 import { Sparkles } from '@/components/icons/sparkles';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import Navbar from '@/components/navbar';
 import { CreateProjectDialog } from '@/components/projects/create-project-dialog';
 import { ProjectsTable } from '@/components/projects/projects-table';
@@ -30,6 +32,7 @@ export function DashboardWithWalkthrough({
 }: DashboardWithWalkthroughProps) {
   const router = useRouter();
   const [walkthroughOpen, setWalkthroughOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const markedRef = useRef(false);
 
   const handleGenerateClick = useCallback(
@@ -69,7 +72,7 @@ export function DashboardWithWalkthrough({
 
       <main className="container mx-auto px-4 py-8">
         <div
-          className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"
+          className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"
           data-onboarding-target="dashboard-header"
         >
           <div>
@@ -79,7 +82,17 @@ export function DashboardWithWalkthrough({
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="relative w-full sm:w-64">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
+              <Input
+                type="text"
+                placeholder="Search projects..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10"
+              />
+            </div>
             <span data-onboarding-target="dashboard-generate-button">
               <Link
                 href="/generate"
@@ -98,7 +111,7 @@ export function DashboardWithWalkthrough({
         </div>
 
         <div data-onboarding-target="dashboard-projects">
-          <ProjectsTable data={data} />
+          <ProjectsTable data={data} searchQuery={searchQuery} />
         </div>
       </main>
 

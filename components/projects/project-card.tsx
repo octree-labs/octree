@@ -1,10 +1,12 @@
 'use client';
 
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { Copy, FileText, MoreVertical, Pencil, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,9 +16,49 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Project } from '@/types/project';
+import { cn } from '@/lib/utils';
 import { previewUrl } from '@/lib/utils/project-preview-path';
 
 dayjs.extend(relativeTime);
+
+function ProjectThumbnail({ projectId }: { projectId: string }) {
+  const [status, setStatus] = useState<'loading' | 'loaded' | 'missing'>(
+    'loading'
+  );
+  const imgRef = useRef<HTMLImageElement>(null);
+
+  useEffect(() => {
+    const img = imgRef.current;
+    if (img?.complete) setStatus(img.naturalWidth ? 'loaded' : 'missing');
+  }, []);
+
+  return (
+    <div className="relative aspect-video w-full bg-muted/40">
+      {status === 'loading' && (
+        <Skeleton className="absolute inset-0 rounded-none" />
+      )}
+      {status === 'missing' && (
+        <FileText className="absolute inset-0 m-auto size-8 text-muted-foreground" />
+      )}
+      {status !== 'missing' && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          ref={imgRef}
+          src={previewUrl(projectId)}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          className={cn(
+            'absolute inset-0 h-full w-full object-cover object-top transition-opacity duration-300',
+            status === 'loaded' ? 'opacity-100' : 'opacity-0'
+          )}
+          onLoad={() => setStatus('loaded')}
+          onError={() => setStatus('missing')}
+        />
+      )}
+    </div>
+  );
+}
 
 export interface ProjectCardActions {
   onDelete: (projectId: string, projectTitle: string) => void;
@@ -37,19 +79,7 @@ export function ProjectCard({
       className="cursor-pointer overflow-hidden rounded-xl border bg-card transition-shadow hover:shadow-md"
       onClick={() => router.push(`/projects/${project.id}`)}
     >
-      {/* Placeholder sits underneath; a loaded preview covers it, a missing one shows through. */}
-      <div className="relative aspect-video w-full bg-muted/40">
-        <FileText className="absolute inset-0 m-auto size-8 text-muted-foreground" />
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={previewUrl(project.id)}
-          alt=""
-          loading="lazy"
-          decoding="async"
-          className="absolute inset-0 h-full w-full object-cover object-top"
-          onError={(e) => (e.currentTarget.style.visibility = 'hidden')}
-        />
-      </div>
+      <ProjectThumbnail projectId={project.id} />
       <div className="flex items-center justify-between gap-2 border-t p-4">
         <div className="min-w-0">
           <p className="truncate font-medium" title={project.title}>

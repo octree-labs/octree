@@ -5,8 +5,9 @@ type TextItem = { str: string; hasEOL: boolean; transform: number[] };
 export async function extractPdfText(
   pdf: Uint8Array
 ): Promise<{ text: string; totalPages: number }> {
-  // pdf.js may detach the buffer it's given, so hand it a copy.
-  const doc = await getDocumentProxy(pdf.slice());
+  // Copy into a plain Uint8Array: pdf.js rejects Node Buffers (Buffer#slice
+  // shares memory) and may detach the buffer it's given.
+  const doc = await getDocumentProxy(new Uint8Array(pdf));
   try {
     return { text: await readText(doc), totalPages: doc.numPages };
   } finally {

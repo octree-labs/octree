@@ -240,9 +240,16 @@ function DynamicPDFViewer({
 
   // Ctrl/⌘ + wheel zooms (trackpad pinch also arrives as ctrl + wheel); plain
   // wheel keeps scrolling. Non-passive so the browser's page zoom is suppressed.
-  const hasPdf = !!pdfData;
+  // Keyed on the element itself: the scroll container mounts after the
+  // post-compile success flash, so a pdfData-based dependency would miss it.
+  const [scrollContainer, setScrollContainer] = useState<HTMLDivElement | null>(null);
+  const setContainerRef = useCallback((el: HTMLDivElement | null) => {
+    containerRef.current = el;
+    setScrollContainer(el);
+  }, []);
+
   useEffect(() => {
-    const container = containerRef.current;
+    const container = scrollContainer;
     if (!container) return;
 
     function handleWheel(e: WheelEvent) {
@@ -256,7 +263,7 @@ function DynamicPDFViewer({
 
     container.addEventListener('wheel', handleWheel, { passive: false });
     return () => container.removeEventListener('wheel', handleWheel);
-  }, [hasPdf]);
+  }, [scrollContainer]);
 
   function previousPage(e: React.MouseEvent) {
     e.preventDefault();
@@ -370,7 +377,7 @@ function DynamicPDFViewer({
       )}
       {/* Main PDF viewer area with scrolling */}
       <div
-        ref={containerRef}
+        ref={setContainerRef}
         className="flex flex-1 justify-center overflow-auto py-2"
         style={{ paddingTop: showErrorBottomBar ? '60px' : undefined }}
       >

@@ -105,7 +105,7 @@ export function ResumeRedesignDialog({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
-        className={phase === 'template' ? 'sm:max-w-[760px]' : 'sm:max-w-[560px]'}
+        className={phase === 'template' ? 'sm:max-w-5xl' : 'sm:max-w-[560px]'}
         // Don't lose a running redesign to a stray click; the X still cancels it.
         onInteractOutside={(e) => phase === 'running' && e.preventDefault()}
       >

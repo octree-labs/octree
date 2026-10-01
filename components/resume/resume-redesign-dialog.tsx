@@ -11,7 +11,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { DEFAULT_RESUME_TEMPLATE_ID } from '@/lib/resume/templates';
+import {
+  DEFAULT_RESUME_TEMPLATE_ID,
+  RESUME_TEMPLATE_OPTIONS,
+} from '@/lib/resume/template-options';
 import {
   discardResumeUpload,
   redesignResume,
@@ -21,8 +24,9 @@ import { ResumeRedesignActions } from '@/stores/resume-redesign';
 import type { RedesignProgressEvent } from '@/types/resume';
 import { RedesignProgress } from './redesign-progress';
 import { ResumeDropzone } from './resume-dropzone';
+import { TemplatePicker } from './template-picker';
 
-type Phase = 'upload' | 'running' | 'error';
+type Phase = 'template' | 'upload' | 'running' | 'error';
 
 export function ResumeRedesignDialog({
   open,
@@ -32,7 +36,8 @@ export function ResumeRedesignDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const router = useRouter();
-  const [phase, setPhase] = useState<Phase>('upload');
+  const [phase, setPhase] = useState<Phase>('template');
+  const [templateId, setTemplateId] = useState(DEFAULT_RESUME_TEMPLATE_ID);
   const [file, setFile] = useState<File | null>(null);
   const [progress, setProgress] = useState<RedesignProgressEvent | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -41,13 +46,14 @@ export function ResumeRedesignDialog({
   const storagePathRef = useRef<string | null>(null);
   useEffect(() => () => abortRef.current?.abort(), []);
 
-  const reset = () => {
+  // Back to a given step, cancelling any run and discarding its upload.
+  const reset = (to: Phase = 'template') => {
     abortRef.current?.abort();
     if (storagePathRef.current) {
       discardResumeUpload(storagePathRef.current).catch(() => {});
       storagePathRef.current = null;
     }
-    setPhase('upload');
+    setPhase(to);
     setFile(null);
     setProgress(null);
     setError(null);
@@ -68,7 +74,7 @@ export function ResumeRedesignDialog({
       storagePathRef.current = storagePath;
       const result = await redesignResume(
         storagePath,
-        DEFAULT_RESUME_TEMPLATE_ID,
+        templateId,
         setProgress,
         controller.signal
       );
@@ -86,15 +92,20 @@ export function ResumeRedesignDialog({
     }
   };
 
+  const templateName = RESUME_TEMPLATE_OPTIONS.find((t) => t.id === templateId)?.name;
+
   const handleOpenChange = (next: boolean) => {
-    if (!next) reset();
+    if (!next) {
+      reset();
+      setTemplateId(DEFAULT_RESUME_TEMPLATE_ID);
+    }
     onOpenChange(next);
   };
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
-        className="sm:max-w-[480px]"
+        className="sm:max-w-[560px]"
         // Don't lose a running redesign to a stray click; the X still cancels it.
         onInteractOutside={(e) => phase === 'running' && e.preventDefault()}
       >
@@ -102,13 +113,40 @@ export function ResumeRedesignDialog({
           <DialogTitle>
             {phase === 'running' ? 'Redesigning your resume' : 'Redesign your resume'}
           </DialogTitle>
+          {phase === 'template' && (
+            <DialogDescription>
+              Pick a template. We&apos;ll rebuild your resume in it, keeping every
+              detail, and point out anything worth fixing.
+            </DialogDescription>
+          )}
           {phase === 'upload' && (
             <DialogDescription>
-              Upload your resume as a PDF. We&apos;ll rebuild it in a clean LaTeX
-              template, keeping every detail, and point out anything worth fixing.
+              Upload your current resume as a PDF.{' '}
+              <span className="text-neutral-700">
+                Template: {templateName}
+              </span>{' '}
+              ·{' '}
+              <button
+                type="button"
+                onClick={() => setPhase('template')}
+                className="text-primary hover:underline"
+              >
+                Change
+              </button>
             </DialogDescription>
           )}
         </DialogHeader>
+
+        {phase === 'template' && (
+          <div className="space-y-4">
+            <TemplatePicker value={templateId} onChange={setTemplateId} />
+            <div className="flex justify-end">
+              <Button size="sm" onClick={() => setPhase('upload')}>
+                Continue
+              </Button>
+            </div>
+          </div>
+        )}
 
         {phase === 'upload' && <ResumeDropzone onFile={run} />}
 
@@ -123,7 +161,7 @@ export function ResumeRedesignDialog({
               <p>{error}</p>
             </div>
             <div className="flex justify-end gap-2">
-              <Button size="sm" variant="outline" onClick={reset}>
+              <Button size="sm" variant="outline" onClick={() => reset('upload')}>
                 Choose another file
               </Button>
               {file && (

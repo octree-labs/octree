@@ -29,13 +29,15 @@ export function TemplatePicker({
                 : 'border-neutral-200 hover:border-neutral-300'
             )}
           >
-            <div className="relative aspect-[4/5] overflow-hidden rounded-md border border-neutral-100 bg-white">
+            <div className="relative aspect-[4/3] overflow-hidden rounded-md border border-neutral-100 bg-white">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={template.thumbnail}
                 alt={`${template.name} template preview`}
                 className="h-full w-full object-cover object-top"
               />
+              {/* The thumbnail shows the top of the page; fade the cut edge. */}
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-white to-transparent" />
               {selected && (
                 <span className="absolute right-2 top-2 flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground">
                   <Check className="size-3" />

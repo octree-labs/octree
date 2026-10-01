@@ -5,7 +5,7 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 // branding.html primary: brand-blue gradient lit from above, inset white ring
-const primaryClasses =
+export const primaryClasses =
   "bg-gradient-to-t from-primary to-primary-light text-primary-foreground border border-zinc-950/25 shadow-md shadow-zinc-950/20 ring-1 ring-inset ring-white/20 transition-[filter] duration-200 hover:brightness-110 active:brightness-[0.92] dark:border-white/20 dark:ring-transparent"
 
 const buttonVariants = cva(

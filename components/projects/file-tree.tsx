@@ -15,6 +15,7 @@ import {
   FolderOpenIcon,
 } from 'lucide-react';
 import { SidebarMenuButton } from '@/components/ui/sidebar';
+import { PdfFile } from '@/components/icons/pdf-file';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -74,9 +75,7 @@ function getFileIcon(fileName: string) {
     case 'ico':
       return <Image className="h-4 w-4 flex-shrink-0 text-gray-600" />;
     case 'pdf':
-      return <FileText className="h-4 w-4 flex-shrink-0 text-red-500" />;
-    case 'tex':
-      return <FileText className="h-4 w-4 flex-shrink-0 text-primary" />;
+      return <PdfFile className="h-4 w-4 flex-shrink-0 text-gray-600" />;
     case 'doc':
     case 'docx':
     case 'txt':

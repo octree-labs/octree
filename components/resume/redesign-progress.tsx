@@ -18,45 +18,39 @@ function stepIndex(step: RedesignStep): number {
 }
 
 export function RedesignProgress({
-  fileName,
   progress,
 }: {
-  fileName: string;
   progress: RedesignProgressEvent | null;
 }) {
   const current = progress ? stepIndex(progress.step) : -1;
 
   return (
-    <div>
-      <p className="mb-5 truncate text-sm text-neutral-500">{fileName}</p>
-      <ol className="space-y-3">
-        {STEPS.map(({ step, label }, i) => {
-          const done = i < current;
-          const active = i === current;
-          return (
-            <li key={step} className="flex items-center gap-3 text-sm">
-              <span className="flex size-5 items-center justify-center">
-                {done ? (
-                  <Check className="size-4 text-green-600" />
-                ) : active ? (
-                  <Loader2 className="size-4 animate-spin text-primary" />
-                ) : (
-                  <span className="size-1.5 rounded-full bg-neutral-300" />
-                )}
-              </span>
-              <span className={cn(done || active ? 'text-neutral-900' : 'text-neutral-400')}>
-                {label}
-                {active && progress?.step === 'fixing' && (
-                  <span className="text-neutral-500">
-                    {' '}(fixing errors, attempt {progress.attempt})
-                  </span>
-                )}
-              </span>
-            </li>
-          );
-        })}
-      </ol>
-      <p className="mt-5 text-xs text-neutral-400">This usually takes 20-40 seconds.</p>
-    </div>
+    <ol className="space-y-3">
+      {STEPS.map(({ step, label }, i) => {
+        const done = i < current;
+        const active = i === current;
+        return (
+          <li key={step} className="flex items-center gap-3 text-sm">
+            <span className="flex size-5 items-center justify-center">
+              {done ? (
+                <Check className="size-4 text-green-600" />
+              ) : active ? (
+                <Loader2 className="size-4 animate-spin text-primary" />
+              ) : (
+                <span className="size-1.5 rounded-full bg-neutral-300" />
+              )}
+            </span>
+            <span className={cn(done || active ? 'text-neutral-900' : 'text-neutral-400')}>
+              {label}
+              {active && progress?.step === 'fixing' && (
+                <span className="text-neutral-500">
+                  {' '}(fixing errors, attempt {progress.attempt})
+                </span>
+              )}
+            </span>
+          </li>
+        );
+      })}
+    </ol>
   );
 }

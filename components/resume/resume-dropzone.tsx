@@ -6,7 +6,13 @@ import { FileUp } from 'lucide-react';
 import { MAX_RESUME_BYTES } from '@/lib/requests/resume';
 import { cn } from '@/lib/utils';
 
-export function ResumeDropzone({ onFile }: { onFile: (file: File) => void }) {
+export function ResumeDropzone({
+  onFile,
+  className,
+}: {
+  onFile: (file: File) => void;
+  className?: string;
+}) {
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     accept: { 'application/pdf': ['.pdf'] },
     maxSize: MAX_RESUME_BYTES,
@@ -22,7 +28,8 @@ export function ResumeDropzone({ onFile }: { onFile: (file: File) => void }) {
         'flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed px-6 py-16 text-center transition-colors',
         isDragActive
           ? 'border-primary bg-primary/5'
-          : 'border-neutral-200 hover:border-neutral-300 hover:bg-neutral-50'
+          : 'border-neutral-200 hover:border-neutral-300 hover:bg-neutral-50',
+        className
       )}
     >
       <input {...getInputProps()} />

@@ -164,14 +164,7 @@ export function ResumeRedesignDialog({
           )}
 
           {phase === 'running' && (
-            <>
-              <div className="my-auto">
-                <RedesignProgress progress={progress} />
-              </div>
-              <p className="text-xs text-neutral-400">
-                This usually takes 20–40 seconds.
-              </p>
-            </>
+            <RedesignProgress progress={progress} template={selectedTemplate} />
           )}
 
           {phase === 'error' && (

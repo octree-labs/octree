@@ -1,10 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect } from 'react';
 import { useDebouncedCallback } from 'use-debounce';
 import { saveDocument } from '@/lib/requests/document';
 import { useSelectedFile, useFileContent } from '@/stores/file';
 import { useProject } from '@/stores/project';
+import { SaveStatusActions, useSaveStatus } from '@/stores/save-status';
 
 export interface DocumentSaveState {
   isSaving: boolean;
@@ -19,8 +20,10 @@ export function useDocumentSave(): DocumentSaveState {
   const content = useFileContent();
   const selectedFile = useSelectedFile();
 
-  const [isSaving, setIsSaving] = useState(false);
-  const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  // Lives in a store so the project header can show it too.
+  const { isSaving, lastSaved } = useSaveStatus();
+  const { setIsSaving, setLastSaved } = SaveStatusActions;
+  useEffect(() => SaveStatusActions.reset, []);
 
   const handleSaveDocument = async (
     contentToSave?: string

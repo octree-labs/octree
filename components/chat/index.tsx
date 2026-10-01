@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 import { Loader2, X, CheckCheck } from 'lucide-react';
 import { OctreeLogo } from '@/components/icons/octree-logo';
 import { EditSuggestion } from '@/types/edit';
@@ -18,10 +20,8 @@ interface ChatProps {
   onEditSuggestion: (edit: EditSuggestion | EditSuggestion[]) => void;
   onAcceptEdit: (suggestionId: string) => void;
   onRejectEdit: (suggestionId: string) => void;
-  onAcceptAllEdits?: () => void;
   onRestoreCheckpoint?: (content: string) => void;
   editSuggestions: EditSuggestion[];
-  pendingEditCount?: number;
   fileContent: string;
   textFromEditor: string | null;
   setTextFromEditor: (text: string | null) => void;
@@ -35,6 +35,8 @@ interface ChatProps {
   currentFilePath?: string | null;
   isOpen: boolean;
   setIsOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  /** Rendered as an editor tab: no close button. */
+  embedded?: boolean;
   autoSendMessage?: string | null;
   setAutoSendMessage?: (message: string | null) => void;
   projectId?: string;
@@ -50,12 +52,11 @@ interface ChatMessage {
 export function Chat({
   isOpen,
   setIsOpen,
+  embedded = false,
   onEditSuggestion,
   onAcceptEdit,
   onRejectEdit,
-  onAcceptAllEdits,
   editSuggestions,
-  pendingEditCount = 0,
   fileContent,
   textFromEditor,
   setTextFromEditor,
@@ -393,6 +394,17 @@ export function Chat({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [setIsOpen]);
 
+  // Cite from search: attach the BibTeX as context and ask the agent to add it.
+  const handleCite = (bibtex: string) => {
+    setTextFromEditor(bibtex);
+    setActiveTab('chat');
+    if (isLoading) {
+      toast.info('BibTeX attached. Send it once Octra finishes the current reply.');
+      return;
+    }
+    setAutoSendMessage?.('Add this paper to the bibliography as a reference.');
+  };
+
   const clearHistory = () => {
     setMessages([]);
     checkpointsRef.current.clear();
@@ -429,11 +441,20 @@ export function Chat({
     <div className="flex h-full flex-col bg-white">
       <div className="flex flex-shrink-0 items-center justify-between border-b border-slate-200 px-4 py-2">
         <div className="flex items-center gap-1.5">
-          <OctreeLogo className="h-5 w-5" />
-          <div>
-            <h3 className="text-sm font-semibold text-slate-800">Octra</h3>
-          </div>
-          <div className="ml-1.5 flex items-center gap-1 border-l border-slate-200 pl-3">
+          {!embedded && (
+            <>
+              <OctreeLogo className="h-5 w-5" />
+              <div>
+                <h3 className="text-sm font-semibold text-slate-800">Octra</h3>
+              </div>
+            </>
+          )}
+          <div
+            className={cn(
+              'flex items-center gap-1',
+              !embedded && 'ml-1.5 border-l border-slate-200 pl-3'
+            )}
+          >
             <button
               onClick={() => setActiveTab('chat')}
               className={`rounded-md px-1.5 py-0.5 text-xs transition-colors ${
@@ -457,6 +478,7 @@ export function Chat({
           </div>
         </div>
 
+        {!embedded && (
         <div className="flex items-center gap-1">
           <Button
             variant="ghost"
@@ -468,11 +490,12 @@ export function Chat({
             <X size={14} />
           </Button>
         </div>
+        )}
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col">
         {activeTab === 'search' ? (
-          <SearchPanel />
+          <SearchPanel onCite={handleCite} />
         ) : (
           <>
             <div

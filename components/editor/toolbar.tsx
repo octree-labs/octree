@@ -1,7 +1,6 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
-import { ButtonGroup, ButtonGroupItem } from '@/components/ui/button-group';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,13 +23,10 @@ import { FeatureList } from '@/app/onboarding/components/feature-list';
 import { createCheckoutSession } from '@/lib/requests/subscription';
 import {
   Loader2,
-  WandSparkles,
-  ChevronDown,
+  Download,
   FileText,
   FolderArchive,
   Lock,
-  MessageSquare,
-  PanelRightClose,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
@@ -46,32 +42,25 @@ interface SubscriptionData {
 }
 
 interface EditorToolbarProps {
-  onTextFormat: (format: 'bold' | 'italic' | 'underline') => void;
+  /** Left side of the toolbar (pane tabs, formatting). */
+  children?: React.ReactNode;
   onCompile: () => void;
   onExportPDF: () => void;
   onExportZIP: () => void;
-  onOpenChat: () => void;
-  onToggleChat: () => void;
-  chatOpen: boolean;
   compiling: boolean;
   exporting: boolean;
   isSaving: boolean;
-  lastSaved: Date | null;
   hasPdfData?: boolean;
 }
 
 export function EditorToolbar({
-  onTextFormat,
+  children,
   onCompile,
   onExportPDF,
   onExportZIP,
-  onOpenChat,
-  onToggleChat,
-  chatOpen,
   compiling,
   exporting,
   isSaving,
-  lastSaved,
   hasPdfData = false,
 }: EditorToolbarProps) {
   const [isMac, setIsMac] = useState(true);
@@ -200,73 +189,11 @@ export function EditorToolbar({
       className="flex-shrink-0 border-b border-slate-200 bg-white p-2"
       data-onboarding-target="toolbar"
     >
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <ButtonGroup>
-            <ButtonGroupItem
-              onClick={() => onTextFormat('bold')}
-              className="w-8 px-2.5 py-1"
-            >
-              <span className="font-bold">B</span>
-            </ButtonGroupItem>
-            <ButtonGroupItem
-              onClick={() => onTextFormat('italic')}
-              className="w-8 px-2.5 py-1"
-            >
-              <span className="italic">I</span>
-            </ButtonGroupItem>
-            <ButtonGroupItem
-              onClick={() => onTextFormat('underline')}
-              className="w-8 px-2.5 py-1"
-            >
-              <span className="underline">U</span>
-            </ButtonGroupItem>
-          </ButtonGroup>
-
-          <Button
-            variant="default"
-            size="sm"
-            onClick={onOpenChat}
-            className="h-8 gap-1.5 px-3"
-            title="Edit with AI (⌘B)"
-            data-onboarding-target="editor-ai"
-          >
-            <WandSparkles className="h-3.5 w-3.5" />
-            <span className="font-medium">Edit with AI</span>
-          </Button>
-        </div>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-3">{children}</div>
 
         <div className="flex items-center gap-2">
           <UsageIndicator />
-          {lastSaved && (
-            <span className="text-sm text-slate-500">
-              Last saved: {lastSaved.toLocaleTimeString()}
-            </span>
-          )}
-
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onCompile}
-            disabled={compiling}
-            className="gap-1"
-            data-onboarding-target="editor-compile"
-          >
-            {compiling ? (
-              <>
-                <Loader2 className="size-4 animate-spin" />
-                Compiling
-              </>
-            ) : (
-              <>
-                Compile
-                <span className="ml-1 pt-0.5 text-xs text-muted-foreground">
-                  {isMac ? '⌘S' : 'Ctrl+S'}
-                </span>
-              </>
-            )}
-          </Button>
-
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -276,16 +203,11 @@ export function EditorToolbar({
                 className="gap-1"
                 data-onboarding-target="editor-export"
               >
+                Export
                 {exporting ? (
-                  <>
-                    <Loader2 className="size-4 animate-spin" />
-                    Exporting
-                  </>
+                  <Loader2 className="size-3.5 animate-spin" />
                 ) : (
-                  <>
-                    Export
-                    <ChevronDown className="size-3.5" />
-                  </>
+                  <Download className="size-3.5" />
                 )}
               </Button>
             </DropdownMenuTrigger>
@@ -311,21 +233,19 @@ export function EditorToolbar({
           </DropdownMenu>
 
           <Button
-            variant={chatOpen ? 'secondary' : 'ghost'}
+            variant="default"
             size="sm"
-            onClick={onToggleChat}
+            onClick={onCompile}
+            disabled={compiling}
             className="gap-1.5"
-            title={chatOpen ? 'Close AI Chat' : 'Open AI Chat'}
-            data-onboarding-target="chat"
+            title={compiling ? 'Compiling…' : 'Compile'}
+            data-onboarding-target="editor-compile"
           >
-            {chatOpen ? (
-              <PanelRightClose className="size-4" />
-            ) : (
-              <MessageSquare className="size-4" />
-            )}
-            <span className="hidden sm:inline">
-              {chatOpen ? 'Close' : 'Chat'}
-            </span>
+            {compiling && <Loader2 className="size-3.5 animate-spin" />}
+            Compile
+            <kbd className="ml-0.5 rounded border border-white/25 bg-white/15 px-1 font-sans text-[10px] font-medium leading-4 text-white/85">
+              {isMac ? '⌘S' : 'Ctrl+S'}
+            </kbd>
           </Button>
         </div>
       </div>

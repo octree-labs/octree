@@ -3,24 +3,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Check, Loader2 } from 'lucide-react';
 
-const TIPS = [
-  'Use \\usepackage{hyperref} to make URLs and cross-references clickable in your PDF.',
-  'Use a non-breaking space ~ before \\cite{} and \\ref{} to prevent awkward line breaks.',
-  'Define reusable commands with \\newcommand{\\name}[args]{definition} to keep your code DRY.',
-  'Prefer \\usepackage{booktabs} with \\toprule, \\midrule, \\bottomrule for professional tables.',
-  'Use \\includegraphics[width=\\textwidth]{file} to scale images to the column width.',
-  'Set page margins easily with \\usepackage[margin=1in]{geometry}.',
-  'Wrap math in \\ensuremath{} inside commands so they work in both text and math mode.',
-  'Load \\usepackage{microtype} for subtle spacing improvements that make text look polished.',
-  'Use \\phantom{text} to reserve space without displaying anything — great for alignment.',
-  'Try \\usepackage{cleveref} — \\cref{fig:x} auto-inserts "Figure", "Table", etc.',
-  'Always use the figure environment with \\caption and \\label for numbered, referenceable figures.',
-  'Format units with \\usepackage{siunitx} — e.g., \\SI{9.8}{m/s^2} for consistent notation.',
-  'Use \\vspace*{} instead of \\vspace{} to ensure spacing is not removed at page breaks.',
-  'Switch to \\raggedright in narrow columns to avoid ugly word spacing from justification.',
-  'Add \\listoffigures and \\listoftables after \\tableofcontents for a complete document outline.',
-];
-
 const PHASES = [
   { label: 'Preparing files...' },
   { label: 'Running LaTeX engine...' },
@@ -36,10 +18,7 @@ interface CompilationLoadingProps {
 
 export function CompilationLoading({ completed = false }: CompilationLoadingProps) {
   const [elapsedMs, setElapsedMs] = useState(0);
-  const [tipIndex, setTipIndex] = useState(() => Math.floor(Math.random() * TIPS.length));
-  const [tipVisible, setTipVisible] = useState(true);
   const startTimeRef = useRef(Date.now());
-  const tipIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Elapsed timer
   useEffect(() => {
@@ -47,20 +26,6 @@ export function CompilationLoading({ completed = false }: CompilationLoadingProp
       setElapsedMs(Date.now() - startTimeRef.current);
     }, 100);
     return () => clearInterval(interval);
-  }, []);
-
-  // Tip rotation: fade out, swap, fade in every 4s
-  useEffect(() => {
-    tipIntervalRef.current = setInterval(() => {
-      setTipVisible(false);
-      setTimeout(() => {
-        setTipIndex((prev) => (prev + 1) % TIPS.length);
-        setTipVisible(true);
-      }, 300);
-    }, 4000);
-    return () => {
-      if (tipIntervalRef.current) clearInterval(tipIntervalRef.current);
-    };
   }, []);
 
   const currentPhase = completed
@@ -80,9 +45,9 @@ export function CompilationLoading({ completed = false }: CompilationLoadingProp
   if (completed) {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="flex flex-col items-center gap-2 animate-in fade-in duration-300">
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-green-500">
-            <Check className="h-5 w-5 text-white" strokeWidth={3} />
+        <div className="flex items-center gap-2 animate-in fade-in duration-300">
+          <div className="flex size-5 items-center justify-center rounded-full bg-primary">
+            <Check className="size-3 text-white" strokeWidth={3} />
           </div>
           <span className="text-sm font-medium text-neutral-900">
             Compiled successfully
@@ -103,7 +68,7 @@ export function CompilationLoading({ completed = false }: CompilationLoadingProp
             return (
               <div key={i} className="flex items-center gap-2.5">
                 {isDone ? (
-                  <Check className="h-4 w-4 text-green-500" />
+                  <Check className="h-4 w-4 text-primary" />
                 ) : isActive ? (
                   <Loader2 className="h-4 w-4 animate-spin text-primary" />
                 ) : (
@@ -114,7 +79,7 @@ export function CompilationLoading({ completed = false }: CompilationLoadingProp
                 <span
                   className={`text-sm ${
                     isDone
-                      ? 'text-green-600'
+                      ? 'text-primary'
                       : isActive
                         ? 'font-medium text-foreground'
                         : 'text-slate-400'
@@ -142,18 +107,6 @@ export function CompilationLoading({ completed = false }: CompilationLoadingProp
           </div>
           <p className="text-center text-xs text-slate-400">
             {elapsedSeconds}s elapsed
-          </p>
-        </div>
-
-        {/* Divider + tip */}
-        <div className="flex flex-col gap-3">
-          <div className="h-px bg-slate-200" />
-          <p
-            className="text-center text-xs leading-relaxed text-slate-500 transition-opacity duration-300"
-            style={{ opacity: tipVisible ? 1 : 0 }}
-          >
-            <span className="mr-1">💡</span>
-            {TIPS[tipIndex]}
           </p>
         </div>
       </div>

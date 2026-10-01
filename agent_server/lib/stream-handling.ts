@@ -28,6 +28,12 @@ export function createWriteEvent(res: Response) {
   };
 }
 
+// Finish reasons that would otherwise end the reply silently.
+const ABNORMAL_FINISH_MESSAGES: Record<string, string> = {
+  'content-filter': "Octra can't help with that request. Try rephrasing it.",
+  length: 'Octra hit its response limit before finishing. Try a smaller request.',
+};
+
 /**
  * Process Vercel AI SDK fullStream and emit SSE events
  */
@@ -80,6 +86,8 @@ export async function processFullStream(
         case 'finish': {
           const f = p as { type: string; finishReason?: string; totalUsage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number } };
           console.log(`[Stream] Finished: reason=${f.finishReason || 'unknown'}, usage=${JSON.stringify(f.totalUsage || {})}, edits=${collectedEdits.length}`);
+          const abnormalFinish = f.finishReason && ABNORMAL_FINISH_MESSAGES[f.finishReason];
+          if (abnormalFinish) writeEvent('error', { message: abnormalFinish });
           break;
         }
       }

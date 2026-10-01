@@ -16,7 +16,7 @@ const EDITOR_STEPS = [
     target: 'editor-ai',
     title: 'Edit with AI',
     description:
-      'Select text and open the AI chat to get edit suggestions, fix errors, or ask questions about your document.',
+      'Click Edit with AI to ask Octra for edits, fix errors, or ask questions about your document. Select code and click Edit to send it straight to the AI.',
   },
   {
     target: 'editor-export',

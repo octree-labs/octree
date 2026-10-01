@@ -7,6 +7,7 @@ import {
 import { AppSidebar } from '@/components/app-sidebar';
 import { BackButton } from '@/components/projects/back-button';
 import { ProjectBreadcrumbs } from '@/components/projects/project-breadcrumbs';
+import { SaveStatus } from '@/components/projects/save-status';
 import { getProjectById } from '@/actions/get-projects';
 import { getCurrentUser, getUserUsageStatus } from '@/actions/get-user';
 import { getUserWalkthroughStatus } from '@/actions/get-walkthrough';
@@ -52,6 +53,10 @@ export default async function ProjectLayout({
 
             <div className="flex w-full min-w-0 items-center justify-center px-[135px]">
               <ProjectBreadcrumbs projectTitle={project?.title || 'Project'} />
+            </div>
+
+            <div className="absolute right-4 flex items-center">
+              <SaveStatus />
             </div>
           </header>
 

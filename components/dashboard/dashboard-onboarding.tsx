@@ -10,7 +10,7 @@ const DASHBOARD_STEPS = [
     target: 'dashboard-generate-button',
     title: 'Create documents with AI',
     description:
-      'Click the "Generate with AI" button above to open the generator. There you can describe what you want and get a LaTeX document in seconds.',
+      'Click the "Generate with AI" card to open the generator. There you can describe what you want and get a LaTeX document in seconds.',
   },
   {
     target: 'dashboard-header',

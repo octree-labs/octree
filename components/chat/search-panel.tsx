@@ -1,8 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Search, Loader2, ExternalLink, Calendar, User, Copy, Check } from 'lucide-react';
-import { toast } from 'sonner';
+import { Search, Loader2, ExternalLink, Calendar, User, Quote } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 
@@ -45,13 +44,12 @@ function generateBibTeX(result: SearchResult): string {
   return lines.join('\n');
 }
 
-export function SearchPanel() {
+export function SearchPanel({ onCite }: { onCite: (bibtex: string) => void }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -195,26 +193,12 @@ export function SearchPanel() {
                     </span>
                   )}
                   <button
-                    onClick={async () => {
-                      const bibtex = generateBibTeX(result);
-                      await navigator.clipboard.writeText(bibtex);
-                      setCopiedIndex(i);
-                      toast.success('BibTeX copied to clipboard');
-                      setTimeout(() => setCopiedIndex(null), 2000);
-                    }}
+                    onClick={() => onCite(generateBibTeX(result))}
+                    title="Ask the AI to add this paper as a reference"
                     className="ml-auto flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-slate-400 transition-colors hover:bg-blue-100 hover:text-blue-600"
                   >
-                    {copiedIndex === i ? (
-                      <>
-                        <Check className="h-3 w-3" />
-                        Copied
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="h-3 w-3" />
-                        Cite
-                      </>
-                    )}
+                    <Quote className="h-3 w-3" />
+                    Cite
                   </button>
                 </div>
               </div>

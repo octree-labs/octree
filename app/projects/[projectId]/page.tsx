@@ -13,6 +13,8 @@ import { useEditorKeyboardShortcuts } from '@/hooks/use-editor-keyboard-shortcut
 import { useSynctex } from '@/hooks/use-synctex';
 import { MonacoEditor } from '@/components/editor/monaco-editor';
 import { EditorToolbar } from '@/components/editor/toolbar';
+import { EditorPaneTabs } from '@/components/editor/editor-pane-tabs';
+import { FormattingBar } from '@/components/editor/formatting-bar';
 import { SelectionButton } from '@/components/editor/selection-button';
 import { LoadingState } from '@/components/editor/loading-state';
 import { ErrorState } from '@/components/editor/error-state';
@@ -39,11 +41,6 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { Code, Eye, MessageSquare, Play, Loader2, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { FileTree } from '@/components/projects/file-tree';
-
-const CHAT_WIDTH_DEFAULT = 340;
-const CHAT_WIDTH_MIN = 280;
-const CHAT_WIDTH_MAX = 600;
-const CHAT_WIDTH_STORAGE_KEY = 'chat_sidebar_width';
 
 export default function ProjectPage() {
   const params = useParams();
@@ -196,59 +193,6 @@ export default function ProjectPage() {
   const [autoSendMessage, setAutoSendMessage] = useState<string | null>(null);
   const [hasCompiledOnMount, setHasCompiledOnMount] = useState(false);
 
-  const [chatWidth, setChatWidth] = useState(CHAT_WIDTH_DEFAULT);
-  const [isChatResizing, setIsChatResizing] = useState(false);
-
-  const chatStartXRef = useRef(0);
-  const chatStartWidthRef = useRef(0);
-
-  useEffect(() => {
-    const stored = localStorage.getItem(CHAT_WIDTH_STORAGE_KEY);
-    if (stored) {
-      const parsed = parseInt(stored, 10);
-      if (!isNaN(parsed) && parsed >= CHAT_WIDTH_MIN && parsed <= CHAT_WIDTH_MAX) {
-        setChatWidth(parsed);
-      }
-    }
-  }, []);
-
-  const startChatResize = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    chatStartXRef.current = e.clientX;
-    chatStartWidthRef.current = chatWidth;
-    setIsChatResizing(true);
-  }, [chatWidth]);
-
-  useEffect(() => {
-    if (!isChatResizing) return;
-
-    const handleMouseMove = (e: MouseEvent) => {
-      const delta = chatStartXRef.current - e.clientX;
-      const newWidth = Math.min(
-        CHAT_WIDTH_MAX,
-        Math.max(CHAT_WIDTH_MIN, chatStartWidthRef.current + delta)
-      );
-      setChatWidth(newWidth);
-    };
-
-    const handleMouseUp = () => {
-      setIsChatResizing(false);
-      localStorage.setItem(CHAT_WIDTH_STORAGE_KEY, chatWidth.toString());
-    };
-
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-    document.body.style.cursor = 'ew-resize';
-    document.body.style.userSelect = 'none';
-
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-  }, [isChatResizing, chatWidth]);
-
   const projectFileContext = useMemo(
     () =>
       projectFiles
@@ -340,6 +284,24 @@ export default function ProjectPage() {
   const isImage = selectedFile ? isImageFile(selectedFile.name) : false;
   const isPDF = selectedFile ? isPDFFile(selectedFile.name) : false;
   const isText = selectedFile ? isTextFile(selectedFile.name) : false;
+
+  // Shared by the desktop tab and the mobile sheet.
+  const chatProps = {
+    onEditSuggestion: handleSuggestionFromChat,
+    onAcceptEdit: handleAcceptEdit,
+    onRejectEdit: handleRejectEdit,
+    onRestoreCheckpoint: (snapshot: string) => FileActions.setContent(snapshot),
+    editSuggestions,
+    fileContent: selectedFile && isText ? content : '',
+    textFromEditor,
+    setTextFromEditor,
+    selectionRange,
+    projectFiles: projectFileContext,
+    currentFilePath: selectedFile?.name ?? null,
+    autoSendMessage,
+    setAutoSendMessage,
+    projectId,
+  };
 
   const renderContent = () => {
     if (isImage && selectedFile) {
@@ -517,22 +479,7 @@ export default function ProjectPage() {
                             isOpen={isMobileChatOpen}
                             setIsOpen={() => setIsMobileChatOpen(false)}
                             autoFocus={false}
-                            onEditSuggestion={handleSuggestionFromChat}
-                            onAcceptEdit={handleAcceptEdit}
-                            onRejectEdit={handleRejectEdit}
-                            onAcceptAllEdits={handleAcceptAllEdits}
-                            onRestoreCheckpoint={(snapshot) => FileActions.setContent(snapshot)}
-                            editSuggestions={editSuggestions}
-                            pendingEditCount={totalPendingCount}
-                            fileContent={selectedFile && isTextFile(selectedFile.name) ? content : ''}
-                            textFromEditor={textFromEditor}
-                            setTextFromEditor={setTextFromEditor}
-                            selectionRange={selectionRange}
-                            projectFiles={projectFileContext}
-                            currentFilePath={selectedFile?.name ?? null}
-                            autoSendMessage={autoSendMessage}
-                            setAutoSendMessage={setAutoSendMessage}
-                            projectId={projectId}
+                            {...chatProps}
                         />
                     </div>
                   )}
@@ -581,33 +528,24 @@ export default function ProjectPage() {
       );
   }
 
+  const paneTab = chatOpen ? 'chat' : 'code';
+
   return (
-    <div
-      className={cn(
-        'flex h-[calc(100vh-45px)] flex-col bg-slate-100',
-        !isChatResizing && 'transition-[margin] duration-300 ease-in-out'
-      )}
-      style={{ marginRight: chatOpen ? `${chatWidth}px` : 0 }}
-    >
+    <div className="flex h-[calc(100vh-45px)] flex-col bg-slate-100">
       <EditorToolbar
-        onTextFormat={handleTextFormat}
         onCompile={handleCompile}
         onExportPDF={handleExportPDF}
         onExportZIP={handleExportZIP}
-        onOpenChat={() => {
-          if (selectedText.trim()) {
-            setTextFromEditor(selectedText);
-          }
-          setChatOpen(true);
-        }}
-        onToggleChat={() => setChatOpen(prev => !prev)}
-        chatOpen={chatOpen}
         compiling={compiling}
         exporting={exporting}
         isSaving={isSaving}
-        lastSaved={lastSaved}
         hasPdfData={!!pdfData}
-      />
+      >
+        <EditorPaneTabs
+          activeTab={paneTab}
+          onTabChange={(tab) => setChatOpen(tab === 'chat')}
+        />
+      </EditorToolbar>
 
       <div className="flex min-h-0 flex-1">
         <ResizablePanelGroup
@@ -615,12 +553,27 @@ export default function ProjectPage() {
           className="flex min-h-0 flex-1 transition-all duration-300 ease-in-out"
         >
           <ResizablePanel defaultSize={50} minSize={25}>
-            <div
-              className="relative h-full"
-              data-onboarding-target="editor"
-            >
-              <div className="h-full overflow-hidden">
-                {renderContent()}
+            <div className="flex h-full flex-col" data-onboarding-target="editor">
+              <div className="relative min-h-0 flex-1">
+                {/* Both stay mounted: Monaco applies agent edits and chat keeps its state. */}
+                <div className={cn('absolute inset-0 flex flex-col', paneTab !== 'code' && 'invisible')}>
+                  {isText && (
+                    <div className="flex h-10 shrink-0 items-center border-b border-slate-200 bg-white px-2">
+                      <FormattingBar onTextFormat={handleTextFormat} />
+                    </div>
+                  )}
+                  <div className="relative min-h-0 flex-1 overflow-hidden">
+                    {renderContent()}
+                  </div>
+                </div>
+                <div className={cn('absolute inset-0 bg-white', paneTab !== 'chat' && 'invisible')}>
+                  <Chat
+                    isOpen={chatOpen}
+                    setIsOpen={setChatOpen}
+                    embedded
+                    {...chatProps}
+                  />
+                </div>
               </div>
             </div>
           </ResizablePanel>
@@ -629,46 +582,6 @@ export default function ProjectPage() {
             {renderPreview()}
           </ResizablePanel>
         </ResizablePanelGroup>
-      </div>
-
-      <div
-        className={cn(
-          'fixed inset-y-0 right-0 z-20 border-l border-slate-200 bg-white',
-          !isChatResizing && 'transition-transform duration-300 ease-in-out',
-          chatOpen ? 'translate-x-0' : 'translate-x-full'
-        )}
-        style={{ width: `${chatWidth}px` }}
-      >
-        {chatOpen && (
-          <div
-            onMouseDown={startChatResize}
-            className={cn(
-              'absolute top-0 left-0 bottom-0 z-50 w-1 cursor-ew-resize',
-              'hover:bg-slate-300',
-              isChatResizing && 'bg-primary'
-            )}
-          />
-        )}
-        <Chat
-          isOpen={chatOpen}
-          setIsOpen={setChatOpen}
-          onEditSuggestion={handleSuggestionFromChat}
-          onAcceptEdit={handleAcceptEdit}
-          onRejectEdit={handleRejectEdit}
-          onAcceptAllEdits={handleAcceptAllEdits}
-          onRestoreCheckpoint={(snapshot) => FileActions.setContent(snapshot)}
-          editSuggestions={editSuggestions}
-          pendingEditCount={totalPendingCount}
-          fileContent={selectedFile && isTextFile(selectedFile.name) ? content : ''}
-          textFromEditor={textFromEditor}
-          setTextFromEditor={setTextFromEditor}
-          selectionRange={selectionRange}
-          projectFiles={projectFileContext}
-          currentFilePath={selectedFile?.name ?? null}
-          autoSendMessage={autoSendMessage}
-          setAutoSendMessage={setAutoSendMessage}
-          projectId={projectId}
-        />
       </div>
     </div>
   );

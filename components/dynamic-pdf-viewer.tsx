@@ -238,6 +238,26 @@ function DynamicPDFViewer({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  // Ctrl/⌘ + wheel zooms (trackpad pinch also arrives as ctrl + wheel); plain
+  // wheel keeps scrolling. Non-passive so the browser's page zoom is suppressed.
+  const hasPdf = !!pdfData;
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    function handleWheel(e: WheelEvent) {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      const factor = Math.exp(-e.deltaY * 0.002);
+      setZoom((prev) =>
+        Math.round(Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, prev * factor)) * 100) / 100
+      );
+    }
+
+    container.addEventListener('wheel', handleWheel, { passive: false });
+    return () => container.removeEventListener('wheel', handleWheel);
+  }, [hasPdf]);
+
   function previousPage(e: React.MouseEvent) {
     e.preventDefault();
     e.stopPropagation();

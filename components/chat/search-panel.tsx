@@ -141,14 +141,14 @@ export function SearchPanel({ onCite }: { onCite: (bibtex: string) => void }) {
         )}
 
         {hasSearched && !isSearching && results.length === 0 && !error && (
-          <div className="flex flex-col items-center justify-center py-12 text-center">
+          <div className="flex h-full flex-col items-center justify-center text-center">
             <p className="text-sm text-slate-500">No results found</p>
             <p className="text-xs text-slate-400">Try a different search query</p>
           </div>
         )}
 
         {isSearching && (
-          <div className="flex flex-col items-center justify-center py-12">
+          <div className="flex h-full flex-col items-center justify-center">
             <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
             <p className="mt-2 text-xs text-slate-500">Searching papers...</p>
           </div>

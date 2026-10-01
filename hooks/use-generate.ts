@@ -9,6 +9,7 @@ import {
 import { Message, MessageAttachment } from '@/components/generate/MessageBubble';
 import type { GenerationMilestone } from '@/components/generate/GenerationProgressTracker';
 import type { Json } from '@/database.types';
+import { readStream } from '@/lib/utils/sse';
 
 export interface AttachedFile {
   id: string;
@@ -585,33 +586,6 @@ export function useGenerate(options: UseGenerateOptions = {}) {
     retry,
     canRetry: !!lastAttemptRef.current,
   };
-}
-
-async function readStream(
-  reader: ReadableStreamDefaultReader<Uint8Array>,
-  onEvent: (type: string, data: Record<string, unknown>) => void
-) {
-  const decoder = new TextDecoder();
-  let buffer = '';
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-    const parts = buffer.split('\n\n');
-    buffer = parts.pop() || '';
-
-    for (const part of parts) {
-      const eventMatch = part.match(/^event:\s*(\S+)/);
-      const dataMatch = part.match(/data:\s*([\s\S]+)$/m);
-      if (eventMatch && dataMatch) {
-        try {
-          onEvent(eventMatch[1], JSON.parse(dataMatch[1]));
-        } catch {}
-      }
-    }
-  }
 }
 
 async function convertFilesToBase64(files: AttachedFile[]) {

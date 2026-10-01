@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { createResumeProject } from '@/actions/create-resume-project';
@@ -93,10 +93,21 @@ function ReviewWithResult({ pending }: { pending: PendingRedesign }) {
     if (applied.length) recompile(nextTex, applied);
   };
 
+  // Keep the review on screen while navigating away (router.push resolves
+  // later); clearing the store immediately would blank the page meanwhile.
+  // The ref keeps React's dev double-mount from clearing it too.
+  const leavingRef = useRef(false);
+  useEffect(
+    () => () => {
+      if (leavingRef.current) ResumeRedesignActions.clear();
+    },
+    []
+  );
+
   const handleDiscard = () => {
     discardResumeUpload(storagePath).catch(() => {});
+    leavingRef.current = true;
     router.push('/');
-    ResumeRedesignActions.clear();
   };
 
   const handleOpenInEditor = async () => {
@@ -108,8 +119,8 @@ function ReviewWithResult({ pending }: { pending: PendingRedesign }) {
       setIsOpening(false);
       return;
     }
+    leavingRef.current = true;
     router.push(`/projects/${projectId}`);
-    ResumeRedesignActions.clear();
   };
 
   return (

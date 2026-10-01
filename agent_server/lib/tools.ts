@@ -160,6 +160,15 @@ export function createOctraTools(context: ToolContext) {
             targetContent = targetFile.path === context.currentFilePath
               ? context.fileContent
               : targetFile.content;
+          } else {
+            // Unknown path: the client can't apply it, so make the model retry.
+            const available = [
+              context.currentFilePath,
+              ...(context.projectFiles ?? []).map(f => f.path),
+            ].filter((p, i, all): p is string => !!p && all.indexOf(p) === i);
+            const error = `File "${edit.file_path}" not found. Available files: ${available.join(', ') || 'none'}`;
+            context.writeEvent('tool', { name: 'edit', error });
+            return `Edit validation failed: ${error}`;
           }
         }
 

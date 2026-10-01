@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import jwt from 'jsonwebtoken';
+import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { streamText, stepCountIs } from 'ai';
 import { anthropic } from '@ai-sdk/anthropic';
 
@@ -26,6 +27,24 @@ const SUPABASE_JWT_SECRET: string = (() => {
   return s;
 })();
 
+// Supabase projects using asymmetric JWT signing keys (ES256/RS256, the default
+// for new local stacks) can't be verified with the shared secret. When
+// SUPABASE_URL is set, fall back to the project's public JWKS.
+const SUPABASE_JWKS = process.env.SUPABASE_URL
+  ? createRemoteJWKSet(
+      new URL('/auth/v1/.well-known/jwks.json', process.env.SUPABASE_URL)
+    )
+  : null;
+
+async function verifySupabaseToken(token: string): Promise<void> {
+  try {
+    jwt.verify(token, SUPABASE_JWT_SECRET, { algorithms: ['HS256'] });
+  } catch (error) {
+    if (!SUPABASE_JWKS) throw error;
+    await jwtVerify(token, SUPABASE_JWKS, { algorithms: ['ES256', 'RS256'] });
+  }
+}
+
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
@@ -34,7 +53,7 @@ app.get('/health', (_req: express.Request, res: express.Response) => {
   res.json({ status: 'ok' });
 });
 
-function jwtAuthMiddleware(req: express.Request, res: express.Response, next: express.NextFunction) {
+async function jwtAuthMiddleware(req: express.Request, res: express.Response, next: express.NextFunction) {
   const authHeader = req.headers.authorization;
   if (!authHeader) {
     res.status(401).json({ error: 'Authorization header required' });
@@ -50,11 +69,12 @@ function jwtAuthMiddleware(req: express.Request, res: express.Response, next: ex
   const token = authHeader.slice(prefix.length);
 
   try {
-    jwt.verify(token, SUPABASE_JWT_SECRET, { algorithms: ['HS256'] });
-    next();
+    await verifySupabaseToken(token);
   } catch {
     res.status(401).json({ error: 'Invalid or expired token' });
+    return;
   }
+  next();
 }
 
 app.post('/agent', jwtAuthMiddleware, async (req: express.Request, res: express.Response) => {
@@ -160,12 +180,16 @@ app.post('/agent', jwtAuthMiddleware, async (req: express.Request, res: express.
     writeEvent('status', { state: 'started' });
 
     const result = streamText({
-      model: anthropic('claude-haiku-4-5-20251001'),
+      model: anthropic('claude-sonnet-5-5'),
       system: systemPrompt,
       prompt: userText,
       tools,
       stopWhen: stepCountIs(25),
-      maxOutputTokens: 16384,
+      // Thinking counts toward this limit, so leave room beyond the reply itself.
+      maxOutputTokens: 64000,
+      providerOptions: {
+        anthropic: { effort: 'medium' },
+      },
     });
 
     const finalText = await processFullStream(result.fullStream, writeEvent, collectedEdits);

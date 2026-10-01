@@ -157,6 +157,7 @@ docker compose up -d
 
 - `ANTHROPIC_API_KEY` (required)
 - `SUPABASE_JWT_SECRET` (optional but recommended; when set, `/agent` requires Bearer JWT)
+- `SUPABASE_URL` (optional; also accepts tokens signed with the project's asymmetric JWT signing keys, e.g. local `supabase start` stacks)
 - `COMPILE_SERVICE_URL` (optional; enables agent compile tool)
 - `PORT` (optional; defaults to `8787`)
 

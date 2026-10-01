@@ -79,7 +79,7 @@ export function CompilationLoading({ completed = false }: CompilationLoadingProp
                 <span
                   className={`text-sm ${
                     isDone
-                      ? 'text-primary'
+                      ? 'text-foreground'
                       : isActive
                         ? 'font-medium text-foreground'
                         : 'text-slate-400'

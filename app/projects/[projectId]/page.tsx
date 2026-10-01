@@ -30,7 +30,7 @@ import { cn, formatCompilationErrorForAI } from '@/lib/utils';
 import { FileActions, useProjectFiles, useSelectedFile } from '@/stores/file';
 import { getProject, getProjectFiles } from '@/lib/requests/project';
 import type { ProjectFile } from '@/hooks/use-file-editor';
-import { useParams, useSearchParams } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import type { Project } from '@/types/project';
 import { ProjectActions } from '@/stores/project';
 import type { EditSuggestion } from '@/types/edit';
@@ -189,14 +189,6 @@ export default function ProjectPage() {
     handleCopy,
     setupEditorListeners,
   } = useEditorInteractions();
-
-  // New projects (create dialog, resume redesign) open on Edit with AI via ?tab=ai.
-  const searchParams = useSearchParams();
-  useEffect(() => {
-    if (searchParams.get('tab') !== 'ai') return;
-    setChatOpen(true);
-    window.history.replaceState(null, '', window.location.pathname);
-  }, [searchParams, setChatOpen]);
 
   const [autoSendMessage, setAutoSendMessage] = useState<string | null>(null);
   const [hasCompiledOnMount, setHasCompiledOnMount] = useState(false);

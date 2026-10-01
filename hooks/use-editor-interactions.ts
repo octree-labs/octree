@@ -33,7 +33,8 @@ export function useEditorInteractions(): EditorInteractionsState {
     endLineNumber: number;
     endColumn: number;
   } | null>(null);
-  const [chatOpen, setChatOpen] = useState(false);
+  // Projects open on the Edit with AI tab (chat) rather than Code.
+  const [chatOpen, setChatOpen] = useState(true);
 
   const handleCopy = useCallback(
     (textToCopy?: string) => {

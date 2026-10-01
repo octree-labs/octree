@@ -108,7 +108,7 @@ function ReviewWithResult({ pending }: { pending: PendingRedesign }) {
       setIsOpening(false);
       return;
     }
-    router.push(`/projects/${projectId}?tab=ai`);
+    router.push(`/projects/${projectId}`);
     ResumeRedesignActions.clear();
   };
 

@@ -20,7 +20,7 @@ export function CreateProjectDialog() {
 
   const handleSuccess = (projectId: string) => {
     setOpen(false);
-    router.push(`/projects/${projectId}?tab=ai`);
+    router.push(`/projects/${projectId}`);
   };
 
   const handleOpenChange = (newOpen: boolean) => {

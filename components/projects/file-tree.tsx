@@ -72,8 +72,11 @@ function getFileIcon(fileName: string) {
     case 'webp':
     case 'bmp':
     case 'ico':
-    case 'pdf':
       return <Image className="h-4 w-4 flex-shrink-0 text-gray-600" />;
+    case 'pdf':
+      return <FileText className="h-4 w-4 flex-shrink-0 text-red-500" />;
+    case 'tex':
+      return <FileText className="h-4 w-4 flex-shrink-0 text-primary" />;
     case 'doc':
     case 'docx':
     case 'txt':

@@ -1,0 +1,18 @@
+packages:
+  - apps/*
+  - packages/*
+
+allowBuilds:
+  canvas: true
+  core-js: false
+  esbuild: true
+  protobufjs: false
+  sharp: true
+  supabase: true
+  unrs-resolver: true
+
+overrides:
+  postcss: ^8.5.10
+  esbuild: ^0.25.0
+  uuid: ^14.0.0
+  dompurify: ^3.4.1

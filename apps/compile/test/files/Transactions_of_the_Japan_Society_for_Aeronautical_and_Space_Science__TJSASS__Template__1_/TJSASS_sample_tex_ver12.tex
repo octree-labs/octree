@@ -1,0 +1,467 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  TeX template file for Transactions of JSASS, 
+%                        Aerospace Technology Japan, 
+%                        ISTS Selected papers
+%                        APISAT Special Issue
+%
+%                 Ver.3.0  May 2018, JSASS Publication Committee
+%
+%  Please DO NOT USE footnote at the last page (because bug not fixed)
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%\documentclass[TJSASS]{tjsass} % draft for Transactions of JSASS
+%\documentclass[ATJ   ]{tjsass} % draft for Aero. Tech. Japan
+
+\documentclass[TJSASS, pubform]{tjsass} % publication paper for Transactions of JSASS
+%\documentclass[ATJ   , pubform]{tjsass} % publication paper for Aero. Tech. Japan
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%---Required Packages---
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%The packages below should be installed on your PC
+\usepackage[dvipdfmx]{graphicx}
+\RequirePackage{multicol}
+\RequirePackage{amsmath}
+\RequirePackage[varg]{txfonts}
+\RequirePackage{bm}
+\RequirePackage{array}
+\RequirePackage{color}
+\RequirePackage[hang]{footmisc}
+\RequirePackage{tjsasscite}
+\RequirePackage{xurl}
+
+\renewcommand{\UrlFont}{\rmfamily}
+\newcommand{\bhline}{\noalign{\hrule height 0.8pt}} 
+
+\RequirePackage{comment}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%---Publication Info.---
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\pubyear{20XX}% year of publication
+\bookvolume{XX}% volume
+\bookissue{X}% issue
+\setcounter{page}{1}% starting page number
+\titleheadertrue% title for header
+\receiveddate{XX June 20XX}%
+\revisiondate{XX August 20XX}
+\accepteddate{XX September 20XX}
+\confinfo{Presented at the XXth International Symposium on Space Technology and Science, June 4-9, 20XX, Matsuyama, Japan}
+\AEname{J. Aero} %Associate Editor name
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%---Set up Title & Author---
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\title{How to Prepare Manuscript for Transactions of JSASS}% paper title
+\subtitle{}% paper subtitle only when necessary
+%
+%%%%%% put author's name in \author{} following the rules below.
+%%  \NAME{first name}{last name}   %last name is converted to capital letters.
+%%  \thanksNum{affiliation}
+%
+\author{\NAME{Ichiro}{Koku},\thanksNum{1)}\CorresAuthor{koku@jsass.org}
+\NAME{Hanako}{Uchu},\thanksNum{1),2)} and 
+\NAME{Taro}{SORA}\thanksNum{2)}}% author&affiliation
+%
+%%%%%% \thanksOrg{}
+%%%%%%   affiliations are automatically numbered.
+%
+\thanksOrg{Institute of Space and Astronautical Science, Japan Aerospace Exploration Agency, Sagamihara, Kanagawa 252-5210, Japan}% affiliation 1
+\thanksOrg{Department of Aeronautics and Astronautics, The University of Tokyo, Tokyo 113-8656, Japan}% affiliation 2
+%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%---Abstrast and Keywords---
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+\begin{abstract}
+This is the manual for how to prepare your paper for Transactions of the Japan Society for Aeronautical and Space Science (JSASS). All the papers should be written by appropriate word processors or TeX with the format specified in this manual. Abstract should be placed here. If the contribution is the one which has already been presented at the JSASS conference, specify name of conference and date by using footnote.
+The class file ``tjsass.cls'' can be used for Aerospace Technology Japan, and APISAT special issue by choosing the corresponding option.
+
+
+\end{abstract}
+%
+\keywords{Format Sample, Transactions of JSASS, LaTeX}
+%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%---Main Document Start---
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+\begin{document}
+\maketitle
+
+\section*{Nomenclature}
+
+\vbox{\noindent\setlength{\tabcolsep}{0mm}%
+\begin{tabular}{p{25mm}cl} %
+\hfil$V$\hfil & :\hspace{4mm} & velocity \\
+\hfil$X$\hfil & :\hspace{4mm} & position
+\end{tabular}}
+
+\noindent{Subscripts}
+
+\vbox{\noindent\setlength{\tabcolsep}{0mm}%
+\begin{tabular}{p{25mm}cl}
+\hfil$0$\hfil & :\hspace{4mm} & initial \\
+\hfil$\mathrm{f}$\hfil & :\hspace{4mm} & final
+\end{tabular}}
+
+\section{Introduction}
+
+These guidelines include complete descriptions of the fonts, spacing, and related information for producing your manuscripts. Please pay extreme attention to keep the original format shown in this file.
+Authors using LaTeX may use ``tjsass.cls'' file and sample manuscript (this file) provided by JSASS. But it should be noted that the manuscript should be submitted in PDF format as in Section \ref{sec:pdf}, and that no support for this sample manuscript and the class file is provided by JSASS.  
+\subsection{Style}
+The maximum pages of the submitted manuscripts of paper size of A4 are 15, 15, 4, and 1 for Full Articles, Survey Articles, Research Notes, and Miscellaneous, respectively. Leave top, bottom and side margines of 25, 21 and 17 mm, respectively. 
+\subsection{English standard}
+Manuscripts should be written in clear, grammatically correct English. Authors who are not fluent in English are encouraged to have their manuscript checked by a fluent English speaker or by an editing service prior to submission. If a manuscript is not clear due to poor English, it may be rejected without undergoing peer review.
+\subsection{Format}
+Each manuscript should comprise the sections as outlined in this template file. If the content of the submission has been previously presented at the JSASS conference, specify the name and date of the conference in the footnote below.  
+
+\section{Cover of the Manuscript}
+\subsection{Title}
+The title should be brief and concise (maximum of 20 words), without the use of acronyms or abbreviations. The title should be centered, and in Times 14-point, boldface type. Capitalize the first letter of nouns, pronouns, verbs, adjectives, and adverbs; do not capitalize articles, coordinate conjunctions, or prepositions (unless the title begins with such a word). Leave a blank line after the title. The space between the lines is 17.5 point.
+\subsection{Author name(s)}
+Provide the full names, with capitalized last name(s), of the author(s). Author names are to be centered beneath the title and printed in Times 10-point, non-boldface type. Only primary contributors should be listed in authors list; others may appear in Acknowledgment. 
+\subsection{Affiliation(s)}
+Affiliations should follow on the line next to the author names. Provide the full names and addresses of institutions (including department, institute and/or university, and city, state/prefecture, zip code and country). When authors belong to different institutions, their respective addresses should be indicated by superscript numbers. Where authors have a new affiliation after the original submission, the names should be given in a footnote and should be indicated by superscript symbols (such as *, \dag, \ddag\, and \S).  The affiliations are centered, italicized and in Times 8-point, not bold. Leave a blank line after the affiliations. The space between the lines is 10-point.
+\subsection{Key words}
+Specify three to five key words preferably including at least one keyword selected from the ``JSASS Standard Key Words'' list, if possible.
+Key word should be centered, in Times 9-point, not bold. Begin by “Key Words:” (in Times 9-points, boldface type, and 2 letters blank) at the top.
+\subsection{Abstract}
+Each full article must be accompanied by a 100- to 200-word abstract that is indented 4 letters, written as a single paragraph, stated in Times 9-point, not bold, flush left. Leave 30 mm in both sides. The space between the lines is 11.5-point. Leave one blank line after the abstract.
+
+It should be a summary and complete in itself. The abstract should express the basic content of the paper in a single paragraph and should include the problem addressed, objectives, approach, main results and findings, and conclusions. Research notes and miscellaneous do not have abstracts.
+
+
+\section{Main Text}
+
+Type your main text in 10-point Times, single-spaced. All paragraphs should be indented 2 letters. Be sure your text is fully justified. The space between the lines is 12 point.
+\subsection{Major-headings}
+For example, ``\textbf{1.}(2 letters blank)\textbf{Introduction},'' should be Times 10-point boldface, with the first letter capitalized, flush left, with one blank line from last, leaving one blank line to next. Use a period (``\,.\,'') after the heading number, not a colon.
+\subsection{Sub-headings}
+For example, ``\textbf{4.4.}(2 letters blank)\textbf{Second-order headings}'', should be Times 10-point boldface, initially capitalized, flush left and with no blank line from last.
+
+\subsubsection{Sub-sub-headings}
+For example, ``\textbf{4.4.1.}(2 letters blank)\textbf{Third-order headings}'', should be Times 10-point boldface, initially capitalized, flush left and with no blank line from last.
+
+\subsection{Nomenclature}
+A nomenclature section is required for papers containing more than a few symbols; nomenclature definitions should not appear in the text. 
+Nomenclature should be beneath the key words as follows:
+``Symbol ($V$, $X$ etc.) - : (colon) -    (2 letter blank) - Definitions''. The position of colon is 35 mm from the left end of the page.
+
+Please use standard symbols whenever possible. The symbols are in 10-point and the definitions are in Times 10-point, not bold. Symbols are listed in alphabetical order. Greek symbols must be listed in Greek alphabetical order after English alphabet. Please use standard symbols whenever possible. All symbols need to be defined.
+
+\subsection{Introduction}
+
+The manuscript must start with  an Introduction except for Nomenclature -- a brief assessment of prior work by others and an explanation of how the manuscript contributes to the field.
+
+\subsection{Symbols and units}
+Use standard symbols whenever possible. 
+Mathematical symbols should be italicized. To save space, the solidus (/) must be used for fractions in the text and for simple fractions in equations. The use of metric system of units (SI) is mandatory, except for unavoidable cases.
+
+\subsection{Equations}
+The symbols should be in 10-point and centered. The equation numbers should be right flush, as (1).
+\begin{equation}
+A + B = C \label{eq01},
+\end{equation}
+and
+\begin{equation}
+D + E = F \label{eq02}.
+\end{equation}
+Other example equations are shown in the following. One is the definition of $S\!t_n$
+\begin{multline}
+S\!t_n = \frac{f_nL}{U_{\!\infty}} = \frac{n}{\left[ \beta M_\infty \!\cdot \left( 1 + \dfrac{\gamma - 1}{2} {M_\infty}^{\!\!2} \right)^{-1/2} \!\!+ \dfrac{1}{K} \,\right]} \\[3pt]
+n = 1, 2, 3, \cdots
+\end{multline}
+and another one is differential equation
+\begin{equation}
+\left< \nabla^2 \phi \right>_i = \frac{2d}{\lambda \,n^0} \sum_{j\, \neq \,i} 
+\,\Biggl[ 
+\left( \phi_j - \phi_i \right) w 
+\left( \left|\, \mathbf{r}_{\!j} - \mathbf{r}_i \right| \right) 
+\Biggr],\\
+\label{eq:06}
+\end{equation}
+where
+\begin{equation}
+\lambda = \frac
+{\displaystyle\sum_{j\, \neq \,i} \left|\, \mathbf{r}_{\!j} - \mathbf{r}_i \right|^2 w \left( \left|\, \mathbf{r}_{\!j} - \mathbf{r}_i \right| \right) }
+{\displaystyle\sum_{j\, \neq \,i} w \left( \left|\, \mathbf{r}_{\!j} - \mathbf{r}_i \right| \right) }.
+\label{eq:07}
+\end{equation}
+Please use ``Eq. (\ref{eq01})'', not ``Equation (\ref{eq01})'' nor ``(\ref{eq01})'' in the text.
+
+\subsection{Tables}
+Number tables consecutively using Arabic numerals (Table 1, Table 2, etc.). A title should be given to each table. Avoid detailed explanations of the experimental conditions used to obtain the data shown in tables (which should be included in other sections as relevant). An example of a formatted table is provided in Table~\ref{tbl01}. 
+
+Table captions should be 8-point Times and centered. For example: ``Table(a letter blank)1.(2 letters blank)Form of the paper.'' Capitalize only the first word of each caption. Table captions must end with a period. The captions are to be over the tables. 
+
+\begin{table}[htb]
+\centering
+\caption{Format of the full article.}\label{tbl01}
+\footnotesize
+\begin{tabular}{ll}\bhline
+Items        & Values                       \\ \hline
+Paper size   & A4                           \\
+Maximum page & 15                           \\
+Maximum file size  & 5 MB                   \\
+Margin       & Top: 25 mm and under: 21 mm  \\
+             & and side: 17mm               \\
+Font         & Times-Roman and Symbol       \\
+File format  & PDF                          \\ \bhline
+\end{tabular}
+\end{table}
+
+\subsection{Figures and Illustrations}
+Figures and illustrations must be self-explanatory and should be numbered consecutively with Arabic numerals (i.e., Fig. 1, Fig. 2, etc.). Each figure should have a short title placed below each figure. Figure legends should include sufficient experimental details to make the figures intelligible; however, duplicating the descriptions provided in other sections should be avoided. Line drawings must be clear and sharp. Lettering should be large enough to be legible after reduction. Hatching can be used for figures, but shading is not allowed. Symbols used in figures and illustrations should be italicized in accordance with the symbols in the text. 
+
+Each figure must have a caption. Figure captions should be 8-point Times and centered. For example: ``Fig.(a letter blank)1.(2 letters blank)The symbol of JSASS.'' Capitalize only the first word of each caption. Figure captions must end with a period. The captions are to be below the figures. Please use ``Figure~\ref{fig01}'' or ``Figures 1 and 2'' at the beginning of sentences. Otherwise, use ``Fig.~\ref{fig01},'' or ``Figs.~\ref{fig01} and 2'' in the text. All figures must be referred to in numerical order in the text.
+
+\begin{figure}[!t]%
+\centering
+\includegraphics[width=35mm,clip]{A9R4F83.eps}%
+  \caption{The symbol of JSASS. Only the first letter in a sentence should be upper case. Single-line caption should be centered. In plural-line caption, lines before the last one both sided, the last one flush left. Captions must end with a period.}%
+  \label{fig01}%
+\end{figure}%
+
+
+
+\subsection{Quoted figures}
+If figures, tables, statistics, etc. are quotations from writings of others, the source of information should be noted in the captions. It is the author's responsibility to secure such approvals as this may be required for the quotations.
+
+\subsection{Acceptable file format}
+Acceptable electronic reference (supplementary material)  file formats are PDF, JPG, JPEG, BMP, ZIP, LZH, WMV, and MP4.
+
+\section{References}
+Only readily accessible documents should be referenced. References must be listed at the end of the manuscript and numbered in the order of their citation in the text. All references in the References list must be cited in the main text. 
+
+Formats for references should fit to the followings: All references must be listed and numbered in the order of their citation in the text in 8-point Times at the end of your paper. The space between the lines is 10--10.5-point. When references are cited in the text, write the numbers referred to as A,\cite{bib01} or B,\cite{bib02,bib03} or C,\cite{bib04,bib05,bib06,bib07,bib08,bib09,bib10} after a comma,\cite{bib11} or a period.\cite{bib12,bib13,bib14,bib15,bib16,bib17,bib18,bib19,bib20,bib21,bib22,bib23} 
+If the numbered reference citation is a word of the main text, write it as in the following example. 
+``As shown in Ref.~\citeN{bib23}, the three-body problem should be taken into account for mission design.'' 
+For website references, access date must be added after each website reference~\cite{bib22,bib23,bib24,bib25}.
+The sample is shown at the end of this guideline. 
+The heading of should be ``\textbf{References}'' that is 10-point, bold, centered. 
+
+If you want to use ``\verb|.bib|'' file for listing references, it is necessary to insert the following two latex commands before ``\verb|\end{document}|.''
+
+\begin{verbatim}
+\bibliographystyle{tjsass} % tjsass.bst
+\bibliography{references}  % references.bib
+\end{verbatim}
+
+%References should list all authors in full; ``et al.'' is not recommended.
+
+If a required entry is missing from the ``\verb|.bib|'' file you are using, \textcolor{red}{the missing item will be automatically displayed in red as a warning}, as shown in Refs.~\citeN{bib26,bib27,bib28}. In such cases, you should add the missing entry to the corresponding reference in the ``\verb|.bib|'' file.
+
+In the reference list, book titles and article titles shall conform to the following capitalization rule: prepositions are written in lowercase except when appearing as the first word, and, apart from abbreviations, all other words from the second word onward shall begin with a capital letter. The provided ``\verb|tjsass.bst|'' is designed to automatically format references in accordance with this rule. However, its performance cannot be guaranteed under all circumstances, and authors bear full responsibility for ensuring the accuracy of their references. 
+
+\section{PDF File Conversion}
+\label{sec:pdf}
+The author must convert the manuscript into a 600 dpi PDF before submission. The maximum file size of the PDF is 5 MB.  The PDF file must be readable regardless of the machine used to access it, and therefore the use of any special fonts, such as Japanese fonts, is not permitted.
+
+\section{Supplementary Material}
+Supplementary Material adds, but is not essential, to a reader’s understanding of a manuscript. Electronic reference files including additional information (``Supplementary Materials'') can be included with each manuscript submission and made available at the article page, at an additional charge (see the ‘Article Processing Charges and other fees’ section). Supplementary Material does not undergo formal peer review, but will be approved by the Editorial Board prior to publication.
+
+Each article published at the journal’s website may include a maximum of five files of Supplementary Material. (File size is to be less than 5 MB per file and no more than 10 MB in total.) Acceptable file formats are: PDF, JPG, JPEG, BMP, ZIP, LZH, WMV, and MP4.
+
+\section{How to Use tjsass.cls}
+
+To use the tjsass class, installation of some packages is required. Please check RequiredPackages in the sample file.
+
+To prepare a draft for the conference, please use
+\begin{verbatim}
+\documentclass[TJSASS]{tjsass} % Trans. JSASS
+\end{verbatim}
+
+To make the final version of the accepted paper, please insert the option ``pubform'' as follows:
+\begin{verbatim}
+\documentclass[TJSASS, pubform]{tjsass}
+\end{verbatim}
+
+\begin{verbatim}
+
+% The packages below should be installed 
+% on your PC
+\usepackage[dvipdfmx]{graphicx}
+\RequirePackage{multicol}
+\RequirePackage{amsmath}
+\RequirePackage[varg]{txfonts}
+\RequirePackage{bm}
+\RequirePackage{array}
+\RequirePackage{color}
+\RequirePackage{xurl}
+\RequirePackage[hang]{footmisc}
+\RequirePackage{tjsasscite}
+
+% The following two commands must be set
+\newcommand{\bhline}{\noalign{\hrule height 
+0.8pt}}  
+\renewcommand{\UrlFont}{\rmfamily}
+
+% year of publication
+\pubyear{2018}
+% volume number
+\bookvolume{14}
+% issue number
+\bookissue{2}
+% starting page number
+\setcounter{page}{1}
+
+% submission date
+\receiveddate{21 June 2018}
+% revision date
+\revisiondate{21 August 2018}
+%acceptance date
+\accepteddate{20 September 2018}
+
+%conference information
+\confinfo{Presented at APISAT 2018} 
+
+\end{verbatim}
+
+The following command will be used by the journal office for Transactions of JSASS papers.
+\begin{verbatim}
+\AEname{} %Associate Editor's name
+
+% paper title
+\title{Title}
+% paper subtitle only when necessary
+\subtitle{sub title}
+%author name
+\author{\NAME{Ichiro}{Koku}\thanksNum{1)}
+\CorresAuthor{koku@jsass.org} 
+% affiliation
+\thanksOrg{affiliation }
+
+\begin{abstract}
+write abstract here
+\end{abstract}
+
+\keywords{Key word}
+
+\begin{document}
+\maketitle
+write text here
+
+\bibliographystyle{tjsass} % tjsass.bst
+\bibliography{references}  % references.bib  
+
+\end{document}
+\end{verbatim}
+
+\section{Conclusion}
+
+The Conclusion section should be placed in the last section of the manuscript. Conclusion should be clearly stated. 
+
+\section*{Acknowledgments}\label{Acknowledgments}
+{\small 
+This section should be brief. In the interests of transparency, all authors must declare any conflicts of interest in relation to their submitted manuscript. Authors should list all funding sources for their work in the Acknowledgments section.  The heading ``\textbf{Acknowledgments}'' is 10-point, bold, flush left. The editorial office appreciates authors' efforts to fully follow this template style. This text should be in 9-point.
+}
+
+\begin{comment}
+\begin{thebibliography}{99}
+\bibitem[{\bf Book case}]{dummy1}% remove this line when using this template
+\bibitem{bib01}
+  Batchelor, G. K.: \textit{An Introduction to Fluid Dynamics}, Cambridge University Press, London, 1967, pp. 1--10.
+  
+\bibitem{bib02}
+  Arakawa, Y., Kuninaka, H., Nakayama, N., and Nishiyama, K.: \textit{Ion Engines for Powered Flight in Space}, Corona Publishing, Tokyo, 2006, pp. 18--20 (in Japanese).
+
+\bibitem{bib03}
+  Goto, N. and Kawakita, T.: Bifurcation Analysis for the Inertial Coupling Problem of a Reentry Vehicle, Sivasundaram, S., ed, \textit{Advances in Dynamics and Control}, Chapman \& Hall, New York, 2004, pp.  45--55.
+
+\bibitem[{\bf Journal paper case}]{dummy2}% remove this line when using this template
+
+\bibitem{bib04}
+  Hainds, F. D. and Keyes, J. W.: Shock Interference in Hypersonic Flows, \textit{AIAA J}., \textbf{10} (1972), pp. 1441--1447.
+
+\bibitem{bib05}
+  Miyaji, K., Tsurumaki, A., and Tsukada, H.: On Accuracy of Prediction of Flutter Boundaries on Unstructured Grids, \textit{Trans. Jpn. Soc. Aeronaut. Space Sci}., \textbf{47} (2004), pp. 195--201.
+
+\bibitem{bib06}
+ Atobe, S., Kuno, S., Hu, N., and Fukunaga, H.: Identification of Impact Force on Stiffened Composite Panels, \textit{Trans. JSASS Aerospace Technology Japan}, \textbf{7}, ists26 (2009), pp. Pc\_1--Pc\_5.
+
+\bibitem{bib07}
+ Shimizu, E., Isogai, K., and Obayashi, S.: Multi-Objective Design Study of a Flapping Wing Power Generator, \textit{J. Fluids Eng}., \textbf{130} (2008), pp. 021104-1-021104-8.
+
+\bibitem{bib08}
+ Kojima, H., Furukawa, Y., and Trivailo, P. M.: Experimental Study on Delayed Feedback Control for Libration of Tethered Satellite System, \textit{J. Guid., Control Dynam.}, \textbf{35} (2012), pp. 998--1002.%doi:10.2514/1.57018
+
+\bibitem{bib09}
+ Wilde, K., Gardoni, P., and Fujino, Y.: Seismic Response of Base-isolated Structures with Shape Memory Alloy Damping Devices, \textit{Proc. SPIE}, \textbf{3043} (1997), pp. 122--133.
+
+\bibitem{bib10}
+ Hara, S.,  Matsunaga, T., Nakamura, J., Horibe, T., and Makino, D.: Quantitative Stability Evaluation Based on Region of Attraction for Control Method Choice for Nonlinear Systems and Its UAV Application, \textit{Japan Soci. Aero. Space Sci.}, \textbf{65} (2017), pp. 251--257 (in Japanese).
+
+\bibitem[{\bf Conference paper case}]{dummy3} % remove this line when using this template
+
+\bibitem{bib11}
+ Kwak, D. Y., Rinoie, K., and Noguchi, M.: Experimental Research of Aerodynamics on an SST Configuration with High Lift Devices, 25th International Congress of Aeronautical Sciences, Hamburg, Germany, ICAS 2006-5.11.3, 2006.
+
+\bibitem{bib12}
+ Tamakoshi, D. and Kojima, H.: Interplanetary Low-thrust Trajectory Using Earth Gravity Assist and Invariant Manifold Technique, 68th International Astronautical Congress, Adelaide, Australia, IAC-17,C1,8,4,x37086, 2017.
+
+\bibitem{bib13}
+ Trivailo, P. M. and Kojima, H.: Simulation of Space Nets with Nonlinear Material Behaviour, Capturing Space Debris, 31st International Symposium on Space Technology and Science, Matsuyama, Japan, 2017-r-67p, 2017.
+
+\bibitem{bib14}
+ Murayama, M., Nakahashi, K., and Matsushima, K.: Unstructured Dynamic Mesh for Large Movement and Deformation, AIAA Paper 2002-0122, 2002.
+\bibitem{bib15}
+ Fujii, A. H., Watanabe, T., Sahara, H., Kojima, H., Takehara, S., Yamagiwa, Y., et al.: Space Demonstration of Bare Electrodynamics Tape-Tether Technology on the Sounding Rocket S520-25, AIAA Paper 2011-06503, 2011.
+
+\bibitem{bib16} 
+ Kojima, H., Yoshimura, Y., and Taniguchi, C.: Study on CMG-Manipulator Cooperative Control for Space Robot Equipped with CMG, Proceeding of 61st Space Sciences and Technology Conference, Niigata, Japan, JSASS-2017-4001, 2017 (in Japanese).
+
+\bibitem[{\bf Technical report case}]{dummy4} % remove this line when using this template
+
+\bibitem{bib17}
+ Williams, G. J., Domonkos, M. T., and Chavez, J. M.: Measurement of Doubly Charged Ions in Ion Thruster Plumes, NASA TM-2002-211295, 2002.
+
+\bibitem{bib18}
+ Nakai, E.: Transonic/Supersonic Flutter Characteristics of a Cantilevered Low-aspect Ratio Swept Wing, NAL TR-288, 1972 (in Japanese).
+
+\bibitem{bib19}
+ Usui, M. and Kuninaka, H.: Characteristics of Ion Grid System, JAXA-SP-06-019, 2007, pp. 28-31 (in Japanese).
+
+\bibitem{bib20}
+ Machida, K. and Miyaji, K.: 3D Wing Flutter Analysis by Bending-Torsion Beam Model and Unstructured CFD, JAXA-SP-05-017, 2006, pp. 94--99 (in Japanese).
+
+\bibitem[{\bf Dissertation case}]{dummy5} % remove this line when using this template
+
+\bibitem{bib21}
+  Roberts, J. A.: Satellite Formation Flying for an Interferometry Mission, Ph.D. Thesis, Cranfield University, 2005.
+\bibitem{bib22}
+  Kato, H.: Prediction of Wake Turbulence Behaviors Using Weather Observation and Simulation, Master's Thesis, Tohoku University, 2010 (in Japanese).
+
+\bibitem[{\bf Web source case}]{dummy6} % remove this line when using this template
+
+\bibitem{bib23}
+  Bush, G. W.: The Vision for Space Exploration, NASA Headquarters, 2004, http://www.nasa.gov, (accessed October 12, 2016).
+
+\bibitem{bib24}
+ Koon, W. S., Lo, M. W., Marsden, J. E., and Ross, S. D.: Dynamical Systems, the Three-Body Problem and Space Mission Design, Marsden Books, 2008, http://www2.esm.vt.edu/\verb|~|sdross/books/ (accessed Septemer 23, 2016).
+
+\bibitem{bib25}
+ Global Land Cover Characterization, http://edc2.usgs.gov/glcc/ glcc.php (accessed July 2, 2012).
+
+\bibitem{bib26}
+ Geospatial Information Authority of Japan, http://www.gsi.go.jp/ kiban/ (in Japanese) (accessed August 2, 2012).
+
+\bibitem{bib27}
+ Einstein, A., Podolsky, B., and Rosen, N.: Can Quantum-Mechanical Description of Physical Reality Be Considered Complete?, \textit{Phys. Rev.}, \textbf{47}, 10 (1935), pp.~777--780.
+
+\bibitem{bib28},
+ Tamakoshi, D. and Kojima, H.: Orbital Control of a Solar Sail Using Reflectivity Control Devices Near the Earth-Moon L2 Point, AIAA Paper 2016-5371, 2016.
+
+\bibitem{bib29}
+ Kojima, H.: Estimation of Rotational Axis and Attitude Variation of Satellite by Integrated Image Processing, Awrejcewicz, J., ed., \textit{Numerical Analysis}, InTech, Rijeka, 2011, Chapter 22.
+
+\end{thebibliography}
+
+\end{comment}
+
+\bibliographystyle{tjsass} % tjsass.bst
+\bibliography{references}  % referebces,bib
+
+\end{document}

@@ -1,0 +1,9 @@
+{
+  "name": "@octree/compile",
+  "private": true,
+  "scripts": {
+    "dev": "go run .",
+    "build": "go build -o latex-compile .",
+    "test": "go test ./..."
+  }
+}

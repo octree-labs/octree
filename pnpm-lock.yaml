@@ -73,6 +73,8 @@ importers:
         specifier: ^5.7.3
         version: 5.9.3
 
+  apps/compile: {}
+
   apps/web:
     dependencies:
       '@ai-sdk/anthropic':

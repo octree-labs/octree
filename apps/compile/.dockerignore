@@ -1,0 +1,11 @@
+logs/
+*.log
+.git/
+.gitignore
+README.md
+.env
+*.pdf
+*.aux
+*.out
+tmp/
+

@@ -7,6 +7,7 @@ set -e
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 AGENT_SERVER_DIR="$( cd "$SCRIPT_DIR/.." && pwd )"
+REPO_ROOT="$( cd "$AGENT_SERVER_DIR/../.." && pwd )"
 
 IMAGE_NAME="octra-agent"
 IMAGE_TAG="latest"
@@ -24,7 +25,7 @@ if [ -f "$AGENT_SERVER_DIR/.env" ]; then
 fi
 
 if [ -z "$DEPLOY_HOST" ]; then
-    echo -e "${RED}Error: DEPLOY_HOST not set. Add it to agent_server/.env${NC}"
+    echo -e "${RED}Error: DEPLOY_HOST not set. Add it to apps/agent/.env${NC}"
     exit 1
 fi
 
@@ -52,15 +53,19 @@ fi
 # ── Step 1: Sync files to server ────────────────────────────────────────────
 
 echo -e "${YELLOW}Step 1/4: Syncing files to server...${NC}"
-ssh "$SERVER_HOST" "mkdir -p $SERVER_PATH/lib"
+
+# Prune the monorepo down to the agent and its workspace deps (json/ = manifests + lockfile, full/ = sources)
+PRUNE_DIR="$(mktemp -d)"
+trap 'rm -rf "$PRUNE_DIR"' EXIT
+(cd "$REPO_ROOT" && pnpm exec turbo prune @octree/agent --docker --out-dir "$PRUNE_DIR")
+
+ssh "$SERVER_HOST" "mkdir -p $SERVER_PATH/json $SERVER_PATH/full"
 
 scp "$AGENT_SERVER_DIR/Dockerfile" "$SERVER_HOST:$SERVER_PATH/"
+scp "$AGENT_SERVER_DIR/.dockerignore" "$SERVER_HOST:$SERVER_PATH/"
 scp "$AGENT_SERVER_DIR/docker-compose.yml" "$SERVER_HOST:$SERVER_PATH/"
-scp "$AGENT_SERVER_DIR/package.json" "$SERVER_HOST:$SERVER_PATH/"
-scp "$AGENT_SERVER_DIR/package-lock.json" "$SERVER_HOST:$SERVER_PATH/"
-scp "$AGENT_SERVER_DIR/tsconfig.json" "$SERVER_HOST:$SERVER_PATH/"
-scp "$AGENT_SERVER_DIR/agent-service.ts" "$SERVER_HOST:$SERVER_PATH/"
-rsync -avz --delete "$AGENT_SERVER_DIR/lib/" "$SERVER_HOST:$SERVER_PATH/lib/"
+rsync -avz --delete "$PRUNE_DIR/json/" "$SERVER_HOST:$SERVER_PATH/json/"
+rsync -avz --delete "$PRUNE_DIR/full/" "$SERVER_HOST:$SERVER_PATH/full/"
 
 # Sync .env only if the server doesn't already have one
 ssh "$SERVER_HOST" "test -f ${SERVER_PATH}/.env" 2>/dev/null || {

@@ -2,15 +2,16 @@
   "name": "octree",
   "private": true,
   "scripts": {
-    "dev": "pnpm --filter @octree/web dev",
-    "build": "pnpm --filter @octree/web build",
-    "lint": "pnpm --filter @octree/web lint",
-    "test": "pnpm --filter @octree/web test"
+    "dev": "supabase start && turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "test": "turbo run test"
   },
   "devDependencies": {
     "prettier": "^3.5.3",
     "prettier-plugin-tailwindcss": "^0.6.11",
-    "supabase": "^2.26.9"
+    "supabase": "^2.26.9",
+    "turbo": "^2.11.8"
   },
   "packageManager": "pnpm@11.17.0"
 }

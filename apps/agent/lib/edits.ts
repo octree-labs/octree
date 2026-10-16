@@ -4,13 +4,6 @@
  */
 
 import type { StringEdit } from '@octree/agent-protocol';
-import { IntentResult } from './intent-inference.js';
-
-export interface ValidationResult {
-  isValid: boolean;
-  violations: string[];
-  acceptedEdits: StringEdit[];
-}
 
 /**
  * Validate that old_string appears exactly once in the target file content
@@ -43,54 +36,6 @@ export function inferEditType(edit: StringEdit): 'insert' | 'delete' | 'replace'
   if (edit.old_string === '') return 'insert';
   if (edit.new_string === '') return 'delete';
   return 'replace';
-}
-
-/**
- * Validate edits against user intent
- */
-export function validateStringEdits(
-  edits: StringEdit[],
-  intent: IntentResult,
-  fileContents: Map<string, string>
-): ValidationResult {
-  const violations: string[] = [];
-  const acceptedEdits: StringEdit[] = [];
-
-  for (const edit of edits) {
-    const editType = inferEditType(edit);
-
-    // Enforce intent-based permissions
-    if (editType === 'insert' && !intent.allowInsert) {
-      violations.push(`Content insertion not allowed by inferred intent.`);
-      continue;
-    }
-    if (editType === 'delete' && !intent.allowDelete) {
-      violations.push(`Content deletion not allowed by inferred intent.`);
-      continue;
-    }
-    if (editType === 'replace' && !intent.allowReplace) {
-      violations.push(`Content replacement not allowed by inferred intent.`);
-      continue;
-    }
-
-    // Validate uniqueness of old_string in target file
-    const content = fileContents.get(edit.file_path);
-    if (content !== undefined) {
-      const validation = validateStringEdit(edit, content);
-      if (!validation.valid) {
-        violations.push(`Edit for ${edit.file_path}: ${validation.error}`);
-        continue;
-      }
-    }
-
-    acceptedEdits.push(edit);
-  }
-
-  return {
-    isValid: violations.length === 0,
-    violations,
-    acceptedEdits,
-  };
 }
 
 function countOccurrences(text: string, search: string): number {

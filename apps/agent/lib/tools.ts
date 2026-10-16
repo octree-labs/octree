@@ -6,7 +6,6 @@ import { tool } from 'ai';
 import { z } from 'zod';
 import type { StringEdit, ProjectFileContext } from '@octree/agent-protocol';
 import { validateStringEdit, inferEditType } from './edits.js';
-import { IntentResult } from './intent-inference.js';
 
 export interface ToolContext {
   fileContent: string;
@@ -14,7 +13,6 @@ export interface ToolContext {
   textFromEditor?: string | null;
   selectionRange?: { startLineNumber: number; endLineNumber: number } | null;
   collectedEdits: StringEdit[];
-  intent: IntentResult;
   writeEvent: (event: string, data: unknown) => void;
   projectFiles?: ProjectFileContext[];
   currentFilePath?: string | null;

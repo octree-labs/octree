@@ -70,12 +70,6 @@ test-compile: ## Test compilation with sample LaTeX
 		echo "\nSuccess! PDF saved to test-output.pdf" || \
 		echo "\nFailed to compile"
 
-test-full: ## Run full test suite
-	@./scripts/test.sh
-
-setup: ## Run setup script
-	@./scripts/setup.sh
-
 install-texlive: ## Install TexLive (macOS only)
 	@echo "Installing TexLive via Homebrew..."
 	brew install --cask mactex

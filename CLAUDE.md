@@ -72,7 +72,7 @@ Web app paths are relative to `apps/web/`:
 
 Elsewhere:
 
-- `apps/agent/lib/` — Agent library for the Express server (tools, intent inference, content processing, session memory)
+- `apps/agent/lib/` — Agent library for the Express server (tools, content processing, session memory)
 - `apps/compile/internal/` — Compile service internals (compiler queue, SyncTeX, handlers)
 - `supabase/migrations/` — Database migrations
 

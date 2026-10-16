@@ -3,7 +3,6 @@
  * Maps AI SDK stream parts to SSE events
  */
 
-import type { Response } from 'express';
 import type { StringEdit } from '@octree/agent-protocol';
 
 /**
@@ -15,16 +14,6 @@ export function createSSEHeaders() {
     'Cache-Control': 'no-cache, no-transform',
     Connection: 'keep-alive',
     'X-Accel-Buffering': 'no',
-  };
-}
-
-/**
- * Create a writeEvent function for an Express response
- */
-export function createWriteEvent(res: Response) {
-  return (event: string, data: unknown) => {
-    res.write(`event: ${event}\n`);
-    res.write(`data: ${JSON.stringify(data)}\n\n`);
   };
 }
 

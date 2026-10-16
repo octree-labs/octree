@@ -217,18 +217,6 @@ func (c *CompilationCache) cleanup() {
 	}
 }
 
-// Stats returns cache statistics
-func (c *CompilationCache) Stats() map[string]interface{} {
-	c.globalMutex.RLock()
-	defer c.globalMutex.RUnlock()
-
-	return map[string]interface{}{
-		"entries":     len(c.entries),
-		"maxEntries":  MaxCachedProjects,
-		"expirationMinutes": int(CacheExpirationTime.Minutes()),
-	}
-}
-
 // HashFileContent generates a SHA256 hash of file content
 func HashFileContent(content string) string {
 	hash := sha256.Sum256([]byte(content))

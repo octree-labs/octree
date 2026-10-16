@@ -90,6 +90,7 @@ rsync -avz --delete \
   --exclude '.git/' \
   --exclude 'node_modules/' \
   --exclude '.turbo/' \
+  --exclude '.env' \
   ./ $SERVER_USER@$SERVER_IP:$REMOTE_DIR/
 
 # Step 3: Deploy on server

@@ -4,34 +4,47 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Octree is an AI-powered LaTeX editor built with Next.js 15 (App Router), React 19, Supabase, and Stripe. Users create projects containing LaTeX files, edit them with AI assistance (via Claude Agent SDK), compile to PDF, and generate documents from chat conversations.
+Octree is an AI-powered LaTeX editor built with Next.js 15 (App Router), React 19, Supabase, and Stripe. Users create projects containing LaTeX files, edit them with AI assistance (via the agent server), compile to PDF, and generate documents from chat conversations.
+
+## Monorepo Layout
+
+pnpm workspaces + Turborepo. Each app has its own `package.json`; tooling shared across the repo (Prettier, Supabase CLI, Turbo) lives in the root `package.json`.
+
+- `apps/web/` — Next.js app (`@octree/web`)
+- `apps/agent/` — Agent server (`@octree/agent`)
+- `apps/compile/` — LaTeX compile service in Go (`@octree/compile`; its `package.json` only wraps `go run`/`go build`/`go test` for Turbo)
+- `packages/agent-protocol/` — Types-only package with the web ↔ agent wire contract (`StringEdit`, `ProjectFileContext`, `AgentRequest`)
+- `supabase/` — Local Supabase config and migrations (stays at the root; the CLI runs from here)
 
 ## Commands
 
+Run from the repo root:
+
 ```bash
-npm run dev          # Start dev server with Turbopack
-npm run build        # Production build
-npm run lint         # ESLint
-npm run test         # Run all tests (vitest)
-npm run test:watch   # Watch mode
-vitest run @__tests__/unit/use-edit-suggestions.single-edit.test.ts  # Single test file
+pnpm dev                          # supabase start, then all apps in dev mode via turbo
+pnpm build                        # Build all apps (turbo-cached)
+pnpm lint                         # ESLint (web)
+pnpm test                         # Vitest (web) + go test (compile)
+pnpm dev --filter=@octree/web     # Any task, one app
+pnpm --filter @octree/web test:watch                                                            # Vitest watch mode
+pnpm --filter @octree/web exec vitest run @__tests__/unit/use-edit-suggestions.single-edit.test.ts  # Single test file
 ```
 
-The `agent_server/` is a separate Node.js project (Express + Vercel AI SDK) with its own package.json:
-```bash
-cd agent_server && npm run dev   # Local agent server with hot reload (port 8787)
-```
+Add dependencies to the app that uses them: `pnpm --filter @octree/web add <pkg>`. pnpm is strict — a package must be declared in the importing app's `package.json`, even if another app already depends on it. Dependency install scripts must be allowed in `allowBuilds` in `pnpm-workspace.yaml`, which also holds the workspace-wide `overrides`.
 
 ## Architecture
 
-### Two-Service Design
+### Three-Service Design
 
-1. **Next.js App** (Vercel) — the main web application
-2. **Agent Server** (`agent_server/`) — standalone Express server running the Vercel AI SDK (`streamText` + `@ai-sdk/anthropic`) in Docker on a DigitalOcean droplet, avoiding serverless timeout limits. The Next.js app calls it via `CLAUDE_AGENT_SERVICE_URL`; requests are authenticated with the Supabase JWT. Responses stream as SSE events. Deploy with `agent_server/scripts/deploy.sh`.
+1. **Web app** (`apps/web`, Vercel) — the main web application.
+2. **Agent server** (`apps/agent`) — standalone Express server running the Vercel AI SDK (`streamText` + `@ai-sdk/anthropic`) in Docker on a DigitalOcean droplet, avoiding serverless timeout limits. The web app calls it via `CLAUDE_AGENT_SERVICE_URL`; requests are authenticated with the Supabase JWT. Responses stream as SSE events. Deploy with `apps/agent/scripts/deploy.sh`, which builds from `turbo prune @octree/agent --docker` output.
+3. **Compile service** (`apps/compile`) — Go service running `latexmk` (TeX Live) in Docker. The web app calls it via `COMPILE_SERVICE_URL` (server relay in `app/api/compile-pdf/`) and `NEXT_PUBLIC_COMPILE_SERVICE_URL` (browser, incl. SyncTeX). Deploy with `apps/compile/deploy/deploy.sh` (host from `DEPLOY_HOST` in `apps/compile/.env`); deploys never sync `.env` — the production one, with `SUPABASE_JWT_SECRET`, lives only on the server, and the local one is a dev config with auth disabled. This repo is public: keep server IPs and other infrastructure details in gitignored `.env` files, not in code.
+
+When changing the request body or edit shape between web and agent, update `packages/agent-protocol` — both apps type-check against it. Import it with `import type` only; it has no runtime code and isn't installed in the agent's Docker image.
 
 ### Database Layer — Client vs Server Pattern
 
-This is the most important architectural pattern to follow:
+This is the most important architectural pattern to follow (paths relative to `apps/web/`):
 
 - **Client-side** (`lib/requests/`): Uses `createClient()` from `@/lib/supabase/client`. Called from `'use client'` components. Auth via `getSession()`.
 - **Server-side** (`actions/`): Uses `'use server'` directive. Uses `await createClient()` from `@/lib/supabase/server`. Auth via `getUser()`. Can use `revalidatePath`/`redirect`.
@@ -46,15 +59,21 @@ Never mix these — don't call `lib/requests` from server components or `actions
 
 ### Key Directories
 
+Web app paths are relative to `apps/web/`:
+
 - `app/projects/[projectId]/` — Main editor workspace (layout loads project, files, subscription)
 - `app/generate/` — AI document generation from chat
 - `app/api/` — API routes: `compile-pdf`, `octra-agent`, `generate-document`, `import-latex`, Stripe webhooks, etc.
-- `lib/octra-agent/` — In-app agent utilities (SSE streaming, line edits)
-- `agent_server/lib/` — Agent library for the Express server (tools, intent inference, content processing, session memory)
+- `lib/octra-agent/` — In-app agent utilities (SSE streaming)
 - `hooks/` — Custom React hooks, notably `use-editor-*.ts` for Monaco editor integration and `use-edit-suggestions.ts` for AI edit flow
 - `components/editor/` — Monaco-based LaTeX editor components
 - `types/` — TypeScript types (`project.ts`, `document.ts`, `compilation.ts`, `edit.ts`, `conversation.ts`)
 - `database.types.ts` — Auto-generated Supabase types. Import as `import type { Database, Tables } from '@/database.types'`
+
+Elsewhere:
+
+- `apps/agent/lib/` — Agent library for the Express server (tools, intent inference, content processing, session memory)
+- `apps/compile/internal/` — Compile service internals (compiler queue, SyncTeX, handlers)
 - `supabase/migrations/` — Database migrations
 
 ### UI Stack
@@ -82,7 +101,7 @@ The full schema is `supabase/migrations/20250101000000_baseline.sql` (dumped fro
 
 ### Testing
 
-Tests live in `@__tests__/` with subdirectories: `unit/`, `integration/`, `e2e/`. Setup file at `@__tests__/setup.ts`. Vitest with jsdom environment. Path alias `@/` resolves to project root.
+Web tests live in `apps/web/@__tests__/` with subdirectories: `unit/`, `integration/`, `e2e/`. Setup file at `apps/web/@__tests__/setup.ts`. Vitest with jsdom environment. Path alias `@/` resolves to `apps/web/`. Compile service tests are Go tests next to the code in `apps/compile/internal/`.
 
 ## Conventions
 

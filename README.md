@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="app/icon.svg" alt="Octree Logo" width="100" />
+  <img src="apps/web/app/icon.svg" alt="Octree Logo" width="100" />
 </p>
 
 <h1 align="center">Octree</h1>
@@ -31,10 +31,23 @@ Octree is an AI-powered LaTeX editor that brings intelligent writing assistance 
 
 ## Getting Started
 
+### Repository layout
+
+This is a [pnpm](https://pnpm.io) + [Turborepo](https://turborepo.com) monorepo:
+
+| Path | What it is |
+|------|------------|
+| `apps/web` | Next.js app (deployed on Vercel) |
+| `apps/agent` | AI editing agent — Express + Vercel AI SDK (Docker) |
+| `apps/compile` | LaTeX compile service — Go + TeX Live (Docker) |
+| `packages/agent-protocol` | Shared types for the web ↔ agent contract |
+| `supabase/` | Local Supabase config and migrations |
+
 ### Prerequisites
 
-- Node.js 18+
-- [Docker](https://docs.docker.com/get-docker/) and the [Supabase CLI](https://supabase.com/docs/guides/cli) for the local database, or a hosted [Supabase](https://supabase.com) project
+- Node.js 22+ and pnpm (`corepack enable` installs the version pinned in `package.json`)
+- [Docker](https://docs.docker.com/get-docker/) for the local Supabase stack, or a hosted [Supabase](https://supabase.com) project
+- [Go](https://go.dev/dl/) 1.21+ and a TeX distribution with `latexmk` (e.g. [MacTeX](https://www.tug.org/mactex/) or TeX Live) for the compile service
 - A [Stripe](https://stripe.com) account (for billing)
 - A [Claude API](https://console.anthropic.com) key (for AI features)
 
@@ -43,45 +56,44 @@ Octree is an AI-powered LaTeX editor that brings intelligent writing assistance 
 ```bash
 git clone https://github.com/octree-labs/octree.git
 cd octree
-npm install
+pnpm install
 ```
 
 Copy the example environment file and fill in your keys:
 
 ```bash
-cp .env.example .env.local
+cp apps/web/.env.example apps/web/.env.local
 ```
 
-Start each service in its own terminal from the repo root:
+The agent reads `apps/agent/.env` (see [Hosting the agent server](#hosting-the-agent-server) for its variables). The compile service needs no configuration locally.
+
+Start everything — local Supabase, then the web app, agent, and compile service:
 
 ```bash
-# Terminal 1 — Local Supabase (database + auth, port 54321; requires Docker)
-supabase start
-
-# Terminal 2 — Agent server (AI features, port 8787)
-cd agent_server
-npm install
-npm run dev
-
-# Terminal 3 — LaTeX compile service (port 3001; see Self-Hosting below)
-cd ../octree-compile
-make run
-
-# Terminal 4 — Next.js app (http://localhost:3000)
-npm run dev
+pnpm dev
 ```
 
-Supabase and the agent server are required for auth and AI features. The compile service is only needed for PDF compilation. To use a hosted Supabase project instead of the local stack, skip `supabase start` and point the Supabase variables in `.env.local` at your project.
+| Service | URL |
+|---------|-----|
+| Web app | http://localhost:3000 |
+| Agent server | http://localhost:8787 |
+| Compile service | http://localhost:3001 |
+| Supabase API | http://localhost:54321 |
+
+To run a single app, pass a filter: `pnpm dev --filter=@octree/web`. To use a hosted Supabase project instead of the local stack, point the Supabase variables in `apps/web/.env.local` at your project and run `pnpm turbo run dev`, which skips `supabase start`.
 
 ### Commands
 
+Run from the repo root; each runs across all apps via Turborepo:
+
 | Command | Description |
 |---------|-------------|
-| `npm run dev` | Start dev server with Turbopack |
-| `npm run build` | Production build |
-| `npm run lint` | Run ESLint |
-| `npm run test` | Run all tests (Vitest) |
-| `npm run test:watch` | Watch mode |
+| `pnpm dev` | Start local Supabase and all apps in dev mode |
+| `pnpm build` | Production builds (cached) |
+| `pnpm lint` | Run ESLint |
+| `pnpm test` | Run all tests (Vitest for web, `go test` for compile) |
+
+Add `--filter=<package>` to target one app, e.g. `pnpm test --filter=@octree/web`. For Vitest watch mode: `pnpm --filter @octree/web test:watch`.
 
 ## Tech Stack
 
@@ -103,55 +115,30 @@ If you find a security vulnerability, please email **basil@useoctree.online** in
 
 ## Self-Hosting
 
-### Compile API status (important)
+### Hosting the compile service
 
-The `/api/compile-pdf` endpoint in this repo is **not a full compiler implementation**. It is a relay that forwards compile requests to an external compile backend via `COMPILE_SERVICE_URL`.
+The LaTeX compile service lives in `apps/compile` (Go + TeX Live). The web app talks to it through `COMPILE_SERVICE_URL` (server-side relay at `apps/web/app/api/compile-pdf/`) and `NEXT_PUBLIC_COMPILE_SERVICE_URL` (direct browser calls).
 
-- Code path: `app/api/compile-pdf/route.ts` → `app/api/compile-pdf/compiler.ts`
-- Runtime dependency: `COMPILE_SERVICE_URL` must point to a service exposing `POST /compile`
-
-The production compile backend used by Octree is currently closed-source.
-
-### Fallback option if you are self-hosting
-
-If you are self-hosting and need compile to work, you can run your own LaTeX compile service and wire it in:
-
-1. Host any HTTP service that accepts `POST /compile` with:
-   - Request JSON: `{ files: [{ path, content }], projectId?, lastModifiedFile? }`
-   - Auth header: `Authorization: Bearer <supabase-access-token>` (or adjust auth in your own service)
-2. Make your service return either:
-   - Success: raw PDF bytes in response body (content-type `application/pdf`), or
-   - Error: JSON with fields such as `error`, `details/message`, `log`, `stdout`, `stderr`
-3. Set `COMPILE_SERVICE_URL` in `.env.local` to your hosted service URL.
-4. If your API shape differs, update `app/api/compile-pdf/compiler.ts` (and if needed `app/api/compile-pdf/route.ts`) so this relay matches your service contract.
-
-This gives you a practical path to run compilation even without the closed-source backend.
+- **API:** `POST /compile` takes `{ files: [{ path, content }], projectId?, lastModifiedFile? }` and returns raw PDF bytes (`application/pdf`) on success, or JSON with `error`, `log`, `stdout`, `stderr` on failure. `POST /synctex` maps between source and PDF positions; `GET /health` reports queue status.
+- **Auth:** when `SUPABASE_JWT_SECRET` is set, `/compile` and `/synctex` require `Authorization: Bearer <supabase-access-token>`. Leave it unset for local development.
+- **Docker:** see `apps/compile/deployments/` and `apps/compile/README.md`. The deploy scripts in `apps/compile/deploy/` read the target host from `SERVER_IP`, or `DEPLOY_HOST` / `STAGING_DEPLOY_HOST` in `apps/compile/.env`. They never sync `.env`: the production `.env` (with `SUPABASE_JWT_SECRET`) lives only on the server.
 
 ### Hosting the agent server
 
-The AI editing agent is included in this repo under `agent_server/` and can be hosted independently.
-
-#### Local/dev run
-
-```bash
-cd agent_server
-npm install
-cp ../.env.example .env
-# Fill required values in agent_server/.env (see below)
-npm run dev
-```
-
-The service starts on `http://localhost:8787` and exposes `POST /agent`.
+The AI editing agent lives in `apps/agent` and can be hosted independently. Locally it runs as part of `pnpm dev` on `http://localhost:8787` and exposes `POST /agent`.
 
 #### Production (Docker)
 
+The image is built from a pruned copy of the monorepo containing only the agent and its workspace dependencies:
+
 ```bash
-cd agent_server
-docker build -t octra-agent:latest .
-docker compose up -d
+pnpm turbo prune @octree/agent --docker --out-dir out
+cp apps/agent/Dockerfile apps/agent/.dockerignore apps/agent/docker-compose.yml out/
+cp apps/agent/.env out/
+cd out && docker build -t octra-agent:latest . && docker compose up -d
 ```
 
-`docker-compose.yml` maps port `8787:8787` and reads environment variables from `agent_server/.env`.
+`apps/agent/scripts/deploy.sh` does the same on a remote host over SSH (set `DEPLOY_HOST` in `apps/agent/.env`). `docker-compose.yml` maps port `8787:8787` and reads environment variables from `.env`.
 
 #### Required environment variables for agent server
 
@@ -163,7 +150,7 @@ docker compose up -d
 
 #### Connect the Next.js app to your hosted agent
 
-Set in `.env.local`:
+Set in `apps/web/.env.local`:
 
 ```bash
 CLAUDE_AGENT_SERVICE_URL=http://localhost:8787

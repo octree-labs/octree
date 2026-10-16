@@ -1,5 +1,10 @@
 import { useRef, useCallback } from 'react';
-import { StringEdit } from '@/lib/octra-agent/edits';
+import type {
+  AgentRequest,
+  ProjectFileContext,
+  SelectionRange,
+  StringEdit,
+} from '@octree/agent-protocol';
 
 interface ChatMessage {
   id: string;
@@ -7,21 +12,9 @@ interface ChatMessage {
   content: string;
 }
 
-interface SelectionRange {
-  startLineNumber: number;
-  startColumn: number;
-  endLineNumber: number;
-  endColumn: number;
-}
-
-interface ProjectFileContextPayload {
-  path: string;
-  content: string;
-}
-
 interface ProjectContextPayload {
   currentFilePath: string | null;
-  projectFiles: ProjectFileContextPayload[];
+  projectFiles: ProjectFileContext[];
 }
 
 interface StreamCallbacks {
@@ -82,7 +75,7 @@ export function useChatStream() {
           projectFiles: projectContext.projectFiles,
           currentFilePath: projectContext.currentFilePath,
           sessionId,
-        }),
+        } satisfies AgentRequest),
         signal: controller.signal,
       });
 

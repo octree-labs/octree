@@ -1,4 +1,4 @@
-import { StringEdit } from '@/lib/octra-agent/edits';
+import type { StringEdit } from '@octree/agent-protocol';
 
 export interface EditSuggestion extends StringEdit {
   id: string;

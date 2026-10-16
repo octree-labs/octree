@@ -4,7 +4,7 @@
  */
 
 import type { Response } from 'express';
-import type { StringEdit } from './edits.js';
+import type { StringEdit } from '@octree/agent-protocol';
 
 /**
  * Create response headers for Server-Sent Events

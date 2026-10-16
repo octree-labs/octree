@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { StringEdit } from '@/lib/octra-agent/edits';
+import type { StringEdit } from '@octree/agent-protocol';
 import { EditSuggestion } from '@/types/edit';
 
 export type ProposalState = 'pending' | 'success' | 'error';

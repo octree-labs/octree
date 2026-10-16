@@ -4,9 +4,9 @@
 
 import { tool } from 'ai';
 import { z } from 'zod';
-import { StringEdit, validateStringEdit, inferEditType } from './edits.js';
+import type { StringEdit, ProjectFileContext } from '@octree/agent-protocol';
+import { validateStringEdit, inferEditType } from './edits.js';
 import { IntentResult } from './intent-inference.js';
-import { ProjectFileContext } from './content-processing.js';
 
 export interface ToolContext {
   fileContent: string;

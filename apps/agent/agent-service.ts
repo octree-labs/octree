@@ -11,10 +11,9 @@ import {
   buildNumberedContent,
   buildSystemPrompt,
 } from './lib/content-processing.js';
-import type { ProjectFileContext } from './lib/content-processing.js';
+import type { AgentRequest, ProjectFileContext, StringEdit } from '@octree/agent-protocol';
 import { inferIntent } from './lib/intent-inference.js';
 import { createOctraTools } from './lib/tools.js';
-import type { StringEdit } from './lib/edits.js';
 import { createSSEHeaders, processFullStream } from './lib/stream-handling.js';
 import { SessionManager } from './lib/session-manager.js';
 
@@ -93,7 +92,7 @@ app.post('/agent', jwtAuthMiddleware, async (req: express.Request, res: express.
       projectFiles: projectFilesPayload,
       currentFilePath,
       sessionId,
-    } = req.body || {};
+    }: Partial<AgentRequest> = req.body || {};
 
     if (!messages?.length || typeof fileContent !== 'string') {
       res.status(400).json({ error: 'Invalid request' });

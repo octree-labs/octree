@@ -3,14 +3,8 @@
  * Uses old_string/new_string pattern (opencode-style) instead of line-based edits
  */
 
+import type { StringEdit } from '@octree/agent-protocol';
 import { IntentResult } from './intent-inference.js';
-
-export interface StringEdit {
-  file_path: string;
-  old_string: string;
-  new_string: string;
-  explanation?: string;
-}
 
 export interface ValidationResult {
   isValid: boolean;

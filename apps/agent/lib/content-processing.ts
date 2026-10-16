@@ -2,10 +2,7 @@
  * Content processing utilities for LaTeX documents
  */
 
-export interface ProjectFileContext {
-  path: string;
-  content: string;
-}
+import type { ProjectFileContext } from '@octree/agent-protocol';
 
 const MAX_FULL_CONTENT_FILES = 3;
 const MAX_TOTAL_CONTENT_SIZE = 20000;

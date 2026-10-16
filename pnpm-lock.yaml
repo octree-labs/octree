@@ -57,6 +57,9 @@ importers:
         specifier: ^3.24.1
         version: 3.25.76
     devDependencies:
+      '@octree/agent-protocol':
+        specifier: workspace:*
+        version: link:../../packages/agent-protocol
       '@types/cors':
         specifier: ^2.8.17
         version: 2.8.19
@@ -249,6 +252,9 @@ importers:
       '@next/env':
         specifier: 15.5.15
         version: 15.5.15
+      '@octree/agent-protocol':
+        specifier: workspace:*
+        version: link:../../packages/agent-protocol
       '@testing-library/jest-dom':
         specifier: ^6.6.3
         version: 6.9.1
@@ -312,6 +318,8 @@ importers:
       vitest:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@20.19.23)(@vitest/ui@2.1.9)(jsdom@25.0.1(supports-color@7.2.0))(supports-color@7.2.0)
+
+  packages/agent-protocol: {}
 
 packages:
 

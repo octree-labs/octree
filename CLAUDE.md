@@ -60,7 +60,7 @@ Never mix these — don't call `lib/requests` from server components or `actions
 - `lib/octra-agent/` — In-app agent utilities (SSE streaming, line edits)
 - `services/agent/lib/` — Agent library for the Express server (tools, content processing, session memory)
 - `services/compile/internal/` — Compile service internals (compiler queue, SyncTeX, handlers)
-- `hooks/` — Custom React hooks, notably `use-editor-*.ts` for Monaco editor integration and `use-edit-suggestions.ts` for AI edit flow
+- `hooks/` — Custom React hooks, notably `use-editor-*.ts` for Monaco editor integration and `use-edit-suggestions/` for AI edit flow
 - `components/editor/` — Monaco-based LaTeX editor components
 - `types/` — TypeScript types (`project.ts`, `document.ts`, `compilation.ts`, `edit.ts`, `conversation.ts`)
 - `database.types.ts` — Auto-generated Supabase types. Import as `import type { Database, Tables } from '@/database.types'`

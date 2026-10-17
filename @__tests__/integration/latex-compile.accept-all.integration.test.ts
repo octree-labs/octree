@@ -1,95 +1,75 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import type { StringEdit } from '@/lib/octra-agent/edits';
 import { POST as compileRoute } from '@/app/api/compile-pdf/route';
+import { applyEditToContent } from '@/hooks/use-edit-suggestions/suggestion-operations';
+import type { EditSuggestion } from '@/types/edit';
+import { mockPdfResponse } from '../helpers/responses';
 
-// Minimal LaTeX fixture that compiles
+// The route reads COMPILE_SERVICE_URL at import time; vi.hoisted runs before the imports above
+vi.hoisted(() => {
+  process.env.COMPILE_SERVICE_URL = 'https://compile.test';
+});
+
+vi.mock('@/lib/supabase/server', () => ({
+  createClient: async () => ({
+    auth: {
+      getSession: async () => ({ data: { session: { access_token: 'test-token' } } }),
+    },
+  }),
+}));
+
 const baseTex = String.raw`\documentclass{article}
-\usepackage[utf8]{inputenc}
 \title{Test Document}
-\author{Unit Test}
-\date{\\today}
 \begin{document}
 \maketitle
 \section{Intro}
 Hello.
 \end{document}`;
 
-type Edit = {
-  editType: 'insert' | 'replace' | 'delete';
-  position: { line: number };
-  content?: string;
-  originalLineCount?: number;
-};
-
-// Apply line-based edits to plain text (sorted bottom-to-top like Accept All)
-function applyLineEditsBatch(text: string, edits: Edit[]): string {
-  const lines = text.split('\n');
-  const sorted = [...edits].sort((a, b) => b.position.line - a.position.line);
-  for (const e of sorted) {
-    const idx = Math.max(0, Math.min(lines.length, e.position.line - 1));
-    const count = e.originalLineCount ?? (e.editType === 'insert' ? 0 : 1);
-    if (e.editType === 'insert') {
-      const insertLines = (e.content || '').split('\n');
-      lines.splice(idx, 0, ...insertLines);
-    } else if (e.editType === 'replace') {
-      const newLines = (e.content || '').split('\n');
-      lines.splice(idx, count, ...newLines);
-    } else if (e.editType === 'delete') {
-      lines.splice(idx, count);
-    }
-  }
-  return lines.join('\n');
-}
-
-// Create a fake PDF response ("%PDF") so the route validates the magic bytes
-function mockPdfResponse(): Response {
-  const bytes = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x0a]); // %PDF\n
-  return new Response(Buffer.from(bytes), {
-    status: 200,
-    headers: {
-      'content-type': 'application/pdf',
-      'x-compile-request-id': 'test',
-      'x-compile-duration-ms': '10',
-      'x-compile-queue-ms': '0',
-    },
-  });
+function acceptAll(text: string, edits: StringEdit[]): string {
+  return edits.reduce(
+    (content, edit, i) =>
+      applyEditToContent(content, { ...edit, id: String(i), status: 'pending' } as EditSuggestion),
+    text
+  );
 }
 
 describe('LaTeX compilation after batched edits', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    // Ensure the route takes the development path (uses remote service branch)
-    process.env.ENVIRONMENT = 'dev';
-    // Provide a dummy URL so route builds a valid request URL
-    process.env.COMPILE_SERVICE_URL = process.env.COMPILE_SERVICE_URL || 'https://example.com';
   });
 
   it('applies edits and compiles via the route (mocked remote)', async () => {
-    // 1) Create a few edits that keep the doc valid
-    const edits: Edit[] = [
-      { editType: 'replace', position: { line: 3 }, content: String.raw`\\title{Test Document (v2)}`, originalLineCount: 1 },
-      { editType: 'insert', position: { line: 8 }, content: String.raw`This is an inserted sentence.` },
-      { editType: 'insert', position: { line: 9 }, content: String.raw`\\section{Added}
-A new section.` },
+    const edits: StringEdit[] = [
+      { file_path: 'main.tex', old_string: String.raw`\title{Test Document}`, new_string: String.raw`\title{Test Document (v2)}` },
+      { file_path: 'main.tex', old_string: 'Hello.', new_string: 'Hello.\nThis is an inserted sentence.' },
+      { file_path: 'main.tex', old_string: String.raw`\end{document}`, new_string: String.raw`\section{Added}
+A new section.
+\end{document}` },
     ];
+    const finalTex = acceptAll(baseTex, edits);
+    expect(finalTex).toContain(String.raw`\title{Test Document (v2)}`);
+    expect(finalTex).toContain(String.raw`\section{Added}`);
 
-    const finalTex = applyLineEditsBatch(baseTex, edits);
-
-    // 2) Mock remote compilation to return a PDF-like response
     const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValueOnce(mockPdfResponse());
 
-    // 3) Call the route directly
-    const req = new Request('http://localhost/api/compile-pdf', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content: finalTex }),
-    });
+    const res = await compileRoute(
+      new Request('http://localhost/api/compile-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: finalTex }),
+      })
+    );
+    const json = await res.json();
 
-    const res = await compileRoute(req as unknown as Request);
-    const json = await (res as Response).json();
-
-    expect(fetchSpy).toHaveBeenCalledOnce();
+    expect(res.status).toBe(200);
     expect(json.pdf).toBeTruthy();
+
+    // The route forwards the edited document to the compile service with the session token
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://compile.test/compile');
+    expect((init.headers as Record<string, string>).Authorization).toBe('Bearer test-token');
+    expect(JSON.parse(init.body as string).files).toEqual([{ path: 'main.tex', content: finalTex }]);
   });
 });
-
-

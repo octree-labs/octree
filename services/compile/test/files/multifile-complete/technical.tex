@@ -1,0 +1,63 @@
+\subsection{Mathematical Equations}
+\label{sec:methodology}
+
+This section demonstrates mathematical typesetting with equations that can be cross-referenced from other parts of the document.
+
+\subsubsection{Famous Equations}
+
+Einstein's mass-energy equivalence:
+\begin{equation}
+    E = mc^2
+    \label{eq:einstein}
+\end{equation}
+
+The quadratic formula for solving $ax^2 + bx + c = 0$:
+\begin{equation}
+    x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}
+    \label{eq:quadratic}
+\end{equation}
+
+Euler's identity, often called the most beautiful equation in mathematics:
+\begin{equation}
+    e^{i\pi} + 1 = 0
+    \label{eq:euler}
+\end{equation}
+
+\subsubsection{Matrix Operations}
+
+Let's demonstrate some matrix operations:
+\begin{equation}
+    \mathbf{A} = \begin{pmatrix}
+        a_{11} & a_{12} & a_{13} \\
+        a_{21} & a_{22} & a_{23} \\
+        a_{31} & a_{32} & a_{33}
+    \end{pmatrix}
+\end{equation}
+
+The determinant of a 2×2 matrix:
+\begin{equation}
+    \det\begin{pmatrix}
+        a & b \\
+        c & d
+    \end{pmatrix} = ad - bc
+\end{equation}
+
+\subsubsection{Calculus}
+
+The fundamental theorem of calculus:
+\begin{equation}
+    \int_a^b f(x)\,dx = F(b) - F(a)
+\end{equation}
+
+where $F(x)$ is an antiderivative of $f(x)$.
+
+\subsection{Using Custom Commands}
+
+Here we use commands from our \keyword{mystyle.sty} package:
+
+\begin{definition}{Custom Environment}
+This is a custom definition environment that was defined in our style file. It shows that custom packages are properly loaded and their commands are available.
+\end{definition}
+
+We can use \customemph{custom emphasis} and \highlight{highlighting} within our text.
+

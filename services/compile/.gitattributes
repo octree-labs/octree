@@ -1,0 +1,8 @@
+# Exclude test files and resources from language statistics
+test/** linguist-vendored
+*.tex linguist-vendored
+*.bib linguist-vendored
+*.bst linguist-vendored
+*.sh linguist-vendored
+*.py linguist-vendored
+

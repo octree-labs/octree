@@ -9,6 +9,7 @@ Octree is an AI-powered LaTeX editor built with Next.js 15 (App Router), React 1
 ## Commands
 
 ```bash
+npm run dev:all      # supabase start, then Next.js + agent server + compile service in one terminal
 npm run dev          # Start dev server with Turbopack
 npm run build        # Production build
 npm run lint         # ESLint
@@ -17,17 +18,24 @@ npm run test:watch   # Watch mode
 vitest run @__tests__/unit/use-edit-suggestions.single-edit.test.ts  # Single test file
 ```
 
-The `agent_server/` is a separate Node.js project (Express + Vercel AI SDK) with its own package.json:
+The `services/agent/` is a separate Node.js project (Express + Vercel AI SDK) with its own package.json:
 ```bash
-cd agent_server && npm run dev   # Local agent server with hot reload (port 8787)
+cd services/agent && npm run dev   # Local agent server with hot reload (port 8787)
+```
+
+The `services/compile/` is a Go service (needs Go and a TeX distribution with `latexmk`):
+```bash
+make -C services/compile run       # Local compile service (port 3001)
+make -C services/compile test      # go test ./...
 ```
 
 ## Architecture
 
-### Two-Service Design
+### Three-Service Design
 
 1. **Next.js App** (Vercel) — the main web application
-2. **Agent Server** (`agent_server/`) — standalone Express server running the Vercel AI SDK (`streamText` + `@ai-sdk/anthropic`) in Docker on a DigitalOcean droplet, avoiding serverless timeout limits. The Next.js app calls it via `CLAUDE_AGENT_SERVICE_URL`; requests are authenticated with the Supabase JWT. Responses stream as SSE events. Deploy with `agent_server/scripts/deploy.sh`.
+2. **Agent Server** (`services/agent/`) — standalone Express server running the Vercel AI SDK (`streamText` + `@ai-sdk/anthropic`) in Docker on a DigitalOcean droplet, avoiding serverless timeout limits. The Next.js app calls it via `CLAUDE_AGENT_SERVICE_URL`; requests are authenticated with the Supabase JWT. Responses stream as SSE events. Deploy with `services/agent/scripts/deploy.sh`.
+3. **Compile Service** (`services/compile/`) — Go service running `latexmk` (TeX Live) in Docker. The Next.js app calls it via `COMPILE_SERVICE_URL` (server relay in `app/api/compile-pdf/`) and `NEXT_PUBLIC_COMPILE_SERVICE_URL` (browser, incl. SyncTeX). Deploy with `services/compile/deploy/deploy.sh` (host from `DEPLOY_HOST` in `services/compile/.env`); deploys never sync `.env` — the production one, with `SUPABASE_JWT_SECRET`, lives only on the server, and the local one is a dev config with auth disabled. This repo is public: keep server IPs and other infrastructure details in gitignored `.env` files, not in code.
 
 ### Database Layer — Client vs Server Pattern
 
@@ -50,7 +58,8 @@ Never mix these — don't call `lib/requests` from server components or `actions
 - `app/generate/` — AI document generation from chat
 - `app/api/` — API routes: `compile-pdf`, `octra-agent`, `generate-document`, `import-latex`, Stripe webhooks, etc.
 - `lib/octra-agent/` — In-app agent utilities (SSE streaming, line edits)
-- `agent_server/lib/` — Agent library for the Express server (tools, intent inference, content processing, session memory)
+- `services/agent/lib/` — Agent library for the Express server (tools, content processing, session memory)
+- `services/compile/internal/` — Compile service internals (compiler queue, SyncTeX, handlers)
 - `hooks/` — Custom React hooks, notably `use-editor-*.ts` for Monaco editor integration and `use-edit-suggestions.ts` for AI edit flow
 - `components/editor/` — Monaco-based LaTeX editor components
 - `types/` — TypeScript types (`project.ts`, `document.ts`, `compilation.ts`, `edit.ts`, `conversation.ts`)

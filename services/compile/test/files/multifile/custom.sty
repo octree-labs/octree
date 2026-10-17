@@ -1,0 +1,14 @@
+% custom.sty - A simple custom LaTeX package for testing
+\ProvidesPackage{custom}[2024/01/01 Custom Test Package]
+
+% Add some custom commands
+\newcommand{\highlight}[1]{\textbf{\textit{#1}}}
+\newcommand{\note}[1]{\marginpar{\small\textit{#1}}}
+
+% Custom environment
+\newenvironment{custombox}
+    {\begin{center}\begin{minipage}{0.9\textwidth}\hrulefill\\}
+    {\\\hrulefill\end{minipage}\end{center}}
+
+\endinput
+

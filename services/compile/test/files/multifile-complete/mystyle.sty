@@ -1,0 +1,71 @@
+% mystyle.sty - Custom LaTeX Style Package for Multi-File Testing
+% This package provides custom commands and environments
+
+\ProvidesPackage{mystyle}[2024/10/31 v1.0 Custom Style Package]
+
+% Required packages
+\RequirePackage{xcolor}
+\RequirePackage{framed}
+\RequirePackage{mdframed}
+
+% Custom colors
+\definecolor{highlightcolor}{RGB}{255,255,0}
+\definecolor{keywordcolor}{RGB}{0,102,204}
+\definecolor{noteboxcolor}{RGB}{240,240,240}
+
+% Custom commands
+\newcommand{\important}[1]{\textbf{\textcolor{red}{#1}}}
+\newcommand{\keyword}[1]{\texttt{\textcolor{keywordcolor}{#1}}}
+\newcommand{\customemph}[1]{\textit{\textcolor{blue}{#1}}}
+\newcommand{\highlight}[1]{\colorbox{highlightcolor}{#1}}
+
+% Custom environment for note boxes
+\newenvironment{notebox}
+{%
+  \begin{mdframed}[
+    backgroundcolor=noteboxcolor,
+    linecolor=black,
+    linewidth=2pt,
+    roundcorner=5pt,
+    innertopmargin=10pt,
+    innerbottommargin=10pt,
+    innerrightmargin=10pt,
+    innerleftmargin=10pt
+  ]
+  \textbf{Note:} 
+}
+{%
+  \end{mdframed}
+}
+
+% Custom environment for definitions
+\newenvironment{definition}[1]
+{%
+  \begin{mdframed}[
+    linecolor=blue,
+    linewidth=2pt,
+    roundcorner=3pt
+  ]
+  \textbf{Definition (#1):}\newline
+}
+{%
+  \end{mdframed}
+}
+
+% Theorem-like environment
+\newcounter{theorem}
+\newenvironment{theorem}
+{%
+  \refstepcounter{theorem}%
+  \textbf{Theorem \thetheorem:}\itshape
+}
+{%
+  \par
+}
+
+% Custom header/footer commands
+\newcommand{\customheader}[1]{\textsc{#1}}
+\newcommand{\customfooter}[1]{\small\textit{#1}}
+
+\endinput
+

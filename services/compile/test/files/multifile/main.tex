@@ -1,0 +1,34 @@
+\documentclass{article}
+\usepackage{amsmath}
+\usepackage{custom} % Custom package
+
+\title{Multi-File LaTeX Test Document}
+\author{Test Author}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+This is a test document that uses multiple files and custom packages.
+
+% Include external chapter
+\input{chapters/intro}
+
+\section{Mathematics}
+Here's an equation with a label for cross-reference testing:
+\begin{equation}
+    E = mc^2 \label{eq:einstein}
+\end{equation}
+
+As shown in Equation~\ref{eq:einstein}, energy and mass are related.
+
+\section{Bibliography Test}
+This section tests bibliography integration. We cite some work here~\cite{knuth1984}.
+
+\bibliographystyle{plain}
+\bibliography{refs}
+
+\end{document}
+

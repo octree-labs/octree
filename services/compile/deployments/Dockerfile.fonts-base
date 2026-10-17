@@ -1,0 +1,36 @@
+FROM ubuntu:22.04
+
+ARG TEXLIVE_YEAR=2025
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    TZ=UTC
+
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y software-properties-common; \
+    add-apt-repository multiverse; \
+    apt-get update; \
+    echo "ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true" | debconf-set-selections; \
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        fontconfig \
+        cabextract \
+        curl \
+        wget \
+        unzip \
+        fonts-ubuntu \
+        fonts-noto-cjk \
+        fonts-noto-color-emoji \
+        fonts-arphic-ukai \
+        fonts-arphic-uming \
+        fonts-arphic-gkai00mp \
+        fonts-texgyre \
+        fonts-lmodern \
+        fonts-freefont-ttf \
+        fonts-croscore \
+        ttf-mscorefonts-installer; \
+    rm -rf /var/lib/apt/lists/*; \
+    fc-cache -fv
+
+CMD ["/bin/bash"]
+

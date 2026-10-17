@@ -1,0 +1,82 @@
+\documentclass[12pt,a4paper]{article}
+
+% Use custom style package
+\usepackage{mystyle}
+
+% Standard packages
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage[margin=1in]{geometry}
+
+\title{Comprehensive Multi-File LaTeX Test}
+\author{Test Author\\
+        Department of Computer Science\\
+        Test University}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This document demonstrates a complete multi-file LaTeX compilation setup including a custom style file, bibliography, and multiple subsection files. It tests cross-references, citations, custom commands, and modular document structure.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+\section{Introduction}
+This is the main document that orchestrates multiple files. As noted by \cite{knuth1984}, \TeX{} is a powerful typesetting system. We also reference \cite{lamport1994} for \LaTeX{} documentation.
+
+% Include introduction subsection
+\input{intro}
+
+\section{Technical Content}
+In this section, we demonstrate mathematical equations and custom styling.
+
+% Include technical content
+\input{technical}
+
+\section{Results and Analysis}
+Here we present findings with cross-references.
+
+% Include results subsection
+\input{results}
+
+\section{Advanced Features}
+
+\subsection{Custom Commands Demo}
+Using our custom style package:
+\begin{itemize}
+    \item \important{Important text} - highlighted text
+    \item \keyword{keyword} - styled keyword
+    \item \customemph{emphasized text} - custom emphasis
+\end{itemize}
+
+\subsection{Custom Environment Demo}
+\begin{notebox}
+This is a custom note box defined in our mystyle.sty package. It demonstrates that custom environments work correctly in multi-file compilation.
+\end{notebox}
+
+\subsection{Cross-References}
+We can reference equations like Equation~\ref{eq:einstein} and Equation~\ref{eq:quadratic} from included files. We can also reference sections like Section~\ref{sec:methodology}.
+
+\section{Conclusion}
+This document successfully demonstrates multi-file compilation with:
+\begin{enumerate}
+    \item Custom style package (mystyle.sty)
+    \item Bibliography file (references.bib)
+    \item Multiple subsection files in sections/ directory
+    \item Cross-references between files
+    \item Citations from BibTeX
+\end{enumerate}
+
+For more details on typesetting, see \cite{knuth1984} and \cite{lamport1994}. The recent work by \cite{goossens1994} also provides excellent examples.
+
+\bibliographystyle{plain}
+\bibliography{references}
+
+\end{document}
+

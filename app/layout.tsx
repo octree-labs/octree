@@ -21,9 +21,33 @@ const satoshi = localFont({
   display: 'swap',
 });
 
+const APP_URL = 'https://app.useoctree.com';
+const DESCRIPTION =
+  'Octree is an AI LaTeX editor. Write, edit, and compile LaTeX documents with AI assistance, generate documents from a prompt, and export to PDF.';
+
 export const metadata: Metadata = {
-  title: 'Octree',
-  description: 'A latex editor that uses AI to help you write latex',
+  metadataBase: new URL(APP_URL),
+  title: {
+    default: 'Octree – AI LaTeX Editor',
+    template: '%s | Octree',
+  },
+  description: DESCRIPTION,
+  applicationName: 'Octree',
+  // The app is behind auth; only the auth routes opt back in to indexing.
+  robots: { index: false, follow: false },
+  openGraph: {
+    type: 'website',
+    siteName: 'Octree',
+    title: 'Octree – AI LaTeX Editor',
+    description: DESCRIPTION,
+    url: APP_URL,
+  },
+  twitter: {
+    card: 'summary',
+    creator: '@useoctree',
+    title: 'Octree – AI LaTeX Editor',
+    description: DESCRIPTION,
+  },
 };
 
 export default async function RootLayout({

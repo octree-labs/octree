@@ -42,11 +42,10 @@ export const metadata: Metadata = {
     description: DESCRIPTION,
     url: APP_URL,
   },
+  // No title/description here so each page's Open Graph values flow through.
   twitter: {
     card: 'summary',
     creator: '@useoctree',
-    title: 'Octree – AI LaTeX Editor',
-    description: DESCRIPTION,
   },
 };
 

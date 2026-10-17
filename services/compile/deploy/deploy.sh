@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e  # Exit on any error
-cd "$(dirname "$0")/.."  # rsync below syncs ./ — must be compile_server/, not the repo root
+cd "$(dirname "$0")/.."  # rsync below syncs ./ — must be services/compile/, not the repo root
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -12,7 +12,7 @@ if [ -z "$SERVER_IP" ] && [ -f .env ]; then
   SERVER_IP=$(grep '^DEPLOY_HOST=' .env | cut -d '=' -f2)
 fi
 if [ -z "$SERVER_IP" ]; then
-  echo -e "${RED}Error: SERVER_IP not set. Export it or add DEPLOY_HOST to compile_server/.env${NC}"
+  echo -e "${RED}Error: SERVER_IP not set. Export it or add DEPLOY_HOST to services/compile/.env${NC}"
   exit 1
 fi
 SERVER_USER="${SERVER_USER:-root}"

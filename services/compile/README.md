@@ -29,9 +29,9 @@ A high-performance LaTeX compilation service written in Go, featuring intelligen
 
 ## Installation
 
-1. **Go to the service** — it lives in the Octree repo at `compile_server/`. From the repo root, `npm run dev:all` starts it alongside the other services; the steps below are for working on it directly:
+1. **Go to the service** — it lives in the Octree repo at `services/compile/`. From the repo root, `npm run dev:all` starts it alongside the other services; the steps below are for working on it directly:
    ```bash
-   cd compile_server
+   cd services/compile
    ```
 
 2. **Install Go dependencies**:

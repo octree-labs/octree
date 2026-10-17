@@ -45,7 +45,7 @@ Octree is an AI-powered LaTeX editor that brings intelligent writing assistance 
 git clone https://github.com/octree-labs/octree.git
 cd octree
 npm install
-npm install --prefix agent_server
+npm install --prefix services/agent
 ```
 
 Copy the example environment file and fill in your keys:
@@ -54,7 +54,7 @@ Copy the example environment file and fill in your keys:
 cp .env.example .env.local
 ```
 
-The agent server reads `agent_server/.env` (see [Hosting the agent server](#hosting-the-agent-server)). The compile service needs no configuration locally.
+The agent server reads `services/agent/.env` (see [Hosting the agent server](#hosting-the-agent-server)). The compile service needs no configuration locally.
 
 Start everything from the repo root — local Supabase, then the Next.js app, agent server, and compile service in one terminal:
 
@@ -69,7 +69,7 @@ npm run dev:all
 | Compile service | http://localhost:3001 |
 | Supabase API | http://localhost:54321 |
 
-Supabase and the agent server are required for auth and AI features. The compile service is only needed for PDF compilation. To use a hosted Supabase project instead of the local stack, point the Supabase variables in `.env.local` at your project; `supabase start` then isn't needed, so run the services individually (`npm run dev`, `npm --prefix agent_server run dev`, `make -C compile_server run`).
+Supabase and the agent server are required for auth and AI features. The compile service is only needed for PDF compilation. To use a hosted Supabase project instead of the local stack, point the Supabase variables in `.env.local` at your project; `supabase start` then isn't needed, so run the services individually (`npm run dev`, `npm --prefix services/agent run dev`, `make -C services/compile run`).
 
 ### Commands
 
@@ -104,23 +104,23 @@ If you find a security vulnerability, please email **basil@useoctree.online** in
 
 ### Hosting the compile service
 
-The LaTeX compile service lives in `compile_server/` (Go + TeX Live). The Next.js app talks to it through `COMPILE_SERVICE_URL` (server-side relay at `app/api/compile-pdf/`) and `NEXT_PUBLIC_COMPILE_SERVICE_URL` (direct browser calls).
+The LaTeX compile service lives in `services/compile/` (Go + TeX Live). The Next.js app talks to it through `COMPILE_SERVICE_URL` (server-side relay at `app/api/compile-pdf/`) and `NEXT_PUBLIC_COMPILE_SERVICE_URL` (direct browser calls).
 
 - **API:** `POST /compile` takes `{ files: [{ path, content }], projectId?, lastModifiedFile? }` and returns raw PDF bytes (`application/pdf`) on success, or JSON with `error`, `log`, `stdout`, `stderr` on failure. `POST /synctex` maps between source and PDF positions; `GET /health` reports queue status.
 - **Auth:** when `SUPABASE_JWT_SECRET` is set, `/compile` and `/synctex` require `Authorization: Bearer <supabase-access-token>`. Leave it unset for local development.
-- **Docker:** see `compile_server/deployments/` and `compile_server/README.md`. The deploy scripts in `compile_server/deploy/` read the target host from `SERVER_IP`, or `DEPLOY_HOST` / `STAGING_DEPLOY_HOST` in `compile_server/.env`. They never sync `.env`: the production `.env` (with `SUPABASE_JWT_SECRET`) lives only on the server.
+- **Docker:** see `services/compile/deployments/` and `services/compile/README.md`. The deploy scripts in `services/compile/deploy/` read the target host from `SERVER_IP`, or `DEPLOY_HOST` / `STAGING_DEPLOY_HOST` in `services/compile/.env`. They never sync `.env`: the production `.env` (with `SUPABASE_JWT_SECRET`) lives only on the server.
 
 ### Hosting the agent server
 
-The AI editing agent is included in this repo under `agent_server/` and can be hosted independently.
+The AI editing agent is included in this repo under `services/agent/` and can be hosted independently.
 
 #### Local/dev run
 
 ```bash
-cd agent_server
+cd services/agent
 npm install
-cp ../.env.example .env
-# Fill required values in agent_server/.env (see below)
+cp ../../.env.example .env
+# Fill required values in services/agent/.env (see below)
 npm run dev
 ```
 
@@ -129,12 +129,12 @@ The service starts on `http://localhost:8787` and exposes `POST /agent`.
 #### Production (Docker)
 
 ```bash
-cd agent_server
+cd services/agent
 docker build -t octra-agent:latest .
 docker compose up -d
 ```
 
-`docker-compose.yml` maps port `8787:8787` and reads environment variables from `agent_server/.env`.
+`docker-compose.yml` maps port `8787:8787` and reads environment variables from `services/agent/.env`.
 
 #### Required environment variables for agent server
 

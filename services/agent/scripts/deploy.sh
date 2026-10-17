@@ -24,7 +24,7 @@ if [ -f "$AGENT_SERVER_DIR/.env" ]; then
 fi
 
 if [ -z "$DEPLOY_HOST" ]; then
-    echo -e "${RED}Error: DEPLOY_HOST not set. Add it to agent_server/.env${NC}"
+    echo -e "${RED}Error: DEPLOY_HOST not set. Add it to services/agent/.env${NC}"
     exit 1
 fi
 

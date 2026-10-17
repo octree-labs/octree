@@ -16,6 +16,7 @@ npm run lint         # ESLint
 npm run test         # Run all tests (vitest)
 npm run test:watch   # Watch mode
 vitest run tests/unit/use-edit-suggestions.single-edit.test.ts  # Single test file
+npm run resume:redesign -- <resume.pdf> [-t template1]  # Run the resume redesign pipeline locally (local latexmk, output in out/resume/)
 ```
 
 The `services/agent/` is a separate Node.js project (Express + Vercel AI SDK) with its own package.json:

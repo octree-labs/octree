@@ -15,7 +15,7 @@ npm run build        # Production build
 npm run lint         # ESLint
 npm run test         # Run all tests (vitest)
 npm run test:watch   # Watch mode
-vitest run @__tests__/unit/use-edit-suggestions.single-edit.test.ts  # Single test file
+vitest run tests/unit/use-edit-suggestions.single-edit.test.ts  # Single test file
 ```
 
 The `services/agent/` is a separate Node.js project (Express + Vercel AI SDK) with its own package.json:
@@ -91,7 +91,7 @@ The full schema is `supabase/migrations/20250101000000_baseline.sql` (dumped fro
 
 ### Testing
 
-Tests live in `@__tests__/` with subdirectories: `unit/`, `integration/`, `e2e/`. Setup file at `@__tests__/setup.ts`. Vitest with jsdom environment. Path alias `@/` resolves to project root.
+Tests live in `tests/` with subdirectories: `unit/`, `integration/`, `e2e/`. Setup file at `tests/setup.ts`. Vitest with jsdom environment. Path alias `@/` resolves to project root.
 
 ## Conventions
 

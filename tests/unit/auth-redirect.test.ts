@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildRedirectUrl, resolveRedirectBase } from '../redirect';
+import { buildRedirectUrl, resolveRedirectBase } from '@/lib/auth/redirect';
 
 describe('Redirect URL handling', () => {
   it('prefers the direct host header over forwarded host', () => {

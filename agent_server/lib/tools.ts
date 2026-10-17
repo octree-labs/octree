@@ -5,7 +5,6 @@
 import { tool } from 'ai';
 import { z } from 'zod';
 import { StringEdit, validateStringEdit, inferEditType } from './edits.js';
-import { IntentResult } from './intent-inference.js';
 import { ProjectFileContext } from './content-processing.js';
 
 export interface ToolContext {
@@ -14,7 +13,6 @@ export interface ToolContext {
   textFromEditor?: string | null;
   selectionRange?: { startLineNumber: number; endLineNumber: number } | null;
   collectedEdits: StringEdit[];
-  intent: IntentResult;
   writeEvent: (event: string, data: unknown) => void;
   projectFiles?: ProjectFileContext[];
   currentFilePath?: string | null;

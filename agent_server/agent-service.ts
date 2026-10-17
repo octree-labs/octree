@@ -12,7 +12,6 @@ import {
   buildSystemPrompt,
 } from './lib/content-processing.js';
 import type { ProjectFileContext } from './lib/content-processing.js';
-import { inferIntent } from './lib/intent-inference.js';
 import { createOctraTools } from './lib/tools.js';
 import type { StringEdit } from './lib/edits.js';
 import { createSSEHeaders, processFullStream } from './lib/stream-handling.js';
@@ -104,7 +103,6 @@ app.post('/agent', jwtAuthMiddleware, async (req: express.Request, res: express.
     const userText = typeof messages[messages.length - 1]?.content === 'string'
       ? messages[messages.length - 1].content
       : '';
-    const intent = await inferIntent(userText);
     const collectedEdits: StringEdit[] = [];
 
     const binaryExtensions = ['.pdf', '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.svg', '.eps', '.ps', '.dvi', '.aux', '.log', '.out', '.toc', '.lof', '.lot', '.bbl', '.blg', '.synctex', '.fls', '.fdb_latexmk', '.gz'];
@@ -151,7 +149,6 @@ app.post('/agent', jwtAuthMiddleware, async (req: express.Request, res: express.
       textFromEditor,
       selectionRange,
       collectedEdits,
-      intent,
       writeEvent,
       projectFiles,
       currentFilePath: normalizedCurrentFilePath,

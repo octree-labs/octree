@@ -140,10 +140,6 @@ export async function buildNumberedContent(fileContent: string, textFromEditor?:
   });
 }
 
-export function normalizeLineEndings(text: string): string {
-  return text.split('\r\n').join('\n').split('\r').join('\n');
-}
-
 export function validateApiKeys(): { isValid: boolean; error?: string } {
   const hasAnthropic = !!process.env.ANTHROPIC_API_KEY;
   if (!hasAnthropic) {

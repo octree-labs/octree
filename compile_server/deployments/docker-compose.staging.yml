@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  latex-compile:
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile
+      args:
+        TEXLIVE_BASE_IMAGE: ${TEXLIVE_BASE_IMAGE:-octree/texlive-runtime:2025}
+    image: octree/latex-compile:latest
+    container_name: latex-compile
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./logs:/app/logs
+    environment:
+      - PORT=3001
+      - HISTORY_DIR=/app/logs
+      - GIN_MODE=release
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

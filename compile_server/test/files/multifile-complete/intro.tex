@@ -1,0 +1,29 @@
+\subsection{Background and Motivation}
+
+This subsection is loaded from an external file (\texttt{intro.tex}) using the \texttt{\textbackslash input} command. This demonstrates that the compiler can correctly resolve file references in the same directory.
+
+\subsubsection{Why Multi-File Documents?}
+
+Multi-file document structures are essential for:
+
+\begin{enumerate}
+    \item \important{Large Projects}: Breaking down large documents into manageable chunks
+    \item \important{Collaboration}: Multiple authors can work on different sections simultaneously
+    \item \important{Reusability}: Common sections can be shared across documents
+    \item \important{Maintenance}: Easier to update and debug individual sections
+\end{enumerate}
+
+\subsubsection{Document Structure}
+
+This test document includes:
+\begin{itemize}
+    \item A main file (\texttt{main.tex}) that orchestrates everything
+    \item A custom style package (\texttt{mystyle.sty}) with commands and environments
+    \item A bibliography file (\texttt{references.bib}) with multiple entries
+    \item Multiple section files (\texttt{intro.tex}, \texttt{technical.tex}, \texttt{results.tex})
+\end{itemize}
+
+\begin{notebox}
+The compilation system must handle all these files correctly, maintaining proper dependencies without subdirectories.
+\end{notebox}
+

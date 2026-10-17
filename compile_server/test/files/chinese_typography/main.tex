@@ -1,0 +1,117 @@
+\documentclass[12pt,a4paper,zihao=-4,AutoFakeBold,AutoFakeSlant]{ctexart}
+\usepackage{iftex}
+\usepackage{xeCJK}
+\usepackage{amsmath,amsthm,amssymb,amsfonts,mathrsfs,mathtools}
+\usepackage{graphicx,caption,float}
+\usepackage{geometry,fancyhdr}
+\usepackage{enumerate}
+\usepackage{tablefootnote}
+\usepackage{tocloft}
+\usepackage[colorlinks,linkcolor=black,anchorcolor=black,citecolor=black]{hyperref}
+\usepackage[symbol]{footmisc}
+\usepackage{cleveref}
+\usepackage{fontspec}
+\usepackage{setspace}
+\usepackage{framed}
+\usepackage{mdframed}
+\usepackage{array}
+\usepackage{xlop}
+\usepackage{tabularx}
+\usepackage{xcolor}
+\usepackage[boxed,ruled,lined,linesnumbered]{algorithm2e}
+\usepackage{algorithmic}
+\usepackage{listings,lstautogobble}
+\usepackage{minted}
+\usepackage{appendix}
+
+% 设置行间距
+\linespread{1.5}
+
+% 页面格式
+\geometry{left=3cm,right=3cm,top=2.5cm,bottom=2.5cm}
+
+% 目录和正文的页眉与页脚
+\fancypagestyle{plain}
+ {\fancyhf{}
+  \fancyfoot[C]{\zihao{-5}\thepage}
+  \renewcommand\headrulewidth{0pt}
+  \renewcommand\footrulewidth{0pt}}
+\fancypagestyle{body}
+ {\fancyhf{}
+  \fancyfoot[C]{\zihao{-5}\thepage}
+  \fancyhead{\centering\zihao{-5}上海杉达学院外语学院本科毕业论文（设计）}
+  \renewcommand\headrulewidth{0.6pt}
+  \renewcommand\footrulewidth{0pt}}
+
+% 设置片和表格编号的格式
+\renewcommand{\thefigure}{\arabic{section}.\arabic{figure}}
+\renewcommand{\thetable}{\arabic{section}-\arabic{table}}
+\DeclareCaptionLabelSeparator{quad}{\quad}
+\captionsetup{labelsep=quad}
+
+% Override Chinese labels with English
+\captionsetup[figure]{name=Figure} % Set figure captions to "Figure"
+\captionsetup[table]{name=Table}   % Set table captions to "Table"
+
+% Redefine ctex-specific caption names to English
+\AtBeginDocument{%
+  \renewcommand{\figurename}{Figure}
+  \renewcommand{\tablename}{Table}
+  \renewcommand{\refname}{References} % For bibliography
+  \renewcommand{\contentsname}{Table of Contents} % For table of contents
+  \renewcommand{\appendixname}{Appendix} % For appendix
+}
+
+% Configure cleveref to use English names
+\crefname{figure}{Figure}{Figures}
+\crefname{table}{Table}{Tables}
+\crefname{section}{Section}{Sections}
+\crefname{appendix}{Appendix}{Appendices}
+
+\begin{document}
+
+\pagestyle{empty}
+
+\newpage\input{"cover/cover_cyber"}
+\newpage\input{"cover/ecover_cyber"}
+
+\begin{sloppypar}
+  \newpage\input{"acknowledge/acknowledge"}
+\end{sloppypar}
+
+\begin{sloppypar}
+  
+  \newpage\input{"abstractE/abstractE"}
+  \newpage\input{"abstractC/abstractC"}
+\end{sloppypar}
+
+\clearpage
+\setcounter{page}{1}
+\pagenumbering{Roman}
+\pagestyle{plain}
+
+\newpage
+\tableofcontents
+
+\clearpage
+\setcounter{page}{1}
+\pagenumbering{arabic}
+\pagestyle{body}
+
+\begin{sloppypar}
+  \newpage\input{"body/1.tex"}
+  \newpage\input{"body/2.tex"}
+  \newpage\input{"body/3.tex"}
+  \newpage\input{"body/4.tex"}
+  \newpage\input{"body/5.tex"}
+\end{sloppypar}
+
+\begin{sloppypar}
+  \newpage\input{"ref.tex"}
+\end{sloppypar}
+
+\begin{sloppypar}
+  \newpage\input{"appendix/appendix"}
+\end{sloppypar}
+
+\end{document}

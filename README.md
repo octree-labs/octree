@@ -35,6 +35,7 @@ Octree is an AI-powered LaTeX editor that brings intelligent writing assistance 
 
 - Node.js 18+
 - [Docker](https://docs.docker.com/get-docker/) and the [Supabase CLI](https://supabase.com/docs/guides/cli) for the local database, or a hosted [Supabase](https://supabase.com) project
+- [Go](https://go.dev/dl/) 1.21+ and a TeX distribution with `latexmk` (e.g. [MacTeX](https://www.tug.org/mactex/) or TeX Live) for the compile service
 - A [Stripe](https://stripe.com) account (for billing)
 - A [Claude API](https://console.anthropic.com) key (for AI features)
 
@@ -44,6 +45,7 @@ Octree is an AI-powered LaTeX editor that brings intelligent writing assistance 
 git clone https://github.com/octree-labs/octree.git
 cd octree
 npm install
+npm install --prefix agent_server
 ```
 
 Copy the example environment file and fill in your keys:
@@ -52,32 +54,29 @@ Copy the example environment file and fill in your keys:
 cp .env.example .env.local
 ```
 
-Start each service in its own terminal from the repo root:
+The agent server reads `agent_server/.env` (see [Hosting the agent server](#hosting-the-agent-server)). The compile service needs no configuration locally.
+
+Start everything from the repo root — local Supabase, then the Next.js app, agent server, and compile service in one terminal:
 
 ```bash
-# Terminal 1 — Local Supabase (database + auth, port 54321; requires Docker)
-supabase start
-
-# Terminal 2 — Agent server (AI features, port 8787)
-cd agent_server
-npm install
-npm run dev
-
-# Terminal 3 — LaTeX compile service (port 3001; see Self-Hosting below)
-cd ../octree-compile
-make run
-
-# Terminal 4 — Next.js app (http://localhost:3000)
-npm run dev
+npm run dev:all
 ```
 
-Supabase and the agent server are required for auth and AI features. The compile service is only needed for PDF compilation. To use a hosted Supabase project instead of the local stack, skip `supabase start` and point the Supabase variables in `.env.local` at your project.
+| Service | URL |
+|---------|-----|
+| Next.js app | http://localhost:3000 |
+| Agent server | http://localhost:8787 |
+| Compile service | http://localhost:3001 |
+| Supabase API | http://localhost:54321 |
+
+Supabase and the agent server are required for auth and AI features. The compile service is only needed for PDF compilation. To use a hosted Supabase project instead of the local stack, point the Supabase variables in `.env.local` at your project; `supabase start` then isn't needed, so run the services individually (`npm run dev`, `npm --prefix agent_server run dev`, `make -C compile_server run`).
 
 ### Commands
 
 | Command | Description |
 |---------|-------------|
-| `npm run dev` | Start dev server with Turbopack |
+| `npm run dev:all` | Start local Supabase, the Next.js app, agent server, and compile service |
+| `npm run dev` | Start the Next.js dev server only (Turbopack) |
 | `npm run build` | Production build |
 | `npm run lint` | Run ESLint |
 | `npm run test` | Run all tests (Vitest) |
@@ -103,29 +102,13 @@ If you find a security vulnerability, please email **basil@useoctree.online** in
 
 ## Self-Hosting
 
-### Compile API status (important)
+### Hosting the compile service
 
-The `/api/compile-pdf` endpoint in this repo is **not a full compiler implementation**. It is a relay that forwards compile requests to an external compile backend via `COMPILE_SERVICE_URL`.
+The LaTeX compile service lives in `compile_server/` (Go + TeX Live). The Next.js app talks to it through `COMPILE_SERVICE_URL` (server-side relay at `app/api/compile-pdf/`) and `NEXT_PUBLIC_COMPILE_SERVICE_URL` (direct browser calls).
 
-- Code path: `app/api/compile-pdf/route.ts` → `app/api/compile-pdf/compiler.ts`
-- Runtime dependency: `COMPILE_SERVICE_URL` must point to a service exposing `POST /compile`
-
-The production compile backend used by Octree is currently closed-source.
-
-### Fallback option if you are self-hosting
-
-If you are self-hosting and need compile to work, you can run your own LaTeX compile service and wire it in:
-
-1. Host any HTTP service that accepts `POST /compile` with:
-   - Request JSON: `{ files: [{ path, content }], projectId?, lastModifiedFile? }`
-   - Auth header: `Authorization: Bearer <supabase-access-token>` (or adjust auth in your own service)
-2. Make your service return either:
-   - Success: raw PDF bytes in response body (content-type `application/pdf`), or
-   - Error: JSON with fields such as `error`, `details/message`, `log`, `stdout`, `stderr`
-3. Set `COMPILE_SERVICE_URL` in `.env.local` to your hosted service URL.
-4. If your API shape differs, update `app/api/compile-pdf/compiler.ts` (and if needed `app/api/compile-pdf/route.ts`) so this relay matches your service contract.
-
-This gives you a practical path to run compilation even without the closed-source backend.
+- **API:** `POST /compile` takes `{ files: [{ path, content }], projectId?, lastModifiedFile? }` and returns raw PDF bytes (`application/pdf`) on success, or JSON with `error`, `log`, `stdout`, `stderr` on failure. `POST /synctex` maps between source and PDF positions; `GET /health` reports queue status.
+- **Auth:** when `SUPABASE_JWT_SECRET` is set, `/compile` and `/synctex` require `Authorization: Bearer <supabase-access-token>`. Leave it unset for local development.
+- **Docker:** see `compile_server/deployments/` and `compile_server/README.md`. The deploy scripts in `compile_server/deploy/` read the target host from `SERVER_IP`, or `DEPLOY_HOST` / `STAGING_DEPLOY_HOST` in `compile_server/.env`. They never sync `.env`: the production `.env` (with `SUPABASE_JWT_SECRET`) lives only on the server.
 
 ### Hosting the agent server
 

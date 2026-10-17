@@ -1,0 +1,70 @@
+\subsection{Experimental Results}
+
+This section presents results and demonstrates cross-referencing capabilities across different files.
+
+\subsubsection{Verification of Equations}
+
+We have previously defined several important equations:
+\begin{itemize}
+    \item Equation~\ref{eq:einstein} shows the relationship between energy and mass
+    \item Equation~\ref{eq:quadratic} provides the solution for quadratic equations
+    \item Equation~\ref{eq:euler} demonstrates the beauty of mathematical relationships
+\end{itemize}
+
+\subsubsection{Compilation Testing}
+
+This multi-file document tests several critical features:
+
+\begin{theorem}
+If the compilation system correctly processes all files, then:
+\begin{enumerate}
+    \item All \texttt{\textbackslash input} commands resolve correctly
+    \item Custom style packages are loaded and available
+    \item Bibliography citations work across files
+    \item Cross-references work between different sections
+\end{enumerate}
+\end{theorem}
+
+\subsection{Bibliography Integration}
+
+The bibliography system has been tested with multiple citations:
+\begin{itemize}
+    \item Classic \TeX{} documentation: \cite{knuth1984}
+    \item \LaTeX{} user guide: \cite{lamport1994}
+    \item Advanced topics: \cite{goossens1994}
+    \item Historical papers: \cite{einstein1905, turing1936}
+    \item Online resources: \cite{latex2024}
+\end{itemize}
+
+\subsection{Performance Considerations}
+
+\begin{notebox}
+The compilation should detect that this document requires:
+\begin{itemize}
+    \item Bibliography processing (bibtex/biber)
+    \item Multiple passes for cross-references
+    \item All files in the same directory
+\end{itemize}
+\end{notebox}
+
+\subsection{Summary of Features Tested}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|l|c|}
+\hline
+\textbf{Feature} & \textbf{File} & \textbf{Status} \\
+\hline
+Custom commands & mystyle.sty & \keyword{OK} \\
+Bibliography & references.bib & \keyword{OK} \\
+Multi-file input & *.tex files & \keyword{OK} \\
+Cross-references & All files & \keyword{OK} \\
+Math equations & technical.tex & \keyword{OK} \\
+\hline
+\end{tabular}
+\caption{Summary of tested features in multi-file compilation}
+\label{tab:features}
+\end{table}
+
+As shown in Table~\ref{tab:features}, all features should compile correctly.
+

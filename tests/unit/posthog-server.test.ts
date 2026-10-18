@@ -4,6 +4,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
  * lib/posthog-server.ts: a no-op without a key, one flushed capture per
  * event with one, and an exception capture that falls back to a raw
  * `$exception` event on posthog-node versions without captureException.
+ * The flush is bounded so a hung PostHog cannot hold a response, and the
+ * `...AfterResponse` helpers defer to Next's `after()` when one is in scope.
  */
 
 const mocks = vi.hoisted(() => {
@@ -11,8 +13,16 @@ const mocks = vi.hoisted(() => {
   const captureException = vi.fn();
   const flush = vi.fn().mockResolvedValue(undefined);
   const ctor = vi.fn();
-  return { capture, captureException, flush, ctor, hasCaptureException: true };
+  // Outside a request scope Next's after() throws; tests opt into a scope.
+  const after = vi.fn((_work: () => Promise<void>): void => {
+    throw new Error('`after` was called outside a request scope');
+  });
+  return { capture, captureException, flush, ctor, after, hasCaptureException: true };
 });
+
+vi.mock('next/server', () => ({
+  after: mocks.after,
+}));
 
 vi.mock('posthog-node', () => ({
   PostHog: class PostHogMock {
@@ -27,8 +37,11 @@ vi.mock('posthog-node', () => ({
 }));
 
 import {
+  afterResponse,
   captureServerEvent,
+  captureServerEventAfterResponse,
   captureServerException,
+  captureServerExceptionAfterResponse,
   getPostHogServer,
   resetPostHogServerForTests,
 } from '@/lib/posthog-server';
@@ -54,7 +67,7 @@ describe('posthog-server', () => {
     expect(getPostHogServer()).toBeNull();
     await captureServerEvent('user_1', AnalyticsEvents.IMPORT_COMPLETED, {
       source: 'tools',
-      title: 'Doc',
+      title_length: 3,
     });
     await captureServerException(new Error('boom'), { route: 'api/test' });
 
@@ -70,7 +83,12 @@ describe('posthog-server', () => {
 
     expect(mocks.ctor).toHaveBeenCalledTimes(1);
     expect(mocks.ctor.mock.calls[0][0]).toBe('phc_server');
-    expect(mocks.ctor.mock.calls[0][1]).toMatchObject({ flushAt: 1, flushInterval: 0 });
+    expect(mocks.ctor.mock.calls[0][1]).toMatchObject({
+      flushAt: 1,
+      flushInterval: 0,
+      requestTimeout: 3000,
+      fetchRetryCount: 0,
+    });
     expect(mocks.capture).toHaveBeenCalledTimes(2);
     expect(mocks.capture.mock.calls[0][0]).toEqual({
       distinctId: 'user_1',
@@ -136,6 +154,84 @@ describe('posthog-server', () => {
       })
     ).resolves.toBeUndefined();
     expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
+  it('bounds the flush so a hung PostHog cannot hold a response', async () => {
+    process.env.POSTHOG_KEY = 'phc_server';
+    vi.useFakeTimers();
+    mocks.flush.mockImplementationOnce(() => new Promise<void>(() => {}));
+
+    const pending = captureServerEvent('user_1', AnalyticsEvents.EDIT_LIMIT_HIT_SERVER, {
+      is_pro: false,
+    });
+    let settled = false;
+    void pending.then(() => {
+      settled = true;
+    });
+
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(settled).toBe(true);
+    vi.useRealTimers();
+  });
+
+  it('logs, rather than rejects, a flush that fails after the bound', async () => {
+    process.env.POSTHOG_KEY = 'phc_server';
+    vi.useFakeTimers();
+    let rejectFlush: (error: Error) => void = () => {};
+    mocks.flush.mockImplementationOnce(
+      () =>
+        new Promise<void>((_, reject) => {
+          rejectFlush = reject;
+        })
+    );
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const pending = captureServerException(new Error('late'), { route: 'api/test' });
+    await vi.advanceTimersByTimeAsync(4000);
+    await pending;
+    rejectFlush(new Error('network'));
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(errorSpy).toHaveBeenCalledWith('PostHog flush failed (api/test):', expect.any(Error));
+    errorSpy.mockRestore();
+    vi.useRealTimers();
+  });
+
+  it('runs the capture through after() inside a request scope', async () => {
+    process.env.POSTHOG_KEY = 'phc_server';
+    const scheduled: Array<() => Promise<void>> = [];
+    mocks.after.mockImplementationOnce((work: () => Promise<void>) => {
+      scheduled.push(work);
+    });
+
+    captureServerEventAfterResponse('user_1', AnalyticsEvents.EDIT_LIMIT_HIT_SERVER, {
+      is_pro: true,
+    });
+
+    // Nothing is sent until Next runs the callback after the response.
+    expect(mocks.capture).not.toHaveBeenCalled();
+    expect(scheduled).toHaveLength(1);
+    await scheduled[0]();
+    expect(mocks.capture).toHaveBeenCalledTimes(1);
+    expect(mocks.flush).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to a fire-and-forget capture outside a request scope', async () => {
+    process.env.POSTHOG_KEY = 'phc_server';
+
+    expect(() =>
+      captureServerExceptionAfterResponse(new Error('boom'), { route: 'api/drafts' })
+    ).not.toThrow();
+    expect(mocks.after).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(mocks.captureException).toHaveBeenCalledTimes(1));
+  });
+
+  it('afterResponse never throws, even when the work rejects', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(() => afterResponse(() => Promise.resolve())).not.toThrow();
     errorSpy.mockRestore();
   });
 });

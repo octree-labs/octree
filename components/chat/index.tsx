@@ -456,7 +456,8 @@ export function Chat({
   }
 
   return (
-    <div className="flex h-full flex-col bg-white">
+    // `data-ph-mask`: prompts and AI replies are masked in PostHog session replay.
+    <div className="flex h-full flex-col bg-white" data-ph-mask="">
       <div className="flex flex-shrink-0 items-center justify-between border-b border-slate-200 px-4 py-2">
         <div className="flex items-center gap-1.5">
           {!embedded && (

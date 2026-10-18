@@ -7,7 +7,7 @@ import type { TablesInsert } from '@/database.types';
 import { createSSEHeaders } from '@/lib/octra-agent/stream-handling';
 import { FREE_DAILY_EDIT_LIMIT, PRO_MONTHLY_EDIT_LIMIT } from '@/data/constants';
 import { AnalyticsEvents } from '@/lib/analytics/events';
-import { captureServerEvent, captureServerException } from '@/lib/posthog-server';
+import { captureServerEventAfterResponse, captureServerExceptionAfterResponse } from '@/lib/posthog-server';
 
 /** `ai_edit_served` is captured for 1 in N requests to bound event volume. */
 const AI_EDIT_SERVED_SAMPLE_RATE = 10;
@@ -122,7 +122,7 @@ export async function POST(request: Request) {
             ? `You've reached your monthly limit of ${PRO_MONTHLY_EDIT_LIMIT} edits. Your limit will reset on your billing date.`
             : `You've reached your daily limit of ${FREE_DAILY_EDIT_LIMIT} edits. Upgrade to Pro for ${PRO_MONTHLY_EDIT_LIMIT} edits per month!`;
 
-          void captureServerEvent(user.id, AnalyticsEvents.EDIT_LIMIT_HIT_SERVER, { is_pro: Boolean(isPro) });
+          captureServerEventAfterResponse(user.id, AnalyticsEvents.EDIT_LIMIT_HIT_SERVER, { is_pro: Boolean(isPro) });
           return NextResponse.json(
             { error: limitMessage, limitReached: true, upgradeRequired: !isPro },
             { status: 429 }
@@ -168,7 +168,7 @@ export async function POST(request: Request) {
         
         const usageData = usageRes.data as { is_pro: boolean; edit_count: number; monthly_edit_count: number } | null;
         const isPro = usageData?.is_pro || false;
-        void captureServerEvent(user.id, AnalyticsEvents.EDIT_LIMIT_HIT_SERVER, { is_pro: isPro });
+        captureServerEventAfterResponse(user.id, AnalyticsEvents.EDIT_LIMIT_HIT_SERVER, { is_pro: isPro });
 
         const limitMessage = isPro
           ? `You've reached your monthly limit of ${PRO_MONTHLY_EDIT_LIMIT} edits. Your limit will reset on your billing date.`
@@ -202,7 +202,7 @@ export async function POST(request: Request) {
     );
 
     if (Math.floor(Math.random() * AI_EDIT_SERVED_SAMPLE_RATE) === 0) {
-      void captureServerEvent(user.id, AnalyticsEvents.AI_EDIT_SERVED, {
+      captureServerEventAfterResponse(user.id, AnalyticsEvents.AI_EDIT_SERVED, {
         model: typeof body?.model === 'string' ? body.model : 'default',
         is_pro: isProUser,
         sample_rate: AI_EDIT_SERVED_SAMPLE_RATE,
@@ -308,7 +308,7 @@ export async function POST(request: Request) {
     return new Response(readable, { headers: createSSEHeaders() });
   } catch (error) {
     console.error('Octra Agent SDK error:', error);
-    await captureServerException(error, { distinctId, route: 'api/octra-agent' });
+    captureServerExceptionAfterResponse(error, { distinctId, route: 'api/octra-agent' });
     const message = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json(
       { error: 'Failed to process agent request', details: message },

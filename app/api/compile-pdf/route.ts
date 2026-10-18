@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { captureServerException } from '@/lib/posthog-server';
+import { captureServerExceptionAfterResponse } from '@/lib/posthog-server';
 import type { CompileRequest, CompileCachePayload } from './types';
 import {
   buildCacheKey,
@@ -164,7 +164,7 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     console.error('LaTeX compilation error:', error);
-    await captureServerException(error, { route: 'api/compile-pdf' });
+    captureServerExceptionAfterResponse(error, { route: 'api/compile-pdf' });
     return NextResponse.json(
       {
         error: 'LaTeX compilation failed',

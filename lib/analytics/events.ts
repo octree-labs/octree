@@ -97,7 +97,7 @@ export interface AnalyticsEventProperties {
     previous_status: string | null;
     status: string;
   };
-  [AnalyticsEvents.IMPORT_COMPLETED]: { source: string; title: string };
+  [AnalyticsEvents.IMPORT_COMPLETED]: { source: string; title_length: number };
   [AnalyticsEvents.AI_EDIT_SERVED]: {
     model: string;
     is_pro: boolean;

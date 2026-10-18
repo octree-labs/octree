@@ -105,6 +105,7 @@ function PostHogIdentify() {
 
     return () => {
       cancelled = true;
+      identifiedUserId.current = null;
       subscription.unsubscribe();
     };
   }, []);

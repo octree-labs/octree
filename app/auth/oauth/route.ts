@@ -3,7 +3,7 @@ import { buildRedirectUrl } from '@/lib/auth/redirect';
 import { createClient } from '@/lib/supabase/server';
 import { pendingDraftFromCookieHeader } from '@/lib/import/pending-draft';
 import { AnalyticsEvents } from '@/lib/analytics/events';
-import { captureServerEvent } from '@/lib/posthog-server';
+import { captureServerEventAfterResponse } from '@/lib/posthog-server';
 
 /** An OAuth account created within this window of the callback is a sign-up. */
 const NEW_ACCOUNT_WINDOW_MS = 5 * 60 * 1000;
@@ -29,7 +29,7 @@ export async function GET(request: Request) {
       // OAuth accounts only pass through here, so a freshly created one is a sign-up.
       const createdAt = Date.parse(data.user.created_at ?? '');
       if (Number.isFinite(createdAt) && Date.now() - createdAt < NEW_ACCOUNT_WINDOW_MS) {
-        await captureServerEvent(data.user.id, AnalyticsEvents.SIGNUP_COMPLETED, {
+        captureServerEventAfterResponse(data.user.id, AnalyticsEvents.SIGNUP_COMPLETED, {
           provider: data.user.app_metadata?.provider ?? 'oauth',
         });
       }

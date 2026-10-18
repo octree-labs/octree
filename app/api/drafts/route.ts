@@ -4,7 +4,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { importPath, setPendingDraftCookie } from '@/lib/import/pending-draft';
-import { captureServerException } from '@/lib/posthog-server';
+import { captureServerExceptionAfterResponse } from '@/lib/posthog-server';
 
 const allowedOrigin = process.env.ALLOWED_TOOLS_ORIGIN || 'https://tools.useoctree.com';
 
@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
     return withCors(res);
   } catch (err) {
     console.error('Draft error:', err);
-    await captureServerException(err, { route: 'api/drafts' });
+    captureServerExceptionAfterResponse(err, { route: 'api/drafts' });
     return withCors(NextResponse.json({ error: 'Internal Server Error' }, { status: 500 }));
   }
 } 

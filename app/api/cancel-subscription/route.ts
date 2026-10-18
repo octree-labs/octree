@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { stripe } from '@/lib/stripe';
 import { resolveStripeCustomer } from '@/lib/stripe-customer';
-import { captureServerException } from '@/lib/posthog-server';
+import { captureServerExceptionAfterResponse } from '@/lib/posthog-server';
 
 export async function POST() {
   try {
@@ -61,7 +61,7 @@ export async function POST() {
     });
   } catch (error) {
     console.error('Error canceling subscription:', error);
-    await captureServerException(error, { route: 'api/cancel-subscription' });
+    captureServerExceptionAfterResponse(error, { route: 'api/cancel-subscription' });
     return NextResponse.json(
       { error: 'Failed to cancel subscription' },
       { status: 500 }

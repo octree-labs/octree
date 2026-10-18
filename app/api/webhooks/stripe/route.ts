@@ -11,7 +11,12 @@ import {
   trackPurchaseFromCheckoutSession,
 } from '@/lib/stripe-webhook';
 import { AnalyticsEvents } from '@/lib/analytics/events';
-import { captureServerEvent, captureServerException } from '@/lib/posthog-server';
+import {
+  afterResponse,
+  captureServerEvent,
+  captureServerEventAfterResponse,
+  captureServerExceptionAfterResponse,
+} from '@/lib/posthog-server';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2025-02-24.acacia',
@@ -68,10 +73,12 @@ export async function POST(request: Request) {
         try {
           const userId = session.metadata?.user_id;
           if (userId && session.payment_status === 'paid') {
-            await captureServerEvent(
-              userId,
-              AnalyticsEvents.SUBSCRIPTION_STARTED,
-              await describeCheckoutSessionPlan(stripe, session)
+            afterResponse(async () =>
+              captureServerEvent(
+                userId,
+                AnalyticsEvents.SUBSCRIPTION_STARTED,
+                await describeCheckoutSessionPlan(stripe, session)
+              )
             );
           }
         } catch (error) {
@@ -168,7 +175,7 @@ export async function POST(request: Request) {
         // the webhook.
         try {
           for (const lifecycle of subscriptionLifecycleEvents(event as any)) {
-            await captureServerEvent(userId, lifecycle.event, lifecycle.properties);
+            captureServerEventAfterResponse(userId, lifecycle.event, lifecycle.properties);
           }
         } catch (error) {
           console.error('PostHog subscription lifecycle event failed:', error);
@@ -179,7 +186,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ received: true });
   } catch (error) {
     console.error('Webhook processing failed:', error);
-    await captureServerException(error, { route: 'api/webhooks/stripe' });
+    captureServerExceptionAfterResponse(error, { route: 'api/webhooks/stripe' });
     return NextResponse.json(
       { error: 'Webhook processing failed' },
       { status: 500 }

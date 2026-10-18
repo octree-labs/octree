@@ -327,13 +327,17 @@ export function GeneratePageContent({
             <SidebarTrigger className="-ml-1" />
             <BackButton />
           </div>
-          <div className="text-sm font-medium text-muted-foreground truncate max-w-[200px] md:max-w-none">
+          <div
+            className="text-sm font-medium text-muted-foreground truncate max-w-[200px] md:max-w-none"
+            data-ph-mask=""
+          >
             {currentTitle}
           </div>
           <div className="w-8" />
         </header>
 
-        <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-muted/30">
+        {/* `data-ph-mask`: prompts, generated documents and the preview are masked in PostHog session replay. */}
+        <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-muted/30" data-ph-mask="">
           <div
             ref={scrollRef}
             className="relative flex-1 overflow-y-auto"

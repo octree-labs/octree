@@ -5,7 +5,7 @@ import type { Tables, TablesInsert, TablesUpdate } from '@/database.types';
 import { getContentTypeByFilename } from '@/lib/constants/file-types';
 import { trackRedditConversion } from '@/lib/reddit-capi';
 import { AnalyticsEvents } from '@/lib/analytics/events';
-import { captureServerEvent, captureServerException } from '@/lib/posthog-server';
+import { captureServerEventAfterResponse, captureServerExceptionAfterResponse } from '@/lib/posthog-server';
 import {
   PENDING_DRAFT_COOKIE,
   clearPendingDraftCookie,
@@ -120,7 +120,7 @@ export async function GET(request: NextRequest) {
 
   if (uploadError) {
     console.error('Error uploading file to storage:', uploadError);
-    await captureServerException(uploadError, { distinctId: user.id, route: 'import', extra: { step: 'upload' } });
+    captureServerExceptionAfterResponse(uploadError, { distinctId: user.id, route: 'import', extra: { step: 'upload' } });
     return redirectAndForget(new URL('/', url.origin));
   }
 
@@ -140,7 +140,7 @@ export async function GET(request: NextRequest) {
 
   if (fileError) {
     console.error('Error creating file record:', fileError);
-    await captureServerException(fileError, { distinctId: user.id, route: 'import', extra: { step: 'file-record' } });
+    captureServerExceptionAfterResponse(fileError, { distinctId: user.id, route: 'import', extra: { step: 'file-record' } });
     return redirectAndForget(projectUrl(url.origin, project.id, true));
   }
 
@@ -211,7 +211,10 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  await captureServerEvent(user.id, AnalyticsEvents.IMPORT_COMPLETED, { source: String(draft.source ?? 'tools'), title: projectData.title });
+  captureServerEventAfterResponse(user.id, AnalyticsEvents.IMPORT_COMPLETED, {
+    source: String(draft.source ?? 'tools'),
+    title_length: (projectData.title ?? '').length,
+  });
 
   // Always land in the editor; `welcome=1` lets the editor show its own
   // onboarding / Pro prompt instead of bouncing through /onboarding.

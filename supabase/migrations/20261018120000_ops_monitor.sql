@@ -4,7 +4,7 @@
 
 create table if not exists public.ops_monitor_state (
   check_name text primary key,
-  status text not null default 'up',
+  status text not null default 'up' check (status in ('up', 'failing', 'down')),
   since timestamptz not null default now(),
   last_checked timestamptz not null default now(),
   last_error text,

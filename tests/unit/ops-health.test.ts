@@ -8,10 +8,12 @@ import {
   runChecks,
   smokeTestDue,
   alertSubject,
+  renderAlertHtml,
   type CheckResult,
   type CheckState,
   type StateStore,
 } from '@/lib/ops/health';
+import { isCronRequestAuthorized } from '@/lib/ops/config';
 
 const T0 = new Date('2026-10-18T12:00:00Z');
 const plusMin = (m: number) => new Date(T0.getTime() + m * 60_000);
@@ -60,23 +62,54 @@ describe('applyTransition', () => {
     expect(t.alert).toBeNull();
   });
 
-  it('does not re-alert while still down, and alerts recovery once', () => {
-    let state = applyTransition(undefined, fail(), T0).next;
-    state = applyTransition(state, fail(), plusMin(10)).next; // alerted
-    const third = applyTransition(state, fail(), plusMin(20));
-    expect(third.alert).toBeNull();
-    expect(third.next.status).toBe('down');
+  it('walks up -> failing -> down -> up with one DOWN and one RECOVERED alert', () => {
+    const up = applyTransition(undefined, ok(), T0);
+    expect([up.next.status, up.alert]).toEqual(['up', null]);
 
-    // Recovery inside the cooldown hour is still suppressed...
-    const earlyRecovery = applyTransition(third.next, ok(), plusMin(30));
-    expect(earlyRecovery.next.status).toBe('up');
-    expect(earlyRecovery.alert).toBeNull();
+    const failing = applyTransition(up.next, fail(), plusMin(10));
+    expect([failing.next.status, failing.alert, failing.previousStatus]).toEqual(['failing', null, 'up']);
 
-    // ...but after the cooldown the recovery alert goes out.
-    const lateRecovery = applyTransition(third.next, ok(), plusMin(75));
-    expect(lateRecovery.alert).toBe('recovered');
-    expect(lateRecovery.next.last_alert_at).toBe(plusMin(75).toISOString());
-    expect(lateRecovery.next.since).toBe(plusMin(75).toISOString());
+    const down = applyTransition(failing.next, fail(), plusMin(20));
+    expect([down.next.status, down.alert, down.previousStatus]).toEqual(['down', 'down', 'failing']);
+
+    // Still down: no repeat while the outage continues.
+    const stillDown = applyTransition(down.next, fail(), plusMin(30));
+    expect([stillDown.next.status, stillDown.alert]).toEqual(['down', null]);
+
+    // A short outage recovers inside the cooldown hour: the RECOVERED email
+    // must still go out, otherwise the owner is left with a dangling DOWN.
+    const recovered = applyTransition(stillDown.next, ok(), plusMin(40));
+    expect([recovered.next.status, recovered.alert, recovered.previousStatus]).toEqual(['up', 'recovered', 'down']);
+    expect(recovered.next.last_alert_at).toBe(plusMin(40).toISOString());
+    expect(recovered.next.since).toBe(plusMin(40).toISOString());
+
+    // Back to normal: nothing further.
+    const steady = applyTransition(recovered.next, ok(), plusMin(50));
+    expect([steady.next.status, steady.alert]).toEqual(['up', null]);
+  });
+
+  it('sends no RECOVERED when the DOWN for that outage was suppressed by the cooldown', () => {
+    const justAlerted: CheckState = {
+      check_name: 'www',
+      status: 'up',
+      since: T0.toISOString(),
+      last_checked: T0.toISOString(),
+      last_error: null,
+      last_alert_at: T0.toISOString(),
+    };
+    const f1 = applyTransition(justAlerted, fail(), plusMin(10)).next;
+    const f2 = applyTransition(f1, fail(), plusMin(20));
+    expect([f2.next.status, f2.alert]).toEqual(['down', null]);
+    const r = applyTransition(f2.next, ok(), plusMin(30));
+    expect([r.next.status, r.alert]).toEqual(['up', null]);
+  });
+
+  it('alerts on the first failure when the threshold is 1 (stateless mode)', () => {
+    const t = applyTransition(undefined, fail(), T0, { failureThreshold: 1 });
+    expect([t.next.status, t.alert]).toEqual(['down', 'down']);
+    expect(alertSubject([{ kind: 'down', result: fail(), state: t.next }], { stateless: true })).toBe(
+      '[Octree] DOWN: www (monitor state unavailable)'
+    );
   });
 
   it('retries a down alert that the cooldown suppressed', () => {
@@ -106,6 +139,43 @@ describe('applyTransition', () => {
     const t1 = applyTransition(undefined, fail(), T0, { failureThreshold: 1 });
     expect(t1.next.status).toBe('down');
     expect(t1.alert).toBe('down');
+  });
+});
+
+describe('isCronRequestAuthorized', () => {
+  const req = (auth?: string) =>
+    new Request('https://example.com/api/cron/health-check', { headers: auth ? { authorization: auth } : {} });
+
+  it('fails closed when CRON_SECRET is unset', () => {
+    vi.stubEnv('CRON_SECRET', '');
+    expect(isCronRequestAuthorized(req('Bearer '))).toBe(false);
+    expect(isCronRequestAuthorized(req())).toBe(false);
+    vi.unstubAllEnvs();
+  });
+
+  it('accepts only the exact full header', () => {
+    vi.stubEnv('CRON_SECRET', 's3cret');
+    expect(isCronRequestAuthorized(req('Bearer s3cret'))).toBe(true);
+    expect(isCronRequestAuthorized(req('Bearer s3cretx'))).toBe(false);
+    expect(isCronRequestAuthorized(req('bearer s3cret'))).toBe(false);
+    expect(isCronRequestAuthorized(req('Bearer s3cre'))).toBe(false);
+    expect(isCronRequestAuthorized(req('s3cret'))).toBe(false);
+    expect(isCronRequestAuthorized(req())).toBe(false);
+    vi.unstubAllEnvs();
+  });
+});
+
+describe('renderAlertHtml', () => {
+  it('escapes errors and appends notes', () => {
+    const outcome = {
+      results: [{ ...fail('www'), error: '<b>HTTP 503</b>' }],
+      transitions: [],
+      alerts: [{ kind: 'down' as const, result: { ...fail('www'), error: '<b>HTTP 503</b>' }, state: applyTransition(undefined, fail(), T0, { failureThreshold: 1 }).next }],
+    };
+    const html = renderAlertHtml(outcome, T0, ['state & store <missing>']);
+    expect(html).not.toContain('<b>');
+    expect(html).toContain('&lt;b&gt;HTTP 503&lt;/b&gt;');
+    expect(html).toContain('state &amp; store &lt;missing&gt;');
   });
 });
 

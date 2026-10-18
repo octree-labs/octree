@@ -3,6 +3,7 @@
  * monitor). Everything that reads the environment lives here so the pure
  * computation modules stay testable without env access.
  */
+import { timingSafeEqual } from 'node:crypto';
 
 /** Owner address for digests and alerts. Unset means "do not send email". */
 export function getOpsAlertEmail(): string | null {
@@ -13,13 +14,15 @@ export function getOpsAlertEmail(): string | null {
 /**
  * Vercel cron invocations carry `Authorization: Bearer ${CRON_SECRET}`.
  * A missing CRON_SECRET fails closed so the routes can never be hit
- * unauthenticated in an environment where the secret was forgotten.
+ * unauthenticated in an environment where the secret was forgotten. The
+ * whole header is compared (no prefix match) in constant time.
  */
 export function isCronRequestAuthorized(request: Request): boolean {
   const secret = process.env.CRON_SECRET;
   if (!secret) return false;
-  const header = request.headers.get('authorization') ?? '';
-  return header === `Bearer ${secret}`;
+  const expected = Buffer.from(`Bearer ${secret}`);
+  const actual = Buffer.from(request.headers.get('authorization') ?? '');
+  return expected.length === actual.length && timingSafeEqual(expected, actual);
 }
 
 /**

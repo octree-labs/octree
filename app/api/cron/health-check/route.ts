@@ -69,7 +69,8 @@ function buildChecks(now: Date, existingStates: CheckState[], forceSmoke: boolea
 /**
  * Uptime monitor. Scheduled in `vercel.json` (every 10 minutes on Pro; see
  * `HEALTH_CHECK_INTERVAL_MINUTES` in lib/ops/config.ts for the Hobby caveat).
- * `?smoke=1` forces the compile smoke test; `?dry=1` skips alert emails.
+ * `?smoke=1` forces the compile smoke test; `?dry=1` has no side effects
+ * (no alert email, no state write; transitions are computed in memory).
  */
 export async function GET(request: Request) {
   if (!isCronRequestAuthorized(request)) {
@@ -88,27 +89,38 @@ export async function GET(request: Request) {
   );
   let store: StateStore = supabaseStateStore(supabase);
   const notes: string[] = [];
+  let stateless = false;
 
   try {
     let existing: CheckState[];
     try {
       existing = await store.getAll();
+      // Dry runs compute transitions against the live rows but never write.
+      if (dry) store = memoryStateStore(existing);
     } catch (error) {
-      // Table missing (migration not applied yet) or unreachable: still run the
-      // probes, but without memory there is no anti-flap or alerting.
-      notes.push(`state store unavailable, running stateless: ${error instanceof Error ? error.message : String(error)}`);
+      // Table missing (migration not applied yet) or unreachable: still run
+      // the probes. Without memory there is no anti-flap window, so a failure
+      // alerts immediately (at most one email per invocation) and the email
+      // says the state store is unavailable so the migration gets applied.
+      stateless = true;
+      notes.push(
+        `monitor state unavailable (ops_monitor_state): ${error instanceof Error ? error.message : String(error)}. Running stateless: no anti-flap, no recovery alerts, apply supabase/migrations/20261018120000_ops_monitor.sql.`
+      );
       store = memoryStateStore();
       existing = [];
     }
     const { checks, skipped } = buildChecks(now, existing, forceSmoke);
     const results = await runChecks(checks);
-    const outcome = await evaluateAndPersist(results, store, now);
+    const outcome = await evaluateAndPersist(results, store, now, stateless ? { failureThreshold: 1 } : {});
 
     let email: Awaited<ReturnType<typeof sendOpsEmail>> | null = null;
     if (outcome.alerts.length) {
       email = dry
         ? { sent: false, reason: 'dry run' }
-        : await sendOpsEmail({ subject: alertSubject(outcome.alerts), html: renderAlertHtml(outcome, now) });
+        : await sendOpsEmail({
+            subject: alertSubject(outcome.alerts, { stateless }),
+            html: renderAlertHtml(outcome, now, notes),
+          });
     }
 
     const allUp = results.every((r) => r.ok);

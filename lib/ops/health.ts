@@ -212,10 +212,14 @@ function cooldownPassed(prev: CheckState | undefined, nowMs: number, cooldownMs:
 /**
  * Decides the next state and whether an alert fires.
  * - up -> down alerts only after `failureThreshold` consecutive failures.
- * - down -> up alerts on recovery. A single failure (`failing`) that recovers
- *   is a blip and stays silent.
- * - At most one alert per check per `alertCooldownMs`. A down alert that was
- *   suppressed by the cooldown is retried on later runs while still down.
+ * - down -> up alerts on recovery when a down alert went out for this outage,
+ *   so every DOWN email gets exactly one RECOVERED email and nothing else
+ *   does. A single failure (`failing`) that recovers is a blip and stays
+ *   silent.
+ * - Down alerts are rate-limited to one per check per `alertCooldownMs`; a
+ *   down alert the cooldown suppressed is retried on later runs while still
+ *   down. Recovery alerts are bounded by down alerts, so a flapping check
+ *   sends at most two emails per cooldown period.
  */
 export function applyTransition(
   prev: CheckState | undefined,
@@ -239,9 +243,10 @@ export function applyTransition(
   };
 
   if (result.ok) {
-    const recovered = prev?.status === 'down';
     const changed = prev?.status !== 'up';
-    const alert = recovered && cooldownPassed(prev, nowMs, cooldownMs) ? 'recovered' : null;
+    const downAlerted =
+      prev?.status === 'down' && !!prev.last_alert_at && Date.parse(prev.last_alert_at) >= Date.parse(prev.since);
+    const alert = downAlerted ? 'recovered' : null;
     return {
       previousStatus,
       alert,
@@ -310,20 +315,20 @@ export function smokeTestDue(
 // Alert email
 // ---------------------------------------------------------------------------
 
-export function alertSubject(alerts: MonitorOutcome['alerts']): string {
+export function alertSubject(alerts: MonitorOutcome['alerts'], options: { stateless?: boolean } = {}): string {
   const down = alerts.filter((a) => a.kind === 'down').map((a) => a.result.name);
   const up = alerts.filter((a) => a.kind === 'recovered').map((a) => a.result.name);
   const parts: string[] = [];
   if (down.length) parts.push(`DOWN: ${down.join(', ')}`);
   if (up.length) parts.push(`recovered: ${up.join(', ')}`);
-  return `[Octree] ${parts.join(' | ')}`;
+  return `[Octree] ${parts.join(' | ')}${options.stateless ? ' (monitor state unavailable)' : ''}`;
 }
 
 function esc(value: string | number): string {
   return String(value).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] ?? c);
 }
 
-export function renderAlertHtml(outcome: MonitorOutcome, now: Date): string {
+export function renderAlertHtml(outcome: MonitorOutcome, now: Date, notes: string[] = []): string {
   const lines = outcome.alerts.map((a) => {
     const since = a.state.since;
     const detail =
@@ -344,6 +349,7 @@ export function renderAlertHtml(outcome: MonitorOutcome, now: Date): string {
 <h2 style="margin:0 0 8px">Octree health</h2>
 <ul>${lines.join('')}</ul>
 <table cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin-top:12px">${rows}</table>
+${notes.length ? `<p style="margin-top:16px;color:#777;font-size:12px">${notes.map(esc).join('<br>')}</p>` : ''}
 </body></html>`;
 }
 

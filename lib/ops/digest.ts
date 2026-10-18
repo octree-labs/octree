@@ -445,7 +445,7 @@ export interface SupabaseDigest {
   onboardingCompleted: Record<WindowKey, number>;
   projectsCreated: Record<WindowKey, number>;
   draftsCreated: Record<WindowKey, number>;
-  /** null until `drafts.consumed_at` exists (PR #394). */
+  /** null when `drafts.consumed_at` (migration 20261018100000) is not applied yet. */
   draftsConsumed: Record<WindowKey, number> | null;
   /** Free users whose daily edit counter is at the limit today. */
   freeLimitUsersNow: number;
@@ -501,7 +501,7 @@ export async function fetchSupabaseDigest(client: Db, windows: Windows, now: Dat
   try {
     draftsConsumed = await countPerWindow(client, 'drafts', 'consumed_at', windows);
   } catch {
-    notes.push('drafts.consumed_at is not available yet (lands with PR #394); consumed drafts not reported.');
+    notes.push('drafts.consumed_at is not available (migration 20261018100000_drafts_consumption not applied); consumed drafts not reported.');
   }
 
   const today = now.toISOString().slice(0, 10);

@@ -16,14 +16,21 @@ const mocks = vi.hoisted(() => {
   const usageUpdateEq = vi.fn().mockResolvedValue({ error: null });
   const usageUpdate = vi.fn().mockReturnValue({ eq: usageUpdateEq });
   const usageUpsert = vi.fn().mockResolvedValue({ error: null });
+  // The row the route reads before writing, to decide whether the billing
+  // period advanced (lib/subscription/billing-period.ts).
+  const usageMaybeSingle = vi.fn().mockResolvedValue({ data: null, error: null });
+  const usageSelect = vi.fn().mockReturnValue({ eq: () => ({ maybeSingle: usageMaybeSingle }) });
 
   const from = vi.fn((table: string) => {
     if (table === 'stripe_webhook_events') return { insert: eventsInsert };
-    if (table === 'user_usage') return { update: usageUpdate, upsert: usageUpsert };
+    if (table === 'user_usage') return { update: usageUpdate, upsert: usageUpsert, select: usageSelect };
     throw new Error(`unexpected table ${table}`);
   });
 
-  return { constructEvent, trackRedditConversion, eventsInsert, usageUpdate, usageUpdateEq, usageUpsert, from };
+  return {
+    constructEvent, trackRedditConversion, eventsInsert, usageUpdate, usageUpdateEq, usageUpsert,
+    usageMaybeSingle, from,
+  };
 });
 
 vi.mock('stripe', () => ({
@@ -78,6 +85,17 @@ function checkoutEvent(overrides: Record<string, unknown> = {}) {
   };
 }
 
+/** Run `fn` with the clock set to `seconds` (unix), so period ends in the fixtures are in the future. */
+async function atUnixTime(seconds: number, fn: () => Promise<void>) {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date(seconds * 1000));
+  try {
+    await fn();
+  } finally {
+    vi.useRealTimers();
+  }
+}
+
 function subscriptionEvent(type: string, overrides: Record<string, unknown> = {}) {
   return {
     id: 'evt_sub_1',
@@ -106,6 +124,12 @@ describe('POST /api/webhooks/stripe', () => {
     mocks.eventsInsert.mockResolvedValue({ error: null });
     mocks.usageUpdateEq.mockResolvedValue({ error: null });
     mocks.usageUpsert.mockResolvedValue({ error: null });
+    // Default: a free row that has never seen this subscription, so an
+    // active event is a first activation and resets the monthly counter.
+    mocks.usageMaybeSingle.mockResolvedValue({
+      data: { is_pro: false, stripe_subscription_id: null, current_period_start: null },
+      error: null,
+    });
     mocks.trackRedditConversion.mockResolvedValue(undefined);
     errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
   });
@@ -196,9 +220,11 @@ describe('POST /api/webhooks/stripe', () => {
       async (type) => {
         mocks.constructEvent.mockReturnValue(subscriptionEvent(type));
 
-        const res = await POST(makeRequest());
+        await atUnixTime(1_700_000_000, async () => {
+          const res = await POST(makeRequest());
+          expect(res.status).toBe(200);
+        });
 
-        expect(res.status).toBe(200);
         expect(mocks.eventsInsert).not.toHaveBeenCalled();
         expect(mocks.usageUpdate).toHaveBeenCalledTimes(1);
         expect(mocks.usageUpdate.mock.calls[0][0]).toMatchObject({
@@ -208,6 +234,8 @@ describe('POST /api/webhooks/stripe', () => {
           cancel_at_period_end: false,
           is_pro: true,
           monthly_edit_count: 0,
+          // The billing date Stripe sent (current_period_end), not now + 30d.
+          monthly_reset_date: new Date(1_702_592_000 * 1000).toISOString().slice(0, 10),
         });
         expect(mocks.usageUpdateEq).toHaveBeenCalledWith('user_id', 'user-1');
         expect(mocks.usageUpsert).toHaveBeenCalledWith(
@@ -297,6 +325,72 @@ describe('POST /api/webhooks/stripe', () => {
         is_pro: true,
         subscription_status: 'active',
         monthly_edit_count: 0,
+      });
+    });
+
+    describe('monthly counter resets only when the billing period advances', () => {
+      // Stored row: Pro on sub_1, period started at the event's current_period_start.
+      const samePeriodRow = {
+        is_pro: true,
+        stripe_subscription_id: 'sub_1',
+        current_period_start: new Date(1_700_000_000 * 1000).toISOString(),
+      };
+
+      it('keeps monthly_edit_count when subscription.updated repeats the current period (cancel toggle, metadata, discount)', async () => {
+        mocks.usageMaybeSingle.mockResolvedValue({ data: samePeriodRow, error: null });
+        mocks.constructEvent.mockReturnValue(
+          subscriptionEvent('customer.subscription.updated', { cancel_at_period_end: true })
+        );
+
+        const res = await POST(makeRequest());
+
+        expect(res.status).toBe(200);
+        const update = mocks.usageUpdate.mock.calls[0][0];
+        expect(update).toMatchObject({ is_pro: true, cancel_at_period_end: true });
+        expect(update).not.toHaveProperty('monthly_edit_count');
+        expect(update).not.toHaveProperty('monthly_reset_date');
+      });
+
+      it('resets monthly_edit_count on renewal (current_period_start moved forward)', async () => {
+        mocks.usageMaybeSingle.mockResolvedValue({ data: samePeriodRow, error: null });
+        mocks.constructEvent.mockReturnValue(
+          subscriptionEvent('customer.subscription.updated', {
+            current_period_start: 1_702_592_000,
+            current_period_end: 1_705_184_000,
+          })
+        );
+
+        await atUnixTime(1_702_592_000, () => POST(makeRequest()).then(() => undefined));
+
+        expect(mocks.usageUpdate.mock.calls[0][0]).toMatchObject({
+          monthly_edit_count: 0,
+          monthly_reset_date: new Date(1_705_184_000 * 1000).toISOString().slice(0, 10),
+        });
+      });
+
+      it('resets when a different subscription replaces the stored one', async () => {
+        mocks.usageMaybeSingle.mockResolvedValue({
+          data: { ...samePeriodRow, stripe_subscription_id: 'sub_old' },
+          error: null,
+        });
+        mocks.constructEvent.mockReturnValue(subscriptionEvent('customer.subscription.created'));
+
+        await POST(makeRequest());
+
+        expect(mocks.usageUpdate.mock.calls[0][0]).toMatchObject({ monthly_edit_count: 0 });
+      });
+
+      it('still writes the billing columns (without a reset) when the pre-read fails', async () => {
+        mocks.usageMaybeSingle.mockResolvedValue({ data: null, error: { message: 'db down' } });
+        mocks.constructEvent.mockReturnValue(subscriptionEvent('customer.subscription.updated'));
+
+        const res = await POST(makeRequest());
+
+        expect(res.status).toBe(200);
+        expect(mocks.usageUpdate).toHaveBeenCalledTimes(1);
+        expect(mocks.usageUpdate.mock.calls[0][0]).toMatchObject({ is_pro: true, stripe_subscription_id: 'sub_1' });
+        expect(mocks.usageUpdate.mock.calls[0][0]).not.toHaveProperty('monthly_edit_count');
+        expect(errorSpy).toHaveBeenCalled();
       });
     });
 

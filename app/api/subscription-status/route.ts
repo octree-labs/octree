@@ -9,6 +9,7 @@ import { resolveStripeCustomer } from '@/lib/stripe-customer';
 import {
   appliedCouponId,
   effectiveSubscriptionStatus,
+  isProStatus,
   pausePaidThrough,
   pauseResumesAt,
   subscriptionHasDiscount,
@@ -18,6 +19,10 @@ import {
   FREE_DAILY_EDIT_LIMIT,
   PRO_MONTHLY_EDIT_LIMIT,
 } from '@/data/constants';
+import {
+  billingRowMatches,
+  type IncomingSubscription,
+} from '@/lib/subscription/billing-period';
 
 // Reads go through the user-session client (`supabase`); every write in this
 // route touches billing or quota columns, which the user_usage guard trigger
@@ -204,8 +209,28 @@ async function updateSubscriptionInDB(
   admin: any,
   userId: string,
   customerId: string,
-  subscription: Stripe.Subscription
+  subscription: Stripe.Subscription,
+  usageData: Tables<'user_usage'>
 ) {
+  const effectiveStatus = effectiveSubscriptionStatus(subscription);
+  const incoming: IncomingSubscription = {
+    customerId,
+    subscriptionId: subscription.id,
+    // `paused` (not Stripe's `active`) so the RPC derives is_pro = false
+    // while collection is paused, matching the webhook.
+    status: effectiveStatus,
+    isPro: isProStatus(effectiveStatus),
+    currentPeriodStart: new Date(subscription.current_period_start * 1000).toISOString(),
+    currentPeriodEnd: new Date(subscription.current_period_end * 1000).toISOString(),
+    cancelAtPeriodEnd: subscription.cancel_at_period_end,
+  };
+
+  // This runs on every page load. When the row already says what Stripe
+  // says there is nothing to write, and the RPC itself only resets
+  // monthly_edit_count when the billing period advances
+  // (lib/subscription/billing-period.ts, migration 20261018140000).
+  if (billingRowMatches(usageData, incoming)) return;
+
   try {
     // EXECUTE on this function is revoked from `authenticated`; only the
     // service role may call it.
@@ -213,16 +238,10 @@ async function updateSubscriptionInDB(
       p_user_id: userId,
       p_stripe_customer_id: customerId,
       p_stripe_subscription_id: subscription.id,
-      // `paused` (not Stripe's `active`) so the RPC derives is_pro = false
-      // while collection is paused, matching the webhook.
-      p_subscription_status: effectiveSubscriptionStatus(subscription),
-      p_current_period_start: new Date(
-        subscription.current_period_start * 1000
-      ).toISOString(),
-      p_current_period_end: new Date(
-        subscription.current_period_end * 1000
-      ).toISOString(),
-      p_cancel_at_period_end: subscription.cancel_at_period_end,
+      p_subscription_status: incoming.status,
+      p_current_period_start: incoming.currentPeriodStart,
+      p_current_period_end: incoming.currentPeriodEnd,
+      p_cancel_at_period_end: incoming.cancelAtPeriodEnd,
     });
     if (error) {
       console.error('Error updating subscription status in database:', error);
@@ -284,7 +303,7 @@ export async function GET() {
       });
     }
 
-    await updateSubscriptionInDB(admin, user.id, customerId, subscription);
+    await updateSubscriptionInDB(admin, user.id, customerId, subscription, usageData);
 
     return NextResponse.json({
       hasSubscription: true,

@@ -19,6 +19,8 @@ export interface StoredBillingRow {
   current_period_start: string | null;
   current_period_end?: string | null;
   cancel_at_period_end?: boolean | null;
+  /** Pinned to the period end at every reset (`YYYY-MM-DD`). */
+  monthly_reset_date?: string | null;
 }
 
 export interface IncomingSubscription {
@@ -40,26 +42,40 @@ function toMs(value: string | null | undefined): number | null {
   return Number.isFinite(ms) ? ms : null;
 }
 
+/** The UTC calendar date of `value` (`YYYY-MM-DD`), or null. */
+function toDate(value: string | null | undefined): string | null {
+  const ms = toMs(value);
+  return ms === null ? null : new Date(ms).toISOString().slice(0, 10);
+}
+
 /**
  * True when `incoming` opens a billing period the stored row has not seen:
- * the first activation, a different subscription, or `current_period_start`
- * moving forward (a renewal). False for every other write, including a
- * status read that repeats the current period, a cancel_at_period_end
- * toggle, a discount or a pause within the period.
+ * the first activation, a different subscription, `current_period_start`
+ * moving forward (a renewal), or Pro coming back (past_due recovery, resume
+ * after a pause) for a period the counter was not already reset for. False
+ * for every other write, including a status read that repeats the current
+ * period, a cancel_at_period_end toggle, a discount, a pause, or a recovery
+ * or resume inside the period the counter already belongs to.
+ *
+ * "Already reset for this period" is `monthly_reset_date` equal to the period
+ * end date: every reset pins it there (`monthlyResetDateFor`, and the RPC).
  */
 export function startsNewBillingPeriod(
   stored: StoredBillingRow | null | undefined,
   incoming: IncomingSubscription
 ): boolean {
   if (!incoming.isPro) return false;
-  if (!stored || !stored.is_pro) return true;
+  if (!stored) return true;
   if (stored.stripe_subscription_id !== incoming.subscriptionId) return true;
 
   const storedStart = toMs(stored.current_period_start);
   const incomingStart = toMs(incoming.currentPeriodStart);
   if (storedStart === null) return true;
-  if (incomingStart === null) return false;
-  return incomingStart > storedStart;
+  if (incomingStart !== null && incomingStart > storedStart) return true;
+  if (!stored.is_pro) {
+    return toDate(incoming.currentPeriodEnd) !== (stored.monthly_reset_date ?? null);
+  }
+  return false;
 }
 
 /**

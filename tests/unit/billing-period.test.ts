@@ -34,6 +34,8 @@ const stored: StoredBillingRow = {
   current_period_start: '2026-10-01T00:00:00+00:00',
   current_period_end: '2026-11-01T00:00:00+00:00',
   cancel_at_period_end: false,
+  // Pinned to the period end by the last reset.
+  monthly_reset_date: '2026-11-01',
 };
 
 describe('startsNewBillingPeriod', () => {
@@ -68,8 +70,33 @@ describe('startsNewBillingPeriod', () => {
     expect(startsNewBillingPeriod({ ...stored, is_pro: false }, { ...incoming, status: 'canceled', isPro: false })).toBe(false);
   });
 
-  it('resets when Pro comes back after a pause, even within the same period', () => {
-    expect(startsNewBillingPeriod({ ...stored, is_pro: false, subscription_status: 'paused' }, incoming)).toBe(true);
+  it('keeps the counter when Pro comes back inside the period it was already reset for (past_due recovery, dashboard pause then resume)', () => {
+    expect(startsNewBillingPeriod({ ...stored, is_pro: false, subscription_status: 'past_due' }, incoming)).toBe(false);
+    expect(startsNewBillingPeriod({ ...stored, is_pro: false, subscription_status: 'paused' }, incoming)).toBe(false);
+  });
+
+  it('resets when Pro comes back after the cycle turned while it was off (renewal failed then paid; pause past the period end)', () => {
+    // The paused / past_due write already carried the new period, so
+    // current_period_start no longer moves; monthly_reset_date still says
+    // the old period.
+    const rolledWhileOff: StoredBillingRow = {
+      ...stored,
+      is_pro: false,
+      subscription_status: 'paused',
+      current_period_start: '2026-11-01T00:00:00+00:00',
+      current_period_end: '2026-12-01T00:00:00+00:00',
+      monthly_reset_date: '2026-11-01',
+    };
+    const nextPeriod = {
+      ...incoming,
+      currentPeriodStart: '2026-11-01T00:00:00.000Z',
+      currentPeriodEnd: '2026-12-01T00:00:00.000Z',
+    };
+    expect(startsNewBillingPeriod(rolledWhileOff, nextPeriod)).toBe(true);
+  });
+
+  it('resets when Pro comes back and the row never recorded a reset date (webhook read without the column)', () => {
+    expect(startsNewBillingPeriod({ ...stored, is_pro: false, monthly_reset_date: undefined }, incoming)).toBe(true);
   });
 });
 

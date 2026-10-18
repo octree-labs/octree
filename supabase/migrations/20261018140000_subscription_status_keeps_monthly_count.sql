@@ -7,9 +7,14 @@
 -- every subscriber, so Pro counters never got past 0, the 500/month cap was
 -- never enforced and the lazy reset date kept sliding. The counter now
 -- resets only when the write opens a billing period the row has not seen:
---   * the row was not Pro (first activation, resume after a pause),
---   * a different subscription id,
---   * current_period_start moved forward (a renewal).
+--   * a different subscription id (first activation, re-subscribe),
+--   * no period recorded yet,
+--   * current_period_start moved forward (a renewal),
+--   * Pro coming back (past_due recovery, resume after a pause) for a period
+--     the counter was not already reset for. monthly_reset_date is pinned to
+--     the period end at every reset, so "already reset for this period" is
+--     monthly_reset_date = period end; a recovery or resume inside the same
+--     period keeps the counter, one after the cycle turned resets it.
 -- The reset date becomes the billing date Stripe sent (period end) so the
 -- lazy reset in increment_edit_count lines up with it; a write that carries
 -- the same period keeps the counter and the reset date. A call that changes
@@ -37,6 +42,7 @@ declare
   v_is_pro boolean := p_subscription_status in ('active', 'trialing');
   v_old public.user_usage%rowtype;
   v_new_period boolean;
+  v_period_end_date date := (p_current_period_end at time zone 'utc')::date;
   v_reset_date date;
 begin
   select * into v_old from public.user_usage where user_id = p_user_id;
@@ -45,15 +51,17 @@ begin
   end if;
 
   v_new_period := v_is_pro and (
-    not coalesce(v_old.is_pro, false)
-    or v_old.stripe_subscription_id is distinct from p_stripe_subscription_id
+    v_old.stripe_subscription_id is distinct from p_stripe_subscription_id
     or v_old.current_period_start is null
     or (p_current_period_start is not null and p_current_period_start > v_old.current_period_start)
+    -- Pro was off (past_due, paused, unpaid): reset only if the counter was
+    -- not already reset for this period.
+    or (not coalesce(v_old.is_pro, false) and v_period_end_date is distinct from v_old.monthly_reset_date)
   );
 
   v_reset_date := case
     when p_current_period_end is not null and p_current_period_end > now()
-      then (p_current_period_end at time zone 'utc')::date
+      then v_period_end_date
     else (current_date + interval '1 month')::date
   end;
 

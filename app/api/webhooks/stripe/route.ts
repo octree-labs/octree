@@ -129,7 +129,7 @@ export async function POST(request: Request) {
           // other writes keep it.
           const { data: storedRow, error: storedError } = await supabase
             .from('user_usage')
-            .select('is_pro, stripe_subscription_id, current_period_start')
+            .select('is_pro, stripe_subscription_id, current_period_start, monthly_reset_date')
             .eq('user_id', userId)
             .maybeSingle();
           if (storedError) {

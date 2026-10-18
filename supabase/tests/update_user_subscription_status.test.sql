@@ -84,7 +84,7 @@ begin
   raise notice 'PASS: renewal resets the counter to the new billing date';
 end $$;
 
--- Paused: Pro off, counter kept; resume: counter reset.
+-- Paused (dashboard pause, or the paid period ended): Pro off, counter kept.
 update public.user_usage set monthly_edit_count = 3
 where user_id = '00000000-0000-4000-8000-000000000011';
 
@@ -100,6 +100,178 @@ begin
     raise exception 'FAIL: pause should drop Pro and keep the counter (got %, %)', r.is_pro, r.monthly_edit_count;
   end if;
   raise notice 'PASS: pause keeps the counter';
+end $$;
+
+-- Resume inside the same period: the counter already belongs to this period.
+select public.update_user_subscription_status(
+  '00000000-0000-4000-8000-000000000011', 'cus_1', 'sub_1', 'active',
+  '2026-11-01T00:00:00Z', '2026-12-01T00:00:00Z', false);
+
+do $$
+declare r public.user_usage%rowtype;
+begin
+  select * into r from public.user_usage where user_id = '00000000-0000-4000-8000-000000000011';
+  if not r.is_pro or r.monthly_edit_count <> 3 or r.monthly_reset_date <> date '2026-12-01' then
+    raise exception 'FAIL: resume within the period should restore Pro and keep the counter (got %, %, %)',
+      r.is_pro, r.monthly_edit_count, r.monthly_reset_date;
+  end if;
+  raise notice 'PASS: resume within the same period keeps the counter';
+end $$;
+
+-- past_due mid-period, then the payment goes through: same period, no reset.
+select public.update_user_subscription_status(
+  '00000000-0000-4000-8000-000000000011', 'cus_1', 'sub_1', 'past_due',
+  '2026-11-01T00:00:00Z', '2026-12-01T00:00:00Z', false);
+select public.update_user_subscription_status(
+  '00000000-0000-4000-8000-000000000011', 'cus_1', 'sub_1', 'active',
+  '2026-11-01T00:00:00Z', '2026-12-01T00:00:00Z', false);
+
+do $$
+declare r public.user_usage%rowtype;
+begin
+  select * into r from public.user_usage where user_id = '00000000-0000-4000-8000-000000000011';
+  if not r.is_pro or r.monthly_edit_count <> 3 then
+    raise exception 'FAIL: past_due recovery within the period should keep the counter (got %, %)',
+      r.is_pro, r.monthly_edit_count;
+  end if;
+  raise notice 'PASS: past_due recovery within the same period keeps the counter';
+end $$;
+
+-- unpaid / incomplete: Pro off, counter kept.
+select public.update_user_subscription_status(
+  '00000000-0000-4000-8000-000000000011', 'cus_1', 'sub_1', 'unpaid',
+  '2026-11-01T00:00:00Z', '2026-12-01T00:00:00Z', false);
+select public.update_user_subscription_status(
+  '00000000-0000-4000-8000-000000000011', 'cus_1', 'sub_1', 'incomplete',
+  '2026-11-01T00:00:00Z', '2026-12-01T00:00:00Z', false);
+
+do $$
+declare r public.user_usage%rowtype;
+begin
+  select * into r from public.user_usage where user_id = '00000000-0000-4000-8000-000000000011';
+  if r.is_pro or r.subscription_status <> 'incomplete' or r.monthly_edit_count <> 3 then
+    raise exception 'FAIL: unpaid/incomplete should drop Pro and keep the counter (got %, %, %)',
+      r.is_pro, r.subscription_status, r.monthly_edit_count;
+  end if;
+  raise notice 'PASS: unpaid and incomplete keep the counter without Pro';
+end $$;
+
+-- The cycle turns while paused (voided invoice): the paused write carries the
+-- new period and keeps the counter; the resume that follows is a new period.
+select public.update_user_subscription_status(
+  '00000000-0000-4000-8000-000000000011', 'cus_1', 'sub_1', 'paused',
+  '2026-12-01T00:00:00Z', '2027-01-01T00:00:00Z', false);
+
+do $$
+declare r public.user_usage%rowtype;
+begin
+  select * into r from public.user_usage where user_id = '00000000-0000-4000-8000-000000000011';
+  if r.is_pro or r.monthly_edit_count <> 3 or r.current_period_start <> '2026-12-01T00:00:00Z' then
+    raise exception 'FAIL: a paused renewal should record the period without resetting (got %, %, %)',
+      r.is_pro, r.monthly_edit_count, r.current_period_start;
+  end if;
+  raise notice 'PASS: the cycle turning while paused keeps the counter';
+end $$;
+
+select public.update_user_subscription_status(
+  '00000000-0000-4000-8000-000000000011', 'cus_1', 'sub_1', 'active',
+  '2026-12-01T00:00:00Z', '2027-01-01T00:00:00Z', false);
+
+do $$
+declare r public.user_usage%rowtype;
+begin
+  select * into r from public.user_usage where user_id = '00000000-0000-4000-8000-000000000011';
+  if not r.is_pro or r.monthly_edit_count <> 0 or r.monthly_reset_date <> date '2027-01-01' then
+    raise exception 'FAIL: resume after the cycle turned should reset to the new billing date (got %, %, %)',
+      r.is_pro, r.monthly_edit_count, r.monthly_reset_date;
+  end if;
+  raise notice 'PASS: resume after the cycle turned resets the counter';
+end $$;
+
+-- Renewal invoice fails (past_due carries the new period), then is paid.
+update public.user_usage set monthly_edit_count = 9
+where user_id = '00000000-0000-4000-8000-000000000011';
+
+select public.update_user_subscription_status(
+  '00000000-0000-4000-8000-000000000011', 'cus_1', 'sub_1', 'past_due',
+  '2027-01-01T00:00:00Z', '2027-02-01T00:00:00Z', false);
+select public.update_user_subscription_status(
+  '00000000-0000-4000-8000-000000000011', 'cus_1', 'sub_1', 'active',
+  '2027-01-01T00:00:00Z', '2027-02-01T00:00:00Z', false);
+
+do $$
+declare r public.user_usage%rowtype;
+begin
+  select * into r from public.user_usage where user_id = '00000000-0000-4000-8000-000000000011';
+  if not r.is_pro or r.monthly_edit_count <> 0 or r.monthly_reset_date <> date '2027-02-01' then
+    raise exception 'FAIL: recovery after a failed renewal should reset for the new period (got %, %, %)',
+      r.is_pro, r.monthly_edit_count, r.monthly_reset_date;
+  end if;
+  raise notice 'PASS: recovery after a failed renewal resets for the new period';
+end $$;
+
+-- Cancel, then a new subscription: a different id resets.
+update public.user_usage set monthly_edit_count = 9
+where user_id = '00000000-0000-4000-8000-000000000011';
+
+select public.update_user_subscription_status(
+  '00000000-0000-4000-8000-000000000011', 'cus_1', 'sub_1', 'canceled',
+  '2027-01-01T00:00:00Z', '2027-02-01T00:00:00Z', false);
+select public.update_user_subscription_status(
+  '00000000-0000-4000-8000-000000000011', 'cus_1', 'sub_2', 'active',
+  '2027-01-15T00:00:00Z', '2027-02-15T00:00:00Z', false);
+
+do $$
+declare r public.user_usage%rowtype;
+begin
+  select * into r from public.user_usage where user_id = '00000000-0000-4000-8000-000000000011';
+  if not r.is_pro or r.stripe_subscription_id <> 'sub_2' or r.monthly_edit_count <> 0
+     or r.monthly_reset_date <> date '2027-02-15' then
+    raise exception 'FAIL: a new subscription should reset (got %, %, %, %)',
+      r.is_pro, r.stripe_subscription_id, r.monthly_edit_count, r.monthly_reset_date;
+  end if;
+  raise notice 'PASS: re-subscribing with a new subscription id resets';
+end $$;
+
+-- Legacy Pro row that never recorded a period: the first write resets.
+update public.user_usage
+set current_period_start = null, current_period_end = null, monthly_edit_count = 9
+where user_id = '00000000-0000-4000-8000-000000000011';
+
+select public.update_user_subscription_status(
+  '00000000-0000-4000-8000-000000000011', 'cus_1', 'sub_2', 'active',
+  '2027-01-15T00:00:00Z', '2027-02-15T00:00:00Z', false);
+
+do $$
+declare r public.user_usage%rowtype;
+begin
+  select * into r from public.user_usage where user_id = '00000000-0000-4000-8000-000000000011';
+  if r.monthly_edit_count <> 0 or r.current_period_start <> '2027-01-15T00:00:00Z' then
+    raise exception 'FAIL: a row without a period should reset on its first write (got %, %)',
+      r.monthly_edit_count, r.current_period_start;
+  end if;
+  raise notice 'PASS: a legacy row without a recorded period resets once';
+end $$;
+
+-- Still SECURITY DEFINER, owned by postgres (so the user_usage guard trusts
+-- its writes), executable by service_role only.
+do $$
+declare f pg_proc%rowtype;
+begin
+  select * into f from pg_proc
+  where proname = 'update_user_subscription_status' and pronamespace = 'public'::regnamespace;
+  if not f.prosecdef then
+    raise exception 'FAIL: update_user_subscription_status is no longer SECURITY DEFINER';
+  end if;
+  if f.proowner::regrole::text <> 'postgres' then
+    raise exception 'FAIL: update_user_subscription_status owner is %', f.proowner::regrole;
+  end if;
+  if has_function_privilege('anon', f.oid, 'execute')
+     or has_function_privilege('authenticated', f.oid, 'execute')
+     or not has_function_privilege('service_role', f.oid, 'execute') then
+    raise exception 'FAIL: update_user_subscription_status grants are wrong (%)', f.proacl;
+  end if;
+  raise notice 'PASS: definer, owned by postgres, service_role only';
 end $$;
 
 -- The API role still cannot call it (grant from 20261018110000 kept).

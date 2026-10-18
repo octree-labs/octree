@@ -28,8 +28,8 @@ export const PRO_PLANS = {
     interval: 'year',
     intervalLabel: 'per year',
     monthlyEquivalent: '$6.58',
-    badge: '2 months free',
-    billingNote: 'Billed yearly at $79 ($6.58/mo, 2 months free). Cancel anytime.',
+    badge: 'Save 34%',
+    billingNote: 'Billed yearly at $79 ($6.58/mo, 34% less than monthly). Cancel anytime.',
   },
   semester: {
     id: 'semester',

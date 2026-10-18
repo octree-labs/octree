@@ -124,6 +124,16 @@ async function resolvePrice(client: PriceClient, lookupKey: PriceLookupKey): Pro
   const existing = await findActivePrice(client, lookupKey);
   if (existing) return existing.id;
 
+  // Every live subscriber is on the pre-existing monthly price; a second
+  // $9.99/month price would split them. Creation is only ever for the plans
+  // introduced with lookup keys.
+  if (lookupKey === PRICE_LOOKUP_KEYS.monthly) {
+    throw new Error(
+      `No Stripe price configured for ${lookupKey}: set STRIPE_PRICE_IDS.proAnnual in lib/stripe-config.ts ` +
+        'or give the existing monthly price this lookup_key in the dashboard. It is never created here.'
+    );
+  }
+
   const def = PRICE_DEFINITIONS[lookupKey];
   try {
     const created = await client.prices.create(

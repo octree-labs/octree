@@ -238,11 +238,13 @@ export type CreditGrantResult =
   | { granted: false; reason: 'not_credits' | 'duplicate' };
 
 /**
- * Credits a paid credit-pack Checkout Session to the buyer: one ledger row
- * (`credit_purchases`, unique on the session id) and then the balance bump.
- * A redelivered event hits the unique constraint and grants nothing, so the
- * ledger insert, not the event log, is the idempotency guard. Any other
- * database error is thrown so Stripe retries the delivery.
+ * Credits a paid credit-pack Checkout Session to the buyer through one
+ * service-role RPC (`grant_credit_purchase`): the ledger row
+ * (`credit_purchases`, unique on the session id) and the balance bump happen
+ * in a single transaction, so a retry can never find a ledger row without
+ * its credits. A session already in the ledger returns NULL from the RPC and
+ * grants nothing, which makes the ledger, not the webhook event log, the
+ * idempotency guard. Any database error is thrown so Stripe retries.
  */
 export async function grantCreditsFromCheckoutSession(
   supabase: SupabaseClient<any, any, any>,
@@ -251,25 +253,16 @@ export async function grantCreditsFromCheckoutSession(
   const pack = creditsFromCheckoutSession(session);
   if (!pack) return { granted: false, reason: 'not_credits' };
 
-  const { error: ledgerError } = await supabase.from('credit_purchases').insert({
-    user_id: pack.userId,
-    checkout_session_id: session.id,
-    credits: pack.credits,
-    amount_cents: typeof session.amount_total === 'number' ? session.amount_total : 0,
-    currency: session.currency ?? 'usd',
-  });
-
-  if (ledgerError) {
-    // 23505 = unique_violation: this session was already credited.
-    if (ledgerError.code === '23505') return { granted: false, reason: 'duplicate' };
-    throw ledgerError;
-  }
-
-  const { data, error } = await supabase.rpc('add_edit_credits', {
+  const { data, error } = await supabase.rpc('grant_credit_purchase', {
     p_user_id: pack.userId,
+    p_checkout_session_id: session.id,
     p_credits: pack.credits,
+    p_amount_cents: typeof session.amount_total === 'number' ? session.amount_total : 0,
+    p_currency: session.currency ?? 'usd',
   });
   if (error) throw error;
+
+  if (data === null || data === undefined) return { granted: false, reason: 'duplicate' };
 
   return {
     granted: true,

@@ -24,11 +24,9 @@ function creditsSession(overrides: Record<string, unknown> = {}) {
   } as unknown as Stripe.Checkout.Session;
 }
 
-function makeSupabase(ledger: { error: any } = { error: null }, rpc: { data: any; error: any } = { data: 100, error: null }) {
-  const insert = vi.fn().mockResolvedValue(ledger);
-  const from = vi.fn().mockReturnValue({ insert });
+function makeSupabase(rpc: { data: any; error: any } = { data: 100, error: null }) {
   const rpcFn = vi.fn().mockResolvedValue(rpc);
-  return { client: { from, rpc: rpcFn } as any, insert, from, rpc: rpcFn };
+  return { client: { rpc: rpcFn } as any, rpc: rpcFn };
 }
 
 describe('creditsFromCheckoutSession', () => {
@@ -54,55 +52,44 @@ describe('grantCreditsFromCheckoutSession', () => {
     vi.clearAllMocks();
   });
 
-  it('writes one ledger row then bumps the balance through the service-role RPC', async () => {
-    const { client, from, insert, rpc } = makeSupabase();
+  it('grants through one service-role RPC carrying the session id, credits, amount and currency', async () => {
+    const { client, rpc } = makeSupabase();
 
     const result = await grantCreditsFromCheckoutSession(client, creditsSession());
 
     expect(result).toEqual({ granted: true, userId: 'user-1', credits: 100, balance: 100 });
-    expect(from).toHaveBeenCalledWith('credit_purchases');
-    expect(insert).toHaveBeenCalledWith({
-      user_id: 'user-1',
-      checkout_session_id: 'cs_credits_1',
-      credits: 100,
-      amount_cents: 500,
-      currency: 'usd',
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(rpc).toHaveBeenCalledWith('grant_credit_purchase', {
+      p_user_id: 'user-1',
+      p_checkout_session_id: 'cs_credits_1',
+      p_credits: 100,
+      p_amount_cents: 500,
+      p_currency: 'usd',
     });
-    expect(rpc).toHaveBeenCalledWith('add_edit_credits', { p_user_id: 'user-1', p_credits: 100 });
   });
 
-  it('is idempotent: a session already in the ledger grants nothing', async () => {
-    const { client, rpc } = makeSupabase({ error: { code: '23505', message: 'duplicate key' } });
+  it('is idempotent: a session already in the ledger (RPC returns NULL) grants nothing', async () => {
+    const { client } = makeSupabase({ data: null, error: null });
 
     const result = await grantCreditsFromCheckoutSession(client, creditsSession());
 
     expect(result).toEqual({ granted: false, reason: 'duplicate' });
-    expect(rpc).not.toHaveBeenCalled();
   });
 
   it('ignores sessions that are not a credit pack', async () => {
-    const { client, insert } = makeSupabase();
+    const { client, rpc } = makeSupabase();
 
     const result = await grantCreditsFromCheckoutSession(client, creditsSession({ mode: 'subscription' }));
 
     expect(result).toEqual({ granted: false, reason: 'not_credits' });
-    expect(insert).not.toHaveBeenCalled();
-  });
-
-  it('throws on any other ledger error so Stripe retries', async () => {
-    const { client, rpc } = makeSupabase({ error: { code: 'PGRST205', message: 'table missing' } });
-
-    await expect(grantCreditsFromCheckoutSession(client, creditsSession())).rejects.toMatchObject({
-      code: 'PGRST205',
-    });
     expect(rpc).not.toHaveBeenCalled();
   });
 
-  it('throws when the balance RPC fails (the ledger row then blocks a silent retry, by design)', async () => {
-    const { client } = makeSupabase({ error: null }, { data: null, error: { message: 'boom' } });
+  it('throws on an RPC error so Stripe retries (nothing was written: ledger and balance share a transaction)', async () => {
+    const { client } = makeSupabase({ data: null, error: { code: 'PGRST205', message: 'function missing' } });
 
     await expect(grantCreditsFromCheckoutSession(client, creditsSession())).rejects.toMatchObject({
-      message: 'boom',
+      code: 'PGRST205',
     });
   });
 });

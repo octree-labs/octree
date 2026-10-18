@@ -520,6 +520,16 @@ export type Database = {
         Returns: boolean
       }
       consume_edit_credit: { Args: { p_user_id: string }; Returns: boolean }
+      grant_credit_purchase: {
+        Args: {
+          p_amount_cents?: number
+          p_checkout_session_id: string
+          p_credits: number
+          p_currency?: string
+          p_user_id: string
+        }
+        Returns: number
+      }
       increment_edit_count: { Args: { p_user_id: string }; Returns: boolean }
       update_user_subscription_status: {
         Args: {

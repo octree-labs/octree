@@ -271,6 +271,7 @@ export default function OnboardingPage() {
                 plan={plan}
                 onPlanChange={setPlan}
                 source="onboarding"
+                hideCredits
                 disabled={isSubmitting}
               />
 

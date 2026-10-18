@@ -31,6 +31,30 @@ describe('getOrCreatePrice', () => {
     expect(create).not.toHaveBeenCalled();
   });
 
+  it('never creates the monthly price: with no configured id it reuses a keyed price or throws', async () => {
+    vi.resetModules();
+    vi.doMock('@/lib/stripe-config', () => ({ STRIPE_PRICE_IDS: { pro: '', proAnnual: '' } }));
+    try {
+      const mod = await import('@/lib/stripe-prices');
+
+      const keyed = makeClient({ list: vi.fn().mockResolvedValue({ data: [{ id: 'price_monthly_keyed' }] }) });
+      await expect(mod.getOrCreatePrice(mod.PRICE_LOOKUP_KEYS.monthly, keyed.client)).resolves.toBe(
+        'price_monthly_keyed'
+      );
+      expect(keyed.create).not.toHaveBeenCalled();
+
+      mod.resetPriceCacheForTests();
+      const missing = makeClient();
+      await expect(mod.getOrCreatePrice(mod.PRICE_LOOKUP_KEYS.monthly, missing.client)).rejects.toThrow(
+        /never created/
+      );
+      expect(missing.create).not.toHaveBeenCalled();
+    } finally {
+      vi.doUnmock('@/lib/stripe-config');
+      vi.resetModules();
+    }
+  });
+
   it('reuses an active price that already carries the lookup key', async () => {
     const { client, list, create } = makeClient({
       list: vi.fn().mockResolvedValue({ data: [{ id: 'price_existing' }] }),

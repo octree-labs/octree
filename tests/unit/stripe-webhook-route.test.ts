@@ -239,6 +239,36 @@ describe('POST /api/webhooks/stripe', () => {
       expect(mocks.usageUpsert).not.toHaveBeenCalled();
     });
 
+    it('maps a paused subscription (pause_collection set, Stripe status active) to the free tier', async () => {
+      mocks.constructEvent.mockReturnValue(
+        subscriptionEvent('customer.subscription.updated', {
+          pause_collection: { behavior: 'void', resumes_at: 1_705_000_000 },
+        })
+      );
+
+      const res = await POST(makeRequest());
+
+      expect(res.status).toBe(200);
+      const update = mocks.usageUpdate.mock.calls[0][0];
+      expect(update).toMatchObject({ is_pro: false, subscription_status: 'paused', stripe_subscription_id: 'sub_1' });
+      expect(update).not.toHaveProperty('monthly_edit_count');
+      expect(mocks.usageUpsert).not.toHaveBeenCalled();
+    });
+
+    it('restores Pro when Stripe clears the pause (resumes_at reached or the Resume button)', async () => {
+      mocks.constructEvent.mockReturnValue(
+        subscriptionEvent('customer.subscription.updated', { pause_collection: null })
+      );
+
+      await POST(makeRequest());
+
+      expect(mocks.usageUpdate.mock.calls[0][0]).toMatchObject({
+        is_pro: true,
+        subscription_status: 'active',
+        monthly_edit_count: 0,
+      });
+    });
+
     it('still returns 400 when the subscription has no user_id in metadata', async () => {
       mocks.constructEvent.mockReturnValue(subscriptionEvent('customer.subscription.updated', { metadata: {} }));
 

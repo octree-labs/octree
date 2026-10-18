@@ -6,6 +6,12 @@ import type Stripe from 'stripe';
 import { stripe } from '@/lib/stripe';
 import { hasUnlimitedEdits } from '@/lib/paywall';
 import { resolveStripeCustomer } from '@/lib/stripe-customer';
+import {
+  appliedCouponId,
+  effectiveSubscriptionStatus,
+  pauseResumesAt,
+  subscriptionHasDiscount,
+} from '@/lib/stripe-subscription';
 import type { Tables } from '@/database.types';
 import {
   FREE_DAILY_EDIT_LIMIT,
@@ -157,7 +163,9 @@ function buildUsageResponse(
 ) {
   const editCount = usageData?.edit_count || 0;
   const monthlyEditCount = usageData?.monthly_edit_count || 0;
-  const isActive = subscription?.status === 'active';
+  // Paused collection reads as the free tier (see lib/stripe-subscription.ts).
+  const isActive =
+    subscription != null && effectiveSubscriptionStatus(subscription) === 'active';
 
   const baseRemainingEdits = isActive
     ? Math.max(0, PRO_MONTHLY_EDIT_LIMIT - monthlyEditCount)
@@ -201,7 +209,9 @@ async function updateSubscriptionInDB(
       p_user_id: userId,
       p_stripe_customer_id: customerId,
       p_stripe_subscription_id: subscription.id,
-      p_subscription_status: subscription.status,
+      // `paused` (not Stripe's `active`) so the RPC derives is_pro = false
+      // while collection is paused, matching the webhook.
+      p_subscription_status: effectiveSubscriptionStatus(subscription),
       p_current_period_start: new Date(
         subscription.current_period_start * 1000
       ).toISOString(),
@@ -280,6 +290,9 @@ export async function GET() {
         cancel_at_period_end: subscription.cancel_at_period_end,
         current_period_end: subscription.current_period_end,
         current_period_start: subscription.current_period_start,
+        paused_until: pauseResumesAt(subscription),
+        has_discount: subscriptionHasDiscount(subscription),
+        discount_coupon_id: appliedCouponId(subscription),
         items: subscription.items.data.map((item) => ({
           id: item.id,
           price: {

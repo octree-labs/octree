@@ -1,5 +1,7 @@
 const isProduction = process.env.STRIPE_SECRET_KEY?.startsWith('sk_live_');
 
+// Key names are historical: `pro` is the $4.99/week price and `proAnnual` is
+// the $9.99/month price. See app/api/checkout-session/route.ts for the mapping.
 export const STRIPE_PRICE_IDS = {
   pro: isProduction
     ? 'price_1SrStMGiQyLSHGp2VHT7Amjv'

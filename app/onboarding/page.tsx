@@ -130,12 +130,14 @@ export default function OnboardingPage() {
           annual: isMonthly,
           withTrial: false,
         });
+        // The user has only clicked through to Stripe here; `Purchase` is sent
+        // server-side from the Stripe webhook once the session is actually paid.
         const conversionId = crypto.randomUUID();
-        window.rdt?.('track', 'Purchase', { conversionId });
+        window.rdt?.('track', 'AddToCart', { conversionId });
         navigator.sendBeacon(
           '/api/reddit-capi',
           new Blob(
-            [JSON.stringify({ eventName: 'Purchase', conversionId, email: userEmail })],
+            [JSON.stringify({ eventName: 'AddToCart', conversionId, email: userEmail })],
             { type: 'application/json' },
           ),
         );

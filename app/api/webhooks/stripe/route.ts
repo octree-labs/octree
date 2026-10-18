@@ -3,6 +3,11 @@ import { headers } from 'next/headers';
 import Stripe from 'stripe';
 import { createClient as createServerClient } from '@supabase/supabase-js';
 
+import {
+  recordStripeEvent,
+  trackPurchaseFromCheckoutSession,
+} from '@/lib/stripe-webhook';
+
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2025-02-24.acacia',
 });
@@ -46,7 +51,24 @@ export async function POST(request: Request) {
 
     const supabase = createServiceClient();
 
+    // Stripe retries deliveries that time out or fail; process each event once.
+    const isNew = await recordStripeEvent(supabase, event);
+    if (!isNew) {
+      return NextResponse.json({ received: true, duplicate: true });
+    }
+
     switch (event.type) {
+      case 'checkout.session.completed': {
+        const session = event.data.object as Stripe.Checkout.Session;
+        // Reddit `Purchase` fires here, on confirmed payment, not on the
+        // checkout button click (see app/onboarding/page.tsx).
+        try {
+          await trackPurchaseFromCheckoutSession(session);
+        } catch (error) {
+          console.error('Failed to track purchase conversion:', error);
+        }
+        break;
+      }
       case 'customer.subscription.created':
       case 'customer.subscription.updated':
       case 'customer.subscription.deleted':

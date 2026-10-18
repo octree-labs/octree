@@ -32,6 +32,11 @@ export async function POST(request: Request) {
     const isAnnual = body.annual === true;
     const withTrial = body.withTrial === true;
 
+    // NOTE: the key names are historical and do not match the live prices.
+    // `annual: true`  -> STRIPE_PRICE_IDS.proAnnual = the $9.99/MONTH price
+    // `annual: false` -> STRIPE_PRICE_IDS.pro       = the $4.99/WEEK price
+    // Every UI toggle therefore passes `annual: isMonthly`. Renaming the keys or
+    // env/price ids would break prod, so the mapping is documented here instead.
     const priceId = isAnnual
       ? STRIPE_PRICE_IDS.proAnnual
       : STRIPE_PRICE_IDS.pro;

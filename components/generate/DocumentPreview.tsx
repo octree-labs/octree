@@ -18,6 +18,7 @@ import PDFViewer from '@/components/pdf-viewer';
 import { toast } from 'sonner';
 import { CompilationError } from '@/types/compilation';
 import { makeCompilationRequest } from '@/lib/utils/compilation';
+import { PRO_PLANS } from '@/data/constants';
 
 interface SubscriptionData {
     hasSubscription: boolean;
@@ -72,8 +73,10 @@ export function DocumentPreview({ latex, title, onOpenInOctree, isCreatingProjec
     const handleSubscribe = async () => {
         setIsCheckoutLoading(true);
         try {
+            // Same convention as every other caller (paywall-dialog, toolbar,
+            // onboarding): `annual: true` is the $9.99/month plan.
             const checkoutUrl = await createCheckoutSession({
-                annual: !isMonthly,
+                annual: isMonthly,
                 withTrial: false,
             });
             window.location.href = checkoutUrl;
@@ -216,15 +219,18 @@ export function DocumentPreview({ latex, title, onOpenInOctree, isCreatingProjec
 
                         <div className="space-y-1">
                             <div className="flex items-baseline gap-2">
-                                <p className="text-3xl font-bold">{isMonthly ? '$2.49' : '$4.99'}</p>
-                                <p className="text-sm text-muted-foreground">per week</p>
+                                <p className="text-3xl font-bold">
+                                    {isMonthly ? PRO_PLANS.monthly.price : PRO_PLANS.weekly.price}
+                                </p>
+                                <p className="text-sm text-muted-foreground">
+                                    per {isMonthly ? PRO_PLANS.monthly.interval : PRO_PLANS.weekly.interval}
+                                </p>
                             </div>
-                            {isMonthly && (
-                                <p className="text-xs text-muted-foreground">Billed monthly at $9.99/month</p>
-                            )}
-                            {!isMonthly && (
-                                <p className="text-xs text-muted-foreground">Billed weekly</p>
-                            )}
+                            <p className="text-xs text-muted-foreground">
+                                {isMonthly
+                                    ? `${PRO_PLANS.monthly.weeklyEquivalent}/week equivalent — ${PRO_PLANS.monthly.billingNote}`
+                                    : PRO_PLANS.weekly.billingNote}
+                            </p>
                         </div>
 
                         <div>

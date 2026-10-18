@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { stripe } from '@/lib/stripe';
+import { resolveStripeCustomer } from '@/lib/stripe-customer';
 
 export async function POST() {
   try {
@@ -15,46 +16,8 @@ export async function POST() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Try multiple methods to find the customer
-    let customer = null;
+    const customer = await resolveStripeCustomer(supabase, user);
 
-    // Method 1: Try to find by email
-    try {
-      const customersByEmail = await stripe.customers.list({
-        email: user.email,
-        limit: 1,
-      });
-
-      if (customersByEmail.data.length > 0) {
-        customer = customersByEmail.data[0];
-        console.log('Found customer by email:', customer.id);
-      }
-    } catch (error) {
-      console.log('No customer found by email:', user.email);
-    }
-
-    // Method 2: If no customer by email, try to find by user ID in metadata
-    if (!customer) {
-      try {
-        const customersByMetadata = await stripe.customers.list({
-          limit: 100, // We'll need to search through customers
-        });
-
-        customer = customersByMetadata.data.find(
-          (c) =>
-            c.metadata?.user_id === user.id ||
-            c.metadata?.supabase_user_id === user.id
-        );
-
-        if (customer) {
-          console.log('Found customer by metadata:', customer.id);
-        }
-      } catch (error) {
-        console.log('Error searching customers by metadata:', error);
-      }
-    }
-
-    // Method 3: If still no customer, return error
     if (!customer) {
       return NextResponse.json(
         { error: 'No customer found for this user' },
@@ -64,7 +27,7 @@ export async function POST() {
 
     // Get the user's subscription from Stripe using customer ID
     const subscriptions = await stripe.subscriptions.list({
-      customer: customer.id,
+      customer: customer.customerId,
       status: 'active',
       limit: 1,
     });

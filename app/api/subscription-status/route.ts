@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server';
 import type Stripe from 'stripe';
 import { stripe } from '@/lib/stripe';
 import { hasUnlimitedEdits } from '@/lib/paywall';
+import { resolveStripeCustomer } from '@/lib/stripe-customer';
 import type { Tables } from '@/database.types';
 import {
   FREE_DAILY_EDIT_LIMIT,
@@ -109,22 +110,13 @@ async function ensureUnlimitedStatus(
   return error ? usageData : data;
 }
 
-async function findStripeCustomer(
-  email: string,
-  userId: string
-): Promise<Stripe.Customer | null> {
+async function findStripeCustomerId(
+  supabase: any,
+  user: { id: string; email?: string | null }
+): Promise<string | null> {
   try {
-    const customers = await stripe.customers.list({ email, limit: 1 });
-    if (customers.data[0]) return customers.data[0];
-
-    const allCustomers = await stripe.customers.list({ limit: 100 });
-    return (
-      allCustomers.data.find(
-        (c) =>
-          c.metadata?.user_id === userId ||
-          c.metadata?.supabase_user_id === userId
-      ) || null
-    );
+    const resolved = await resolveStripeCustomer(supabase, user);
+    return resolved?.customerId ?? null;
   } catch (error) {
     console.error('Error fetching Stripe customer:', error);
     return null;
@@ -242,8 +234,8 @@ export async function GET() {
       usageData = await ensureUnlimitedStatus(supabase, user.id, usageData);
     }
 
-    const customer = await findStripeCustomer(user.email!, user.id);
-    if (!customer) {
+    const customerId = await findStripeCustomerId(supabase, user);
+    if (!customerId) {
       return NextResponse.json({
         hasSubscription: false,
         subscription: null,
@@ -251,7 +243,7 @@ export async function GET() {
       });
     }
 
-    const subscription = await findActiveSubscription(customer.id);
+    const subscription = await findActiveSubscription(customerId);
     if (!subscription) {
       return NextResponse.json({
         hasSubscription: false,
@@ -260,7 +252,7 @@ export async function GET() {
       });
     }
 
-    await updateSubscriptionInDB(supabase, user.id, customer.id, subscription);
+    await updateSubscriptionInDB(supabase, user.id, customerId, subscription);
 
     return NextResponse.json({
       hasSubscription: true,

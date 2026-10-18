@@ -17,6 +17,8 @@ interface RedditConversionEvent {
   };
   event_metadata?: {
     conversion_id?: string;
+    currency?: string;
+    value_decimal?: number;
   };
 }
 
@@ -27,6 +29,8 @@ export async function trackRedditConversion({
   externalId,
   ipAddress,
   userAgent,
+  value,
+  currency,
 }: {
   eventName: string;
   conversionId: string;
@@ -34,6 +38,10 @@ export async function trackRedditConversion({
   externalId?: string;
   ipAddress?: string;
   userAgent?: string;
+  /** Conversion value in major units (e.g. 9.99). */
+  value?: number;
+  /** ISO 4217 code, e.g. 'USD'. */
+  currency?: string;
 }) {
   const token = process.env.REDDIT_CAPI_ACCESS_TOKEN;
   if (!token) return;
@@ -52,6 +60,8 @@ export async function trackRedditConversion({
     event_type: eventType,
     event_metadata: {
       conversion_id: conversionId,
+      ...(typeof value === 'number' ? { value_decimal: value } : {}),
+      ...(currency ? { currency } : {}),
     },
   };
 

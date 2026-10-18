@@ -15,5 +15,8 @@ export default defineConfig({
   },
   esbuild: {
     target: 'node14',
+    // App components use Next's automatic JSX runtime (no React import), so
+    // component tests need the same transform.
+    jsx: 'automatic',
   },
 });

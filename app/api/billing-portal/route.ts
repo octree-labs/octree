@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 import { stripe } from '@/lib/stripe';
 import { createClient } from '@/lib/supabase/server';
+import { resolveStripeCustomer } from '@/lib/stripe-customer';
 
 export async function POST() {
   try {
@@ -19,22 +20,17 @@ export async function POST() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const customers = await stripe.customers.list({
-      email: user.email,
-      limit: 1,
-    });
+    const customer = await resolveStripeCustomer(supabase, user);
 
-    if (customers.data.length === 0) {
+    if (!customer) {
       return NextResponse.json(
         { error: 'No Stripe customer found' },
         { status: 404 }
       );
     }
 
-    const customer = customers.data[0];
-
     const session = await stripe.billingPortal.sessions.create({
-      customer: customer.id,
+      customer: customer.customerId,
       return_url: `${origin}/settings`,
     });
 

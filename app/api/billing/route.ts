@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { stripe } from '@/lib/stripe';
+import { resolveStripeCustomer } from '@/lib/stripe-customer';
 
 export async function GET() {
   try {
@@ -18,41 +19,15 @@ export async function GET() {
       );
     }
 
-    // Try multiple methods to find the customer
-    let customer = null;
-    
-    // Method 1: Try to find by email
+    let customerId: string | null = null;
     try {
-      const customersByEmail = await stripe.customers.list({
-        email: user.email,
-        limit: 1,
-      });
-      
-      if (customersByEmail.data.length > 0) {
-        customer = customersByEmail.data[0];
-      }
+      customerId = (await resolveStripeCustomer(supabase, user))?.customerId ?? null;
     } catch (error) {
-      console.log('No customer found by email:', user.email);
-    }
-
-    // Method 2: If no customer by email, try to find by user ID in metadata
-    if (!customer) {
-      try {
-        const customersByMetadata = await stripe.customers.list({
-          limit: 100,
-        });
-        
-        customer = customersByMetadata.data.find(c => 
-          c.metadata?.user_id === user.id || 
-          c.metadata?.supabase_user_id === user.id
-        );
-      } catch (error) {
-        console.log('Error searching customers by metadata:', error);
-      }
+      console.error('Error finding Stripe customer:', error);
     }
 
     // If no customer exists, return empty billing data
-    if (!customer) {
+    if (!customerId) {
       return NextResponse.json({
         billingSummary: {
           totalPaid: 0,
@@ -66,19 +41,19 @@ export async function GET() {
 
     // Get invoices for the customer
     const invoices = await stripe.invoices.list({
-      customer: customer.id,
+      customer: customerId,
       limit: 10,
     });
 
     // Get payment methods for the customer
     const paymentMethods = await stripe.paymentMethods.list({
-      customer: customer.id,
+      customer: customerId,
       type: 'card',
     });
 
     // Get active subscription to determine next billing
     const subscriptions = await stripe.subscriptions.list({
-      customer: customer.id,
+      customer: customerId,
       status: 'active',
       limit: 1,
     });

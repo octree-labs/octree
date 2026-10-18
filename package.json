@@ -11,7 +11,8 @@
     "test:watch": "vitest --watch",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage",
-    "dev:all": "supabase start && concurrently -n web,agent,compile -c blue,magenta,yellow \"npm run dev\" \"npm --prefix services/agent run dev\" \"make -C services/compile run\""
+    "dev:all": "supabase start && concurrently -n web,agent,compile -c blue,magenta,yellow \"npm run dev\" \"npm --prefix services/agent run dev\" \"make -C services/compile run\"",
+    "resume:redesign": "tsx scripts/resume/redesign.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^2.0.107",
@@ -72,6 +73,7 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
+    "@next/env": "15.5.15",
     "@testing-library/dom": "^10.4.2",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.0.1",

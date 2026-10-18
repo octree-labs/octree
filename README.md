@@ -81,6 +81,7 @@ Supabase and the agent server are required for auth and AI features. The compile
 | `npm run lint` | Run ESLint |
 | `npm run test` | Run all tests (Vitest) |
 | `npm run test:watch` | Watch mode |
+| `npm run resume:redesign -- <resume.pdf>` | Run the resume redesign pipeline locally (needs `ANTHROPIC_API_KEY` and `latexmk`) |
 
 ## Tech Stack
 

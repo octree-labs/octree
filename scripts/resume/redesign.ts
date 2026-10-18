@@ -1,5 +1,5 @@
 // Local redesign pipeline: resume PDF -> template .tex (via Claude) -> compiled PDF.
-// Usage: npx tsx scripts/resume/redesign.ts <resume.pdf> [-t template1] [-o out/resume]
+// Usage: npm run resume:redesign -- <resume.pdf> [-t template1] [-o out/resume]
 
 import { execFile } from 'child_process';
 import { mkdir, readFile, rm, writeFile } from 'fs/promises';
@@ -43,7 +43,7 @@ async function main() {
 
   const inputPdf = positionals[0];
   if (!inputPdf) {
-    console.error('Usage: npx tsx scripts/resume/redesign.ts <resume.pdf> [-t template1] [-o out/resume]');
+    console.error('Usage: npm run resume:redesign -- <resume.pdf> [-t template1] [-o out/resume]');
     process.exit(1);
   }
 

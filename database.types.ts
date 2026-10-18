@@ -237,6 +237,33 @@ export type Database = {
           },
         ]
       }
+      ops_monitor_state: {
+        Row: {
+          check_name: string
+          last_alert_at: string | null
+          last_checked: string
+          last_error: string | null
+          since: string
+          status: string
+        }
+        Insert: {
+          check_name: string
+          last_alert_at?: string | null
+          last_checked?: string
+          last_error?: string | null
+          since?: string
+          status?: string
+        }
+        Update: {
+          check_name?: string
+          last_alert_at?: string | null
+          last_checked?: string
+          last_error?: string | null
+          since?: string
+          status?: string
+        }
+        Relationships: []
+      }
       projects: {
         Row: {
           created_at: string | null

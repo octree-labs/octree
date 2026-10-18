@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { Analytics } from '@vercel/analytics/react';
+import { SpeedInsights } from '@vercel/speed-insights/next';
 import { GoogleAnalytics } from '@next/third-parties/google';
 import './globals.css';
 import { ProjectProvider } from '@/app/context/project';
@@ -69,6 +70,7 @@ export default async function RootLayout({
         </ProjectProvider>
         <Toaster position="top-center" />
         <Analytics />
+        <SpeedInsights />
         <GoogleAnalytics gaId="G-2G3ZGGMJ2Y" />
       </body>
     </html>

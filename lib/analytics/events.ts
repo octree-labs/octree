@@ -45,6 +45,8 @@ export const AnalyticsEvents = {
   EDIT_LIMIT_HIT_SERVER: 'edit_limit_hit_server',
   LIFECYCLE_EMAIL_SENT: 'lifecycle_email_sent',
   CREDITS_PURCHASED: 'credits_purchased',
+  GENERATE_ALLOWANCE_USED: 'generate_allowance_used',
+  GENERATION_PURCHASED: 'generation_purchased',
 } as const;
 
 export type AnalyticsEvent = (typeof AnalyticsEvents)[keyof typeof AnalyticsEvents];
@@ -52,11 +54,18 @@ export type AnalyticsEvent = (typeof AnalyticsEvents)[keyof typeof AnalyticsEven
 export type SignupProvider = 'email' | 'google' | (string & {});
 export type OnboardingPlan = 'free' | 'pro';
 export type PaywallFeature = 'ai-edit' | 'export' | 'generate';
-export type PaywallReason = 'daily_limit' | 'pro_feature' | 'monthly_limit';
+export type PaywallReason = 'daily_limit' | 'pro_feature' | 'monthly_limit' | 'generate_quota';
+/** What the paywall can sell: the subscription, or one generation credit. */
+export type PaywallOffer = 'pro' | 'single';
 /** Recurring plans. `weekly` is retired for new purchases but still appears on legacy subscriptions. */
 export type CheckoutPlan = 'monthly' | 'annual' | 'semester' | 'weekly';
-/** Everything checkout can sell: the recurring plans plus one-time credit packs. */
-export type PurchasePlan = CheckoutPlan | 'credits_100';
+/**
+ * Everything checkout can sell: the recurring plans, the one-time AI edit
+ * credit pack and the one-off $2.99 generation credit.
+ */
+export type PurchasePlan = CheckoutPlan | 'credits_100' | 'generate_single';
+/** How a generation was paid for (consume_generation in the database). */
+export type GenerationKind = 'pro' | 'free' | 'credit';
 export type CheckoutSource = 'onboarding' | 'paywall' | 'settings' | 'generate-preview' | 'toolbar' | 'buy';
 export type ProjectSource = 'dashboard' | 'import' | 'generate';
 export type CancelOffer = 'pause' | 'discount';
@@ -91,7 +100,11 @@ export interface AnalyticsEventProperties {
   };
   [AnalyticsEvents.EXPORT_CLICKED]: { format: ExportFormat; allowed: boolean };
 
-  [AnalyticsEvents.PAYWALL_SHOWN]: { feature: PaywallFeature; reason: PaywallReason };
+  [AnalyticsEvents.PAYWALL_SHOWN]: {
+    feature: PaywallFeature;
+    reason: PaywallReason;
+    offers?: PaywallOffer[];
+  };
   [AnalyticsEvents.PAYWALL_DISMISSED]: { feature: PaywallFeature };
   [AnalyticsEvents.EDIT_LIMIT_HIT]: { is_pro: boolean; source: 'chat' | 'accept' };
   [AnalyticsEvents.CHECKOUT_STARTED]: {
@@ -148,6 +161,17 @@ export interface AnalyticsEventProperties {
   };
   /** A credit pack was paid for (Stripe webhook); `amount` in major units. */
   [AnalyticsEvents.CREDITS_PURCHASED]: {
+    credits: number;
+    amount: number | null;
+    currency: string | null;
+  };
+  /** One generation started; `kind` says what paid for it. */
+  [AnalyticsEvents.GENERATE_ALLOWANCE_USED]: {
+    kind: GenerationKind;
+    is_continuation: boolean;
+  };
+  /** A one-off generation credit was bought (Stripe webhook). */
+  [AnalyticsEvents.GENERATION_PURCHASED]: {
     credits: number;
     amount: number | null;
     currency: string | null;

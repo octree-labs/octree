@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   canUseFeature,
+  remainingGenerations,
   subscriptionGrantsPro,
   toFeatureUsage,
   type FeatureUsage,
@@ -39,8 +40,8 @@ describe('canUseFeature', () => {
     });
   });
 
-  describe.each(['export', 'generate'] as const)('%s (Pro only)', (feature) => {
-    it('opens the paywall for a free user, even with edits left', () => {
+  describe.each(['export', 'generate'] as const)('%s (Pro, or a generation allowance)', (feature) => {
+    it('opens the paywall for a free user with no allowance left, even with edits left', () => {
       expect(canUseFeature(free, feature)).toEqual({ allowed: false, reason: 'paywall' });
     });
 
@@ -54,6 +55,35 @@ describe('canUseFeature', () => {
 
     it('waits for the plan to load rather than allowing by default', () => {
       expect(canUseFeature(null, feature)).toEqual({ allowed: false, reason: 'unknown' });
+    });
+  });
+
+  describe('generate allowance (one free, then credits)', () => {
+    const freeWithFreeGen: FeatureUsage = { isPro: false, freeGenerationsRemaining: 1 };
+    const freeWithCredit: FeatureUsage = { isPro: false, freeGenerationsRemaining: 0, generationCredits: 2 };
+    const freeSpent: FeatureUsage = { isPro: false, freeGenerationsRemaining: 0, generationCredits: 0 };
+
+    it('lets a new free user use the free generation', () => {
+      expect(canUseFeature(freeWithFreeGen, 'generate')).toEqual({ allowed: true });
+      expect(remainingGenerations(freeWithFreeGen)).toBe(1);
+    });
+
+    it('lets a free user with bought credits generate', () => {
+      expect(canUseFeature(freeWithCredit, 'generate')).toEqual({ allowed: true });
+      expect(remainingGenerations(freeWithCredit)).toBe(2);
+    });
+
+    it('paywalls a free user whose free generation and credits are spent', () => {
+      expect(canUseFeature(freeSpent, 'generate')).toEqual({ allowed: false, reason: 'paywall' });
+      expect(remainingGenerations(freeSpent)).toBe(0);
+    });
+
+    it('does not let the allowance unlock export', () => {
+      expect(canUseFeature(freeWithCredit, 'export')).toEqual({ allowed: false, reason: 'paywall' });
+    });
+
+    it('ignores negative counts from a bad response', () => {
+      expect(remainingGenerations({ isPro: false, freeGenerationsRemaining: -1, generationCredits: -3 })).toBe(0);
     });
   });
 
@@ -95,12 +125,23 @@ describe('toFeatureUsage', () => {
     expect(subscriptionGrantsPro({ hasSubscription: false, subscription: null })).toBe(false);
   });
 
-  it('maps a free user at the daily limit', () => {
+  it('maps a free user at the daily limit (allowance fields default to 0)', () => {
     expect(toFeatureUsage({ hasSubscription: false, usage })).toEqual({
       isPro: false,
       hasUnlimitedEdits: false,
       limitReached: true,
       monthlyLimitReached: false,
+      freeGenerationsRemaining: 0,
+      generationCredits: 0,
     });
+  });
+
+  it('carries the generate allowance through', () => {
+    expect(
+      toFeatureUsage({
+        hasSubscription: false,
+        usage: { ...usage, freeGenerationsRemaining: 1, generationCredits: 3 },
+      })
+    ).toMatchObject({ freeGenerationsRemaining: 1, generationCredits: 3 });
   });
 });

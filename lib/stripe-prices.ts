@@ -22,6 +22,7 @@ export const PRICE_LOOKUP_KEYS = {
   annual: 'octree_pro_annual',
   semester: 'octree_semester_pass',
   credits_100: 'octree_credits_100',
+  generate_single: 'octree_generate_single',
 } as const;
 
 export type PriceLookupKey = (typeof PRICE_LOOKUP_KEYS)[keyof typeof PRICE_LOOKUP_KEYS];
@@ -58,6 +59,11 @@ export const PRICE_DEFINITIONS: Record<PriceLookupKey, PriceDefinition> = {
   octree_credits_100: {
     productName: '100 AI edit credits',
     unitAmount: 500,
+    currency: 'usd',
+  },
+  octree_generate_single: {
+    productName: 'One AI document generation',
+    unitAmount: 299,
     currency: 'usd',
   },
 };

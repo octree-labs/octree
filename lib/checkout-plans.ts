@@ -10,6 +10,9 @@ import { PRICE_LOOKUP_KEYS, type PriceLookupKey } from '@/lib/stripe-prices';
  * - `monthly`, `annual`, `semester`: recurring Pro plans (Checkout
  *   `mode: 'subscription'`).
  * - `credits_100`: a one-time pack of 100 AI edit credits (`mode: 'payment'`).
+ * - `generate_single`: one $2.99 document generation credit (`mode:
+ *   'payment'`, `metadata.generation_credits`; the webhook grants it through
+ *   grant_generation_purchase and the buyer lands back on /generate).
  * - `weekly`: retired for new purchases. Existing weekly subscribers keep
  *   their subscription (the webhook does not look at the price), but the
  *   route refuses to start a new one.
@@ -21,9 +24,20 @@ export type SubscriptionPlan = (typeof SUBSCRIPTION_PLANS)[number];
 export const CREDIT_PLANS = ['credits_100'] as const;
 export type CreditPlan = (typeof CREDIT_PLANS)[number];
 
-export type PurchasePlan = SubscriptionPlan | CreditPlan;
+export const GENERATION_PLANS = ['generate_single'] as const;
+export type GenerationPlan = (typeof GENERATION_PLANS)[number];
 
-export const PURCHASE_PLANS: readonly PurchasePlan[] = [...SUBSCRIPTION_PLANS, ...CREDIT_PLANS];
+export type PurchasePlan = SubscriptionPlan | CreditPlan | GenerationPlan;
+
+export const PURCHASE_PLANS: readonly PurchasePlan[] = [
+  ...SUBSCRIPTION_PLANS,
+  ...CREDIT_PLANS,
+  ...GENERATION_PLANS,
+];
+
+export const GENERATIONS_PER_PURCHASE: Record<GenerationPlan, number> = {
+  generate_single: 1,
+};
 
 export const CREDITS_PER_PACK: Record<CreditPlan, number> = {
   credits_100: 100,
@@ -38,6 +52,10 @@ export function isPurchasePlan(value: unknown): value is PurchasePlan {
 
 export function isSubscriptionPlan(plan: PurchasePlan): plan is SubscriptionPlan {
   return (SUBSCRIPTION_PLANS as readonly string[]).includes(plan);
+}
+
+export function isGenerationPlan(plan: PurchasePlan): plan is GenerationPlan {
+  return (GENERATION_PLANS as readonly string[]).includes(plan);
 }
 
 export function lookupKeyForPlan(plan: PurchasePlan): PriceLookupKey {
@@ -88,7 +106,9 @@ export interface CheckoutSessionInput {
 /**
  * The Checkout Session parameters for a plan. Subscription plans carry the
  * user id on the subscription (the webhook keys on it); the credit pack
- * carries the credit count on the session instead.
+ * carries the credit count on the session instead, and the generation
+ * credit its count under `generation_credits` (the two one-off products are
+ * granted independently by the webhook).
  */
 export function buildCheckoutSessionParams(
   input: CheckoutSessionInput
@@ -98,10 +118,14 @@ export function buildCheckoutSessionParams(
   const params: Stripe.Checkout.SessionCreateParams = {
     line_items: [{ price: priceId, quantity: 1 }],
     mode: isSubscriptionPlan(plan) ? 'subscription' : 'payment',
-    success_url: `${origin}/success?session_id={CHECKOUT_SESSION_ID}`,
+    success_url: isGenerationPlan(plan)
+      ? `${origin}/generate?purchased=1`
+      : `${origin}/success?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: isSubscriptionPlan(plan)
       ? `${origin}/onboarding?canceled=true`
-      : `${origin}/settings?canceled=true`,
+      : isGenerationPlan(plan)
+        ? `${origin}/generate`
+        : `${origin}/settings?canceled=true`,
     automatic_tax: { enabled: true },
     allow_promotion_codes: true,
     locale: 'auto',
@@ -120,7 +144,9 @@ export function buildCheckoutSessionParams(
     params.subscription_data = { metadata: { user_id: userId, plan } };
     if (withTrial) params.subscription_data.trial_period_days = 3;
   } else {
-    params.metadata = { ...params.metadata, credits: String(CREDITS_PER_PACK[plan]) };
+    params.metadata = isGenerationPlan(plan)
+      ? { ...params.metadata, generation_credits: String(GENERATIONS_PER_PURCHASE[plan]) }
+      : { ...params.metadata, credits: String(CREDITS_PER_PACK[plan]) };
     params.payment_intent_data = { metadata: { user_id: userId, plan } };
     // So the next purchase reuses the same customer record.
     if (!customerId) params.customer_creation = 'always';

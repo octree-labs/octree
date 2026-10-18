@@ -369,6 +369,36 @@ export type Database = {
         }
         Relationships: []
       }
+      generation_purchases: {
+        Row: {
+          amount_cents: number | null
+          checkout_session_id: string
+          created_at: string
+          credits: number
+          currency: string | null
+          id: string
+          user_id: string
+        }
+        Insert: {
+          amount_cents?: number | null
+          checkout_session_id: string
+          created_at?: string
+          credits: number
+          currency?: string | null
+          id?: string
+          user_id: string
+        }
+        Update: {
+          amount_cents?: number | null
+          checkout_session_id?: string
+          created_at?: string
+          credits?: number
+          currency?: string | null
+          id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       stripe_webhook_events: {
         Row: {
           created_at: string
@@ -396,6 +426,8 @@ export type Database = {
           daily_reset_date: string
           edit_count: number
           edit_credits: number
+          free_generations_used: number
+          generation_credits: number
           id: string
           is_pro: boolean
           monthly_edit_count: number
@@ -418,6 +450,8 @@ export type Database = {
           daily_reset_date?: string
           edit_count?: number
           edit_credits?: number
+          free_generations_used?: number
+          generation_credits?: number
           id?: string
           is_pro?: boolean
           monthly_edit_count?: number
@@ -440,6 +474,8 @@ export type Database = {
           daily_reset_date?: string
           edit_count?: number
           edit_credits?: number
+          free_generations_used?: number
+          generation_credits?: number
           id?: string
           is_pro?: boolean
           monthly_edit_count?: number
@@ -530,7 +566,26 @@ export type Database = {
         }
         Returns: number
       }
+      consume_generation: { Args: { p_user_id: string }; Returns: string }
+      grant_generation_credits: {
+        Args: { p_credits: number; p_user_id: string }
+        Returns: number
+      }
+      grant_generation_purchase: {
+        Args: {
+          p_amount_cents?: number | null
+          p_checkout_session_id: string
+          p_credits: number
+          p_currency?: string | null
+          p_user_id: string
+        }
+        Returns: number | null
+      }
       increment_edit_count: { Args: { p_user_id: string }; Returns: boolean }
+      refund_generation: {
+        Args: { p_kind: string; p_user_id: string }
+        Returns: boolean
+      }
       update_user_subscription_status: {
         Args: {
           p_cancel_at_period_end: boolean

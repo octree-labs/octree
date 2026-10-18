@@ -22,6 +22,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -182,6 +183,36 @@ export function GeneratePageContent({
     [subscriptionUsage]
   );
 
+  // Allowance badge: "1 free generation" for a new free account, then the
+  // bought credits. Nothing for Pro (unlimited) or once everything is spent
+  // (submitting opens the paywall with both offers).
+  const allowanceLabel = useMemo(() => {
+    if (!subscriptionUsage || subscriptionUsage.isPro || subscriptionUsage.hasUnlimitedEdits) {
+      return null;
+    }
+    const free = subscriptionUsage.freeGenerationsRemaining ?? 0;
+    if (free > 0) return `${free} free generation${free === 1 ? '' : 's'}`;
+    const credits = subscriptionUsage.generationCredits ?? 0;
+    if (credits > 0) return `${credits} generation credit${credits === 1 ? '' : 's'}`;
+    return null;
+  }, [subscriptionUsage]);
+
+  // Back from the $2.99 Checkout (`/generate?purchased=1`). The webhook that
+  // grants the credit can land a moment after the redirect, so re-read the
+  // allowance now and once more shortly after.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('purchased') !== '1') return;
+    params.delete('purchased');
+    const query = params.toString();
+    window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
+    toast.success('Payment received. Your generation credit will show up in a moment.');
+    void refreshPlan();
+    const t = setTimeout(() => void refreshPlan(), 3000);
+    return () => clearTimeout(t);
+  }, [refreshPlan]);
+
   const submitPrompt = useCallback(() => {
     if (isPlanLoading) return;
     if (generateAccess.allowed) {
@@ -198,7 +229,8 @@ export function GeneratePageContent({
       void refreshPlan();
       return;
     }
-    PaywallActions.open('generate');
+    // Free generation and credits are spent: sell Pro or a single credit.
+    PaywallActions.open('generate', 'generate_quota', ['pro', 'single']);
   }, [
     isPlanLoading,
     generateAccess,
@@ -333,7 +365,13 @@ export function GeneratePageContent({
           >
             {currentTitle}
           </div>
-          <div className="w-8" />
+          <div className="flex min-w-8 items-center justify-end">
+            {allowanceLabel && (
+              <Badge variant="secondary" data-testid="generate-allowance">
+                {allowanceLabel}
+              </Badge>
+            )}
+          </div>
         </header>
 
         {/* `data-ph-mask`: prompts, generated documents and the preview are masked in PostHog session replay. */}

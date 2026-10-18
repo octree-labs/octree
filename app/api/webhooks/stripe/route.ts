@@ -6,7 +6,9 @@ import { createAdminClient } from '@/lib/supabase/admin';
 
 import {
   describeCheckoutSessionPlan,
+  generationCreditsFromSession,
   grantCreditsFromCheckoutSession,
+  grantGenerationCredits,
   recordStripeEvent,
   subscriptionLifecycleEvents,
   trackPurchaseFromCheckoutSession,
@@ -59,13 +61,15 @@ export async function POST(request: Request) {
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session;
 
-        // A paid credit pack (`mode: 'payment'`, `metadata.credits`). The
-        // grant runs BEFORE the event log below: its own ledger (unique on
-        // the session id, written in the same transaction as the balance) is
-        // the idempotency guard, and a database failure must reach Stripe
-        // (500) so the delivery is retried. If the event id were logged
-        // first, that retry would be dropped as a duplicate and the buyer
-        // left without their credits.
+        // A paid one-off (`mode: 'payment'`): an AI edit credit pack
+        // (`metadata.credits`) or a single generation credit
+        // (`metadata.generation_credits`), granted independently. Each grant
+        // runs BEFORE the event log below: its own ledger (unique on the
+        // session id, written in the same transaction as the balance) is the
+        // idempotency guard, and a database failure must reach Stripe (500)
+        // so the delivery is retried. If the event id were logged first, that
+        // retry would be dropped as a duplicate and the buyer left without
+        // their credits.
         if (session.mode === 'payment') {
           const grant = await grantCreditsFromCheckoutSession(supabase, session);
           if (grant.granted) {
@@ -74,6 +78,18 @@ export async function POST(request: Request) {
               amount: typeof session.amount_total === 'number' ? session.amount_total / 100 : null,
               currency: session.currency ? session.currency.toUpperCase() : null,
             });
+          }
+          if (generationCreditsFromSession(session) > 0) {
+            const generation = await grantGenerationCredits(supabase, session);
+            if (generation.granted) {
+              captureServerEventAfterResponse(generation.userId, AnalyticsEvents.GENERATION_PURCHASED, {
+                credits: generation.credits,
+                amount: typeof session.amount_total === 'number' ? session.amount_total / 100 : null,
+                currency: session.currency ? session.currency.toUpperCase() : null,
+              });
+            } else if (generation.reason === 'missing_user') {
+              console.error('Generation credit purchase without user_id in metadata:', session.id);
+            }
           }
           try {
             if (await recordStripeEvent(supabase, event)) {

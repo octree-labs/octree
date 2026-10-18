@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type Stripe from 'stripe';
 
 import {
+  generationCreditsFromSession,
+  grantGenerationCredits,
   recordStripeEvent,
   trackPurchaseFromCheckoutSession,
 } from '@/lib/stripe-webhook';
@@ -143,5 +145,93 @@ describe('recordStripeEvent', () => {
 
     await expect(recordStripeEvent(client, { id: 'evt_3', type: 'checkout.session.completed' })).resolves.toBe(true);
     errorSpy.mockRestore();
+  });
+});
+
+describe('generationCreditsFromSession', () => {
+  it('reads the credit count from a paid payment-mode session', () => {
+    expect(
+      generationCreditsFromSession(
+        makeSession({ mode: 'payment', metadata: { user_id: 'user-1', generation_credits: '2' } })
+      )
+    ).toBe(2);
+  });
+
+  it.each([
+    ['a subscription session', { mode: 'subscription', metadata: { generation_credits: '1' } }],
+    ['an unpaid session', { mode: 'payment', payment_status: 'unpaid', metadata: { generation_credits: '1' } }],
+    ['no metadata', { mode: 'payment', metadata: null }],
+    ['a non-numeric count', { mode: 'payment', metadata: { generation_credits: 'lots' } }],
+    ['a negative count', { mode: 'payment', metadata: { generation_credits: '-1' } }],
+  ])('is 0 for %s', (_label, overrides) => {
+    expect(generationCreditsFromSession(makeSession(overrides as any))).toBe(0);
+  });
+});
+
+describe('grantGenerationCredits', () => {
+  function makeGrantClient(rpcResult: { data?: any; error: any } = { data: 1, error: null }) {
+    const rpc = vi.fn().mockResolvedValue(rpcResult);
+    const from = vi.fn(() => {
+      throw new Error('the grant must go through the RPC, not a table write');
+    });
+    return { client: { from, rpc } as any, from, rpc };
+  }
+
+  const creditSession = () =>
+    makeSession({
+      mode: 'payment',
+      amount_total: 299,
+      metadata: { user_id: 'user-1', generation_credits: '1' },
+    });
+
+  it('grants through grant_generation_purchase (ledger row + balance in one transaction)', async () => {
+    const { client, rpc } = makeGrantClient({ data: 1, error: null });
+
+    await expect(grantGenerationCredits(client, creditSession())).resolves.toEqual({
+      granted: true,
+      userId: 'user-1',
+      credits: 1,
+    });
+    expect(rpc).toHaveBeenCalledWith('grant_generation_purchase', {
+      p_user_id: 'user-1',
+      p_checkout_session_id: 'cs_test_123',
+      p_credits: 1,
+      p_amount_cents: 299,
+      p_currency: 'usd',
+    });
+  });
+
+  it('reports already_granted when the RPC returns NULL (session already in the ledger)', async () => {
+    const { client } = makeGrantClient({ data: null, error: null });
+
+    await expect(grantGenerationCredits(client, creditSession())).resolves.toEqual({
+      granted: false,
+      reason: 'already_granted',
+    });
+  });
+
+  it('throws (so the webhook returns 500 and Stripe retries) when the RPC fails', async () => {
+    const { client } = makeGrantClient({ data: null, error: { message: 'db down' } });
+
+    await expect(grantGenerationCredits(client, creditSession())).rejects.toBeTruthy();
+  });
+
+  it('does nothing for a session that is not a credit purchase', async () => {
+    const { client, rpc } = makeGrantClient();
+
+    await expect(grantGenerationCredits(client, makeSession())).resolves.toEqual({
+      granted: false,
+      reason: 'not_a_credit_purchase',
+    });
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it('does nothing without a user_id', async () => {
+    const { client, rpc } = makeGrantClient();
+
+    await expect(
+      grantGenerationCredits(client, makeSession({ mode: 'payment', metadata: { generation_credits: '1' } }))
+    ).resolves.toEqual({ granted: false, reason: 'missing_user' });
+    expect(rpc).not.toHaveBeenCalled();
   });
 });

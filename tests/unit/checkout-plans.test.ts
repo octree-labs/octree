@@ -116,4 +116,29 @@ describe('buildCheckoutSessionParams', () => {
     expect(params).not.toHaveProperty('customer_creation');
     expect(params.customer).toBe('cus_9');
   });
+
+  it('opens a one-time payment session for the single generation, back to /generate, with generation_credits metadata', () => {
+    const params = buildCheckoutSessionParams({ ...base, plan: 'generate_single' });
+
+    expect(params).toMatchObject({
+      mode: 'payment',
+      success_url: 'https://app.example.com/generate?purchased=1',
+      cancel_url: 'https://app.example.com/generate',
+      metadata: { user_id: 'user-1', plan: 'generate_single', generation_credits: '1' },
+      payment_intent_data: { metadata: { user_id: 'user-1', plan: 'generate_single' } },
+      customer_creation: 'always',
+    });
+    // Never the edit-credit key: the webhook grants the two products independently.
+    expect(params.metadata).not.toHaveProperty('credits');
+    expect(params).not.toHaveProperty('subscription_data');
+  });
+
+  it('accepts and maps the single generation plan', () => {
+    expect(resolveCheckoutPlan({ plan: 'generate_single' })).toEqual({
+      ok: true,
+      plan: 'generate_single',
+      withTrial: false,
+    });
+    expect(lookupKeyForPlan('generate_single')).toBe('octree_generate_single');
+  });
 });

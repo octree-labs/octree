@@ -354,7 +354,13 @@ export function useGenerate(options: UseGenerateOptions = {}) {
         }
         const json = await response.json().catch(() => ({}));
         if (response.status === 402 && json.upgradeRequired) {
-          PaywallActions.open('generate');
+          // The server is the source of truth for the allowance; it says
+          // which offers apply (Pro, or the one-off credit as well).
+          PaywallActions.open(
+            'generate',
+            json.reason === 'generate_quota' ? 'generate_quota' : 'pro_feature',
+            Array.isArray(json.offers) && json.offers.length > 0 ? json.offers : ['pro']
+          );
         }
         throw new Error(json.error || `Request failed: ${response.status}`);
       }
@@ -548,6 +554,9 @@ export function useGenerate(options: UseGenerateOptions = {}) {
       setIsGenerating(false);
       setGenerationMilestone('started');
       abortControllerRef.current = null;
+      // The allowance moved (consumed on accept, handed back if the model
+      // produced nothing); let the badge and usage indicators re-read it.
+      window.dispatchEvent(new Event('usage-update'));
     }
   }, [
     prompt,

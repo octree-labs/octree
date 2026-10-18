@@ -6,6 +6,7 @@ import {
   type GeneratedDocument,
   type StoredAttachment,
 } from '@/stores/generate';
+import { PaywallActions } from '@/stores/paywall';
 import { Message, MessageAttachment } from '@/components/generate/MessageBubble';
 import type { GenerationMilestone } from '@/components/generate/GenerationProgressTracker';
 import type { Json } from '@/database.types';
@@ -352,6 +353,9 @@ export function useGenerate(options: UseGenerateOptions = {}) {
           throw new Error('Total attachment size is too large for the server. Please try with smaller files.');
         }
         const json = await response.json().catch(() => ({}));
+        if (response.status === 402 && json.upgradeRequired) {
+          PaywallActions.open('generate');
+        }
         throw new Error(json.error || `Request failed: ${response.status}`);
       }
 

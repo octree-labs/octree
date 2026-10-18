@@ -8,19 +8,11 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
-import {
   UsageIndicator,
 } from '@/components/subscription/usage-indicator';
-import { FeatureList } from '@/app/onboarding/components/feature-list';
-import { createCheckoutSession } from '@/lib/requests/subscription';
+import { useSubscriptionUsage } from '@/hooks/use-subscription-usage';
+import { canUseFeature } from '@/lib/subscription/features';
+import { PaywallActions } from '@/stores/paywall';
 import {
   Loader2,
   Download,
@@ -30,16 +22,6 @@ import {
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-
-interface SubscriptionData {
-  hasSubscription: boolean;
-  usage: {
-    editCount: number;
-    remainingEdits: number | null;
-    isPro: boolean;
-    hasUnlimitedEdits: boolean;
-  };
-}
 
 interface EditorToolbarProps {
   /** Left side of the toolbar (pane tabs, formatting). */
@@ -64,127 +46,35 @@ export function EditorToolbar({
   hasPdfData = false,
 }: EditorToolbarProps) {
   const [isMac, setIsMac] = useState(true);
-  const [subscriptionData, setSubscriptionData] =
-    useState<SubscriptionData | null>(null);
-  const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
-  const [isMonthly, setIsMonthly] = useState(true);
-  const [isCheckoutLoading, setIsCheckoutLoading] = useState(false);
+  const { usage, isLoading: isPlanLoading, refresh: refreshPlan } = useSubscriptionUsage();
 
   useEffect(() => {
     setIsMac(navigator.platform.toUpperCase().indexOf('MAC') >= 0);
-
-    // Fetch subscription status
-    fetch('/api/subscription-status')
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => setSubscriptionData(data))
-      .catch(() => {});
   }, []);
 
-  const handleSubscribe = async () => {
-    setIsCheckoutLoading(true);
-    try {
-      const checkoutUrl = await createCheckoutSession({
-        annual: isMonthly,
-        withTrial: false,
-      });
-      window.location.href = checkoutUrl;
-    } catch (error) {
-      console.error('Failed to create checkout session:', error);
-      toast.error('Failed to start checkout. Please try again.');
-      setIsCheckoutLoading(false);
+  // Export is Pro-only. The menu items are disabled until the plan has loaded
+  // so a Pro user never sees the paywall; if the plan could not be loaded at
+  // all, say so instead of guessing.
+  const exportAccess = canUseFeature(usage, 'export');
+  const showExportLock = !exportAccess.allowed && exportAccess.reason === 'paywall';
+
+  const gateExport = (run: () => void) => {
+    if (exportAccess.allowed) {
+      run();
+      return;
     }
+    if (exportAccess.reason === 'unknown') {
+      toast.error("Couldn't check your plan. Please try again.");
+      void refreshPlan();
+      return;
+    }
+    PaywallActions.open('export');
   };
 
-  // User must have subscription data loaded AND be pro to export
-  const isPro = Boolean(
-    subscriptionData?.hasSubscription ||
-    subscriptionData?.usage?.isPro ||
-    subscriptionData?.usage?.hasUnlimitedEdits
-  );
-  
-  // If subscription data not loaded yet, assume not pro (safe default)
-  const canExport = subscriptionData !== null && isPro;
-
-  const handleExportPDF = () => {
-    if (!canExport) {
-      setShowUpgradeDialog(true);
-    } else {
-      onExportPDF();
-    }
-  };
-
-  const handleExportZIP = () => {
-    if (!canExport) {
-      setShowUpgradeDialog(true);
-    } else {
-      onExportZIP();
-    }
-  };
+  const handleExportPDF = () => gateExport(onExportPDF);
+  const handleExportZIP = () => gateExport(onExportZIP);
   return (
     <>
-      <Dialog open={showUpgradeDialog} onOpenChange={setShowUpgradeDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Upgrade to Export</DialogTitle>
-            <DialogDescription>
-              Export features are available for Pro subscribers.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-6">
-            <div className="flex items-center gap-2">
-              <Switch
-                id="monthly-switch"
-                checked={isMonthly}
-                onCheckedChange={setIsMonthly}
-              />
-              <Label
-                htmlFor="monthly-switch"
-                className="cursor-pointer text-sm font-normal"
-              >
-                Save 50% with monthly billing
-              </Label>
-            </div>
-
-            <div className="space-y-1">
-              <div className="flex items-baseline gap-2">
-                <p className="text-3xl font-bold">{isMonthly ? '$2.49' : '$4.99'}</p>
-                <p className="text-sm text-muted-foreground">per week</p>
-              </div>
-              {isMonthly && (
-                <p className="text-xs text-muted-foreground">Billed monthly at $9.99/month</p>
-              )}
-              {!isMonthly && (
-                <p className="text-xs text-muted-foreground">Billed weekly</p>
-              )}
-            </div>
-
-            <div>
-              <p className="mb-4 text-sm font-semibold">Octree Pro includes</p>
-              <FeatureList />
-            </div>
-
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                className="flex-1"
-                onClick={() => setShowUpgradeDialog(false)}
-              >
-                Cancel
-              </Button>
-              <Button
-                className="flex-1"
-                variant="gradient"
-                onClick={handleSubscribe}
-                disabled={isCheckoutLoading}
-              >
-                {isCheckoutLoading ? 'Loading...' : 'Subscribe Now'}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
     <div
       className="flex-shrink-0 border-b border-slate-200 bg-white p-2"
       data-onboarding-target="toolbar"
@@ -214,20 +104,21 @@ export function EditorToolbar({
             <DropdownMenuContent align="end">
               <DropdownMenuItem
                 onClick={handleExportPDF}
-                disabled={!hasPdfData}
+                disabled={!hasPdfData || isPlanLoading}
                 className="gap-2"
               >
                 <FileText className="size-4" />
                 Export as PDF
-                {!canExport && <Lock className="ml-auto size-3 text-amber-500" />}
+                {showExportLock && <Lock className="ml-auto size-3 text-amber-500" />}
               </DropdownMenuItem>
-              <DropdownMenuItem 
+              <DropdownMenuItem
                 onClick={handleExportZIP}
+                disabled={isPlanLoading}
                 className="gap-2"
               >
                 <FolderArchive className="size-4" />
                 Export as ZIP
-                {!canExport && <Lock className="ml-auto size-3 text-amber-500" />}
+                {showExportLock && <Lock className="ml-auto size-3 text-amber-500" />}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

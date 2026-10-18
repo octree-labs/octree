@@ -4,6 +4,7 @@ import { useCallback } from 'react';
 import { toast } from 'sonner';
 import { useEditLimitCache } from '../use-edit-limit-cache';
 import { PRO_MONTHLY_EDIT_LIMIT } from '@/data/constants';
+import { PaywallActions } from '@/stores/paywall';
 import { useSuggestionQueue } from './use-suggestion-queue';
 import { useSuggestionDecorations } from './use-suggestion-decorations';
 import { acceptSingleEdit, acceptAllEdits, rejectEdit, acceptEditDirect, AcceptEditOptions } from './suggestion-operations';
@@ -20,7 +21,19 @@ export function useEditSuggestions({
   onSwitchFile,
   onOtherFileEdited,
 }: UseEditSuggestionsProps): EditSuggestionsState {
-  const { canEdit } = useEditLimitCache();
+  const { canEdit, isPro } = useEditLimitCache();
+
+  // Free users get the paywall; Pro users at their monthly cap get a message,
+  // since upgrading would not help them.
+  const notifyLimitReached = useCallback(() => {
+    if (isPro) {
+      toast.error(
+        `You've reached your monthly limit of ${PRO_MONTHLY_EDIT_LIMIT} AI edits. It resets on your billing date.`
+      );
+    } else {
+      PaywallActions.open('ai-edit');
+    }
+  }, [isPro]);
 
   // Manage suggestions — no editor reference needed for string-matching edits
   const {
@@ -50,9 +63,7 @@ export function useEditSuggestions({
   const handleAcceptEdit = useCallback(
     async (suggestionId: string) => {
       if (!canEdit) {
-        toast.error(
-          `You have reached your edit limit. Please upgrade to Pro for ${PRO_MONTHLY_EDIT_LIMIT} edits per month.`
-        );
+        notifyLimitReached();
         return;
       }
 
@@ -75,7 +86,7 @@ export function useEditSuggestions({
         );
       }
     },
-    [canEdit, editor, monacoInstance, editSuggestions, setEditSuggestions, currentFilePath, onSwitchFile, onOtherFileEdited]
+    [canEdit, notifyLimitReached, editor, monacoInstance, editSuggestions, setEditSuggestions, currentFilePath, onSwitchFile, onOtherFileEdited]
   );
 
   // Accept all pending edits — Monaco if model ready, else direct fallback
@@ -85,9 +96,7 @@ export function useEditSuggestions({
     if (pendingSuggestions.length === 0) return;
 
     if (!canEdit) {
-      toast.error(
-        `You have reached your edit limit. Please upgrade to Pro for ${PRO_MONTHLY_EDIT_LIMIT} edits per month.`
-      );
+      notifyLimitReached();
       return;
     }
 
@@ -124,6 +133,7 @@ export function useEditSuggestions({
   }, [
     editSuggestions,
     canEdit,
+    notifyLimitReached,
     editor,
     monacoInstance,
     setEditSuggestions,

@@ -114,7 +114,7 @@ export async function POST(request: Request) {
             : `You've reached your daily limit of ${FREE_DAILY_EDIT_LIMIT} edits. Upgrade to Pro for ${PRO_MONTHLY_EDIT_LIMIT} edits per month!`;
 
           return NextResponse.json(
-            { error: limitMessage, limitReached: true },
+            { error: limitMessage, limitReached: true, upgradeRequired: !isPro },
             { status: 429 }
           );
         }
@@ -164,7 +164,7 @@ export async function POST(request: Request) {
           : `You've reached your daily limit of ${FREE_DAILY_EDIT_LIMIT} edits. Upgrade to Pro for ${PRO_MONTHLY_EDIT_LIMIT} edits per month!`;
 
         return NextResponse.json(
-          { error: limitMessage, limitReached: true },
+          { error: limitMessage, limitReached: true, upgradeRequired: !isPro },
           { status: 429 }
         );
       }

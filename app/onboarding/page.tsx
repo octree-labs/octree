@@ -33,8 +33,10 @@ import {
   TOTAL_STEPS,
 } from './constants';
 import { OctreeLogo, OctreeWordmark } from '@/components/icons/octree-logo';
+import { FREE_DAILY_EDIT_LIMIT } from '@/data/constants';
 import { createCheckoutSession } from '@/lib/requests/subscription';
 import { getUserUsageStatus, upsertUserUsage } from '@/lib/requests/user';
+import { completeFreeOnboarding } from '@/lib/requests/onboarding';
 import { AuthMarketingSection } from '@/components/auth/auth-marketing-section';
 
 export default function OnboardingPage() {
@@ -57,11 +59,10 @@ export default function OnboardingPage() {
       if (user?.email) {
         setUserEmail(user.email);
 
-        // Check if user is already pro or has completed onboarding
+        // Already onboarded (free or Pro): straight to the dashboard
         const usageData = await getUserUsageStatus(user.id);
 
-        if (usageData?.is_pro && usageData?.onboarding_completed) {
-          // User is already a pro subscriber, redirect to dashboard
+        if (usageData?.onboarding_completed) {
           router.push('/');
         }
       }
@@ -156,8 +157,10 @@ export default function OnboardingPage() {
     }
   };
 
-  // Skip subscription and go directly to dashboard
-  const handleSkipSubscription = async () => {
+  // Continue on the free plan: marks onboarding complete (same flag the Stripe
+  // webhook sets for paying users) and goes to the dashboard. Pro features are
+  // gated inside the product instead.
+  const handleContinueFree = async () => {
     setIsSubmitting(true);
     try {
       const supabase = createClient();
@@ -172,14 +175,10 @@ export default function OnboardingPage() {
         return;
       }
 
-      // Mark onboarding as completed without subscription
-      await upsertUserUsage(user.id, {
-        onboarding_completed: true,
-      });
-
+      await completeFreeOnboarding(user);
       router.push('/');
     } catch (error) {
-      console.error('Failed to skip subscription:', error);
+      console.error('Failed to continue on the free plan:', error);
       toast.error('Something went wrong. Please try again.');
       setIsSubmitting(false);
     }
@@ -353,11 +352,24 @@ export default function OnboardingPage() {
                       ? 'Get Octree Pro →'
                       : 'Continue'}
                 </Button>
-                {/* Skip button removed — subscription is now required */}
                 {currentStep === 1 && (
-                  <p className="text-center text-xs text-muted-foreground">
-                    Cancel anytime. No questions asked.
-                  </p>
+                  <>
+                    <p className="text-center text-xs text-muted-foreground">
+                      Cancel anytime. No questions asked.
+                    </p>
+                    <Button
+                      className="w-full"
+                      variant="ghost"
+                      onClick={handleContinueFree}
+                      disabled={isSubmitting}
+                    >
+                      Continue with the free plan
+                    </Button>
+                    <p className="text-center text-xs text-muted-foreground">
+                      Free includes {FREE_DAILY_EDIT_LIMIT} AI edits a day, unlimited projects and PDF
+                      preview. Upgrade any time from the editor.
+                    </p>
+                  </>
                 )}
               </div>
             </div>

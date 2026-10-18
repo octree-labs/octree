@@ -10,6 +10,7 @@ import { FREE_DAILY_EDIT_LIMIT } from '@/data/constants';
 
 interface EditLimitStatus {
   canEdit: boolean;
+  isPro: boolean;
   editCount: number;
   limit: number;
   isLoading: boolean;
@@ -21,6 +22,7 @@ const CACHE_DURATION = 30000; // 30 seconds
 export function useEditLimitCache() {
   const [status, setStatus] = useState<EditLimitStatus>({
     canEdit: true,
+    isPro: false,
     editCount: 0,
     limit: FREE_DAILY_EDIT_LIMIT, // Default to free user daily limit
     isLoading: false,
@@ -52,6 +54,7 @@ export function useEditLimitCache() {
 
       const newStatus = {
         canEdit: data.canEdit,
+        isPro: Boolean(data.isPro || data.hasUnlimitedEdits),
         editCount: data.editCount || 0,
         limit: data.limit || 100,
         isLoading: false,
@@ -108,6 +111,7 @@ export function useEditLimitCache() {
 
   return {
     canEdit: status.canEdit,
+    isPro: status.isPro,
     editCount: status.editCount,
     limit: status.limit,
     isLoading: status.isLoading,

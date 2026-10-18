@@ -80,3 +80,12 @@ export const NON_LATEX_FILE_CONTENT = (fileName: string, projectTitle: string, f
 
 // File content would be loaded here in a real implementation.
 // This file type (${fileType || 'unknown'}) is not currently supported for editing.`;
+
+// What the paywall dialog promises. Keep in sync with the limits above and
+// with the gates in lib/subscription/features.ts.
+export const PRO_FEATURES = [
+  `${PRO_MONTHLY_EDIT_LIMIT} AI edits per month (free: ${FREE_DAILY_EDIT_LIMIT} per day)`,
+  'Export your project as PDF or ZIP',
+  'Generate full documents from a prompt',
+  'Unlimited projects and files',
+] as const;

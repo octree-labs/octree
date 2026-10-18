@@ -9,7 +9,7 @@ import { BackButton } from '@/components/projects/back-button';
 import { ProjectBreadcrumbs } from '@/components/projects/project-breadcrumbs';
 import { SaveStatus } from '@/components/projects/save-status';
 import { getProjectById } from '@/actions/get-projects';
-import { getCurrentUser, getUserUsageStatus } from '@/actions/get-user';
+import { getCurrentUser } from '@/actions/get-user';
 import { getUserWalkthroughStatus } from '@/actions/get-walkthrough';
 import { PaywallDialog } from '@/components/subscription/paywall-dialog';
 import { EditorWalkthroughWrapper } from '@/components/editor/editor-walkthrough-wrapper';
@@ -30,15 +30,11 @@ export default async function ProjectLayout({
   const walkthroughStatus = user ? await getUserWalkthroughStatus(user.id) : null;
   const shouldShowEditorWalkthrough = !walkthroughStatus?.editor_seen;
 
-  // Check if user needs to see paywall
-  // TEMPORARILY DISABLED - allowing users to enter without paywall
-  // const usage = user ? await getUserUsageStatus(user.id) : null;
-  // const showPaywall = usage?.onboarding_completed && !usage?.is_pro;
-
   return (
     <DragDropProvider>
       <SidebarProvider defaultOpen={true}>
-        {/* {showPaywall && user?.email && <PaywallDialog userEmail={user.email} />} */}
+        {/* Opened by the AI-edit limit and the export menu (stores/paywall.ts) */}
+        <PaywallDialog />
 
         <AppSidebar userName={userName} />
         <SidebarInset className="flex h-screen flex-col overflow-hidden">

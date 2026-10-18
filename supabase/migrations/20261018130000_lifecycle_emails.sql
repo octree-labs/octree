@@ -1,9 +1,12 @@
 -- Lifecycle and win-back emails (app/api/cron/lifecycle).
 --
--- lifecycle_emails: one row per (user, template) ever sent. The unique key is
--- the dedupe: the cron inserts before it reports success, and a second run
--- can never send the same template to the same person twice. Service role
--- only; nothing in the browser reads it.
+-- lifecycle_emails: one row per (user, template) ever attempted. The unique
+-- key is the dedupe: the cron inserts before it sends, and a second run can
+-- never send the same template to the same person twice. A send Resend
+-- rejected keeps its row with `error` set and no `resend_id`; later runs
+-- retry it through claim_lifecycle_retry until `attempts` reaches the cap
+-- (MAX_SEND_ATTEMPTS in lib/lifecycle/load.ts). Service role only; nothing
+-- in the browser reads it.
 --
 -- email_preferences: the marketing opt-out a user sets through the
 -- unsubscribe link in every lifecycle email. A user may read and update their
@@ -16,13 +19,51 @@ create table if not exists public.lifecycle_emails (
   template text not null,
   sent_at timestamptz not null default now(),
   resend_id text,
+  error text,
+  attempts integer not null default 1,
   unique (user_id, template)
 );
+
+alter table public.lifecycle_emails add column if not exists error text;
+alter table public.lifecycle_emails add column if not exists attempts integer not null default 1;
 
 alter table public.lifecycle_emails enable row level security;
 
 revoke all on table public.lifecycle_emails from anon, authenticated;
 grant all on table public.lifecycle_emails to service_role;
+
+-- Takes over a failed row for another attempt. One UPDATE, so two
+-- overlapping cron runs cannot both claim it. Returns true when the row was
+-- taken, false when there was nothing retryable (sent, in flight, or out of
+-- attempts).
+create or replace function public.claim_lifecycle_retry(
+  p_user_id uuid,
+  p_template text,
+  p_email text,
+  p_max_attempts integer
+) returns boolean
+language sql
+security definer
+set search_path = public
+as $$
+  with taken as (
+    update public.lifecycle_emails
+       set error = null,
+           attempts = attempts + 1,
+           sent_at = now(),
+           email = p_email
+     where user_id = p_user_id
+       and template = p_template
+       and resend_id is null
+       and error is not null
+       and attempts < p_max_attempts
+    returning id
+  )
+  select exists (select 1 from taken);
+$$;
+
+revoke execute on function public.claim_lifecycle_retry(uuid, text, text, integer) from public, anon, authenticated;
+grant execute on function public.claim_lifecycle_retry(uuid, text, text, integer) to service_role;
 
 create table if not exists public.email_preferences (
   user_id uuid primary key references auth.users(id) on delete cascade,

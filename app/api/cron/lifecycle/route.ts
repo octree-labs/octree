@@ -6,7 +6,7 @@ import { resend, FROM_ADDRESS } from '@/lib/email/client';
 import { getAppUrl, getUnsubscribeSecret, userUnsubscribeUrl } from '@/lib/email/unsubscribe';
 import { LIFECYCLE_TEMPLATES } from '@/lib/email/lifecycle';
 import { enabledTemplates } from '@/lib/lifecycle/config';
-import { attachStripeLapses, loadLifecycleRows } from '@/lib/lifecycle/load';
+import { attachStripeLapses, loadLifecycleRows, MAX_SEND_ATTEMPTS } from '@/lib/lifecycle/load';
 import { DEFAULT_SEND_CAP, selectLifecycleCandidates } from '@/lib/lifecycle/select';
 import { sendLifecycleBatch, type LifecycleLedger, type LifecycleMailer } from '@/lib/lifecycle/send';
 import { getPostHogServer } from '@/lib/posthog-server';
@@ -40,9 +40,12 @@ export async function GET(request: Request) {
 
   try {
     const rows = await loadLifecycleRows(supabase);
-    // Stripe is consulted even when winback is disabled so a dry run shows
-    // the batch the flag would release.
-    const stripeLookups = await attachStripeLapses(stripe, rows);
+    // Stripe is read when win-back can send, and on a dry run so the batch
+    // the flag would release is visible before it is switched on.
+    const stripeLookups =
+      dry || enabled.has('winback')
+        ? await attachStripeLapses(stripe, rows)
+        : { candidates: 0, stripe_requests: 0, truncated: false };
 
     const selection = selectLifecycleCandidates({
       ...rows,
@@ -68,7 +71,7 @@ export async function GET(request: Request) {
         dry: true,
         generated_at: now.toISOString(),
         users: rows.users.length,
-        stripe_lookups: stripeLookups.looked_up,
+        stripe: stripeLookups,
         cap: DEFAULT_SEND_CAP,
         missing_tables: rows.missingTables,
         templates: summary,
@@ -103,14 +106,31 @@ export async function GET(request: Request) {
           .from('lifecycle_emails')
           .insert({ user_id: userId, email, template });
         if (!error) return true;
-        // 23505 = unique_violation: another run already claimed it.
-        if (error.code === '23505') return false;
-        throw new Error(error.message);
+        if (error.code !== '23505') throw new Error(error.message);
+        // 23505 = unique_violation: the pair exists. Take it over only if
+        // its send failed and attempts remain (one UPDATE in the RPC, so a
+        // concurrent run cannot take the same row).
+        const { data: retried, error: retryError } = await supabase.rpc('claim_lifecycle_retry', {
+          p_user_id: userId,
+          p_template: template,
+          p_email: email,
+          p_max_attempts: MAX_SEND_ATTEMPTS,
+        });
+        if (retryError) throw new Error(retryError.message);
+        return retried === true;
       },
       async markSent({ userId, template, resendId }) {
         const { error } = await supabase
           .from('lifecycle_emails')
           .update({ resend_id: resendId })
+          .eq('user_id', userId)
+          .eq('template', template);
+        if (error) throw new Error(error.message);
+      },
+      async markFailed({ userId, template, error: message }) {
+        const { error } = await supabase
+          .from('lifecycle_emails')
+          .update({ error: message.slice(0, 500) })
           .eq('user_id', userId)
           .eq('template', template);
         if (error) throw new Error(error.message);
@@ -121,6 +141,16 @@ export async function GET(request: Request) {
     const results = await sendLifecycleBatch(selection.toSend, {
       mailer,
       ledger,
+      async mayEmail({ userId, email }) {
+        const [suppression, preference] = await Promise.all([
+          supabase.from('email_suppressions').select('email').eq('email', email).maybeSingle(),
+          supabase.from('email_preferences').select('marketing_opt_out').eq('user_id', userId).maybeSingle(),
+        ]);
+        // A failed read is treated as "no consent" so an outage cannot
+        // leak email to someone who opted out.
+        if (suppression.error || preference.error) return false;
+        return !suppression.data && !preference.data?.marketing_opt_out;
+      },
       appUrl: getAppUrl(),
       toolsUrl: TOOLS_URL,
       unsubscribeUrl: (userId) => userUnsubscribeUrl(userId, secret),
@@ -142,7 +172,7 @@ export async function GET(request: Request) {
       dry: false,
       generated_at: now.toISOString(),
       users: rows.users.length,
-      stripe_lookups: stripeLookups.looked_up,
+      stripe: stripeLookups,
       cap: DEFAULT_SEND_CAP,
       sent,
       failed: failed.length,

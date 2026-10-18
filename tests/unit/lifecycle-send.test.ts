@@ -7,8 +7,11 @@ function deps(overrides: Partial<LifecycleSendDeps> = {}) {
   const sent: Array<{ to: string; subject: string; headers: Record<string, string> }> = [];
   const claims: string[] = [];
   const marked: string[] = [];
+  const failed: string[] = [];
   const capture = vi.fn();
   const d: LifecycleSendDeps = {
+    mayEmail: async () => true,
+    throttleMs: 0,
     mailer: {
       async send(input) {
         sent.push({ to: input.to, subject: input.subject, headers: input.headers });
@@ -25,6 +28,9 @@ function deps(overrides: Partial<LifecycleSendDeps> = {}) {
       async markSent({ userId, template, resendId }) {
         marked.push(`${userId}:${template}:${resendId}`);
       },
+      async markFailed({ userId, template, error }) {
+        failed.push(`${userId}:${template}:${error}`);
+      },
     },
     capture,
     appUrl: 'https://app.example.com',
@@ -32,7 +38,7 @@ function deps(overrides: Partial<LifecycleSendDeps> = {}) {
     unsubscribeUrl: (userId) => `https://app.example.com/api/email/unsubscribe?token=${userId}`,
     ...overrides,
   };
-  return { d, sent, claims, marked, capture };
+  return { d, sent, claims, marked, failed, capture };
 }
 
 const candidate = { userId: 'u1', email: 'a@example.com', template: 'welcome' as const, eligibleSince: 0 };
@@ -59,13 +65,41 @@ describe('sendLifecycleEmail', () => {
     expect(sent).toHaveLength(1);
   });
 
-  it('reports a Resend error without capturing an event', async () => {
-    const { d, capture } = deps({
+  it('records a Resend error on the claimed row without marking it sent or capturing an event', async () => {
+    const { d, capture, marked, failed } = deps({
       mailer: { async send() { return { id: null, error: 'boom' }; } },
     });
     const result = await sendLifecycleEmail(candidate, d);
     expect(result).toEqual({ userId: 'u1', template: 'welcome', sent: false, reason: 'boom' });
+    expect(failed).toEqual(['u1:welcome:boom']);
+    expect(marked).toEqual([]);
     expect(capture).not.toHaveBeenCalled();
+  });
+
+  it('re-checks consent at send time and leaves no ledger row when it is gone', async () => {
+    const { d, sent, claims } = deps({ mayEmail: async ({ email }) => email !== 'a@example.com' });
+    const result = await sendLifecycleEmail(candidate, d);
+    expect(result).toEqual({ userId: 'u1', template: 'welcome', sent: false, reason: 'opted out' });
+    expect(sent).toHaveLength(0);
+    expect(claims).toHaveLength(0);
+  });
+
+  it('paces the batch by throttleMs', async () => {
+    vi.useFakeTimers();
+    try {
+      const { d, sent } = deps({ throttleMs: 500 });
+      const run = sendLifecycleBatch(
+        [candidate, { ...candidate, userId: 'u2', email: 'b@example.com' }],
+        d
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      expect(sent).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(500);
+      await run;
+      expect(sent).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('a throwing send does not stop the batch', async () => {

@@ -4,17 +4,22 @@
  * (app/api/cron/lifecycle) loads the rows, calls `selectLifecycleCandidates`
  * and sends what comes back.
  *
- * Rules (all require an email, no suppression, no opt-out, not already sent):
- *   welcome    1h..3d after sign-up, no project, not Pro
- *   limit_hit  free user with edit_count >= 5 whose usage row changed in the
- *              last 2 days (increment_edit_count bumps updated_at)
- *   day7       7..14d after sign-up, has a project, not Pro
- *   winback    has a Stripe customer, not Pro, subscription ended >= 7d ago
+ * Rules (all require an email, no suppression, no opt-out, not already sent,
+ * not staff and no subscription relationship — see `hasSubscription`):
+ *   welcome    1..3d after sign-up, no project. The Inngest "Welcome to
+ *              Octree" goes out at confirmation, so this one waits a day.
+ *   limit_hit  free user whose daily counter sits at the limit
+ *              (edit_count >= 5) for today or yesterday. `daily_reset_date`
+ *              is the day the counter started, set by increment_edit_count.
+ *   day7       7..14d after sign-up, has a project
+ *   winback    has a Stripe customer, subscription ended >= 7d ago
  *
  * One email per user per run, highest-priority template first
  * (limit_hit > day7 > welcome > winback), oldest-eligible first, capped.
  */
 import type { LifecycleTemplate } from '@/lib/email/lifecycle';
+import { isAdminEmail } from '@/lib/admin';
+import { hasUnlimitedEdits } from '@/lib/paywall';
 
 export interface LifecycleUserRow {
   userId: string;
@@ -22,12 +27,13 @@ export interface LifecycleUserRow {
   email: string | null;
   /** Sign-up time (auth.users.created_at). */
   createdAt: string | null;
+  /** user_usage.edit_count: the free daily counter, capped at the limit. */
   editCount: number;
+  /** user_usage.daily_reset_date: the day `editCount` started counting. */
+  dailyResetDate: string | null;
   isPro: boolean;
   subscriptionStatus: string | null;
   stripeCustomerId: string | null;
-  /** user_usage.updated_at — bumped by increment_edit_count. */
-  usageUpdatedAt: string | null;
   /** `unlimited` and other staff roles never get upsell email. */
   role: string | null;
   /** Earliest projects.created_at for the user, null when they have none. */
@@ -72,7 +78,11 @@ const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 
 export const LIFECYCLE_RULES = {
-  welcome: { minAgeMs: 1 * HOUR_MS, maxAgeMs: 3 * DAY_MS },
+  welcome: { minAgeMs: 1 * DAY_MS, maxAgeMs: 3 * DAY_MS },
+  /**
+   * `recencyMs` is measured from 00:00 UTC of `daily_reset_date` (a date,
+   * not a timestamp), so 2 days means "the limit was hit today or yesterday".
+   */
   limit_hit: { minEdits: 5, recencyMs: 2 * DAY_MS },
   day7: { minAgeMs: 7 * DAY_MS, maxAgeMs: 14 * DAY_MS },
   winback: { minLapsedMs: 7 * DAY_MS },
@@ -83,7 +93,14 @@ export const DEFAULT_SEND_CAP = 200;
 /** Templates in the order a user who qualifies for several gets them. */
 export const TEMPLATE_PRIORITY: readonly LifecycleTemplate[] = ['limit_hit', 'day7', 'welcome', 'winback'];
 
-const ACTIVE_STATUSES = new Set(['active', 'trialing', 'unlimited']);
+/**
+ * Statuses that mean the user has a subscription relationship Octree must
+ * not upsell or win back against: live (`active`, `trialing`), in dunning
+ * (`past_due`: Stripe is still retrying the card), paused through the cancel
+ * flow (`paused`, PR #398: free tier until collection resumes), or staff
+ * (`unlimited`).
+ */
+export const SUBSCRIPTION_STATUSES = new Set(['active', 'trialing', 'past_due', 'paused', 'unlimited']);
 const STAFF_ROLES = new Set(['unlimited', 'admin']);
 
 function ms(value: string | null): number | null {
@@ -92,8 +109,14 @@ function ms(value: string | null): number | null {
   return Number.isNaN(t) ? null : t;
 }
 
-function isPaying(user: LifecycleUserRow): boolean {
-  return user.isPro || ACTIVE_STATUSES.has(user.subscriptionStatus ?? '');
+/** Pro, or any status in `SUBSCRIPTION_STATUSES`. */
+export function hasSubscription(user: LifecycleUserRow): boolean {
+  return user.isPro || SUBSCRIPTION_STATUSES.has(user.subscriptionStatus ?? '');
+}
+
+/** Staff by role or by the edit/admin email whitelists (lib/paywall, lib/admin). */
+export function isStaff(user: LifecycleUserRow): boolean {
+  return STAFF_ROLES.has(user.role ?? '') || hasUnlimitedEdits(user.email) || isAdminEmail(user.email);
 }
 
 /**
@@ -103,31 +126,31 @@ function isPaying(user: LifecycleUserRow): boolean {
  */
 export function eligibleSince(user: LifecycleUserRow, template: LifecycleTemplate, now: Date): number | null {
   const nowMs = now.getTime();
-  if (STAFF_ROLES.has(user.role ?? '')) return null;
+  if (isStaff(user) || hasSubscription(user)) return null;
 
   switch (template) {
     case 'welcome': {
       const created = ms(user.createdAt);
-      if (created === null || user.firstProjectAt || isPaying(user)) return null;
+      if (created === null || user.firstProjectAt) return null;
       const age = nowMs - created;
       if (age < LIFECYCLE_RULES.welcome.minAgeMs || age > LIFECYCLE_RULES.welcome.maxAgeMs) return null;
       return created + LIFECYCLE_RULES.welcome.minAgeMs;
     }
     case 'limit_hit': {
-      if (isPaying(user) || user.editCount < LIFECYCLE_RULES.limit_hit.minEdits) return null;
-      const updated = ms(user.usageUpdatedAt);
-      if (updated === null || nowMs - updated > LIFECYCLE_RULES.limit_hit.recencyMs) return null;
-      return updated;
+      if (user.editCount < LIFECYCLE_RULES.limit_hit.minEdits) return null;
+      const resetDay = ms(user.dailyResetDate);
+      if (resetDay === null || nowMs - resetDay > LIFECYCLE_RULES.limit_hit.recencyMs) return null;
+      return resetDay;
     }
     case 'day7': {
       const created = ms(user.createdAt);
-      if (created === null || !user.firstProjectAt || isPaying(user)) return null;
+      if (created === null || !user.firstProjectAt) return null;
       const age = nowMs - created;
       if (age < LIFECYCLE_RULES.day7.minAgeMs || age > LIFECYCLE_RULES.day7.maxAgeMs) return null;
       return created + LIFECYCLE_RULES.day7.minAgeMs;
     }
     case 'winback': {
-      if (!user.stripeCustomerId || isPaying(user)) return null;
+      if (!user.stripeCustomerId) return null;
       const ended = ms(user.subscriptionEndedAt);
       if (ended === null || nowMs - ended < LIFECYCLE_RULES.winback.minLapsedMs) return null;
       return ended + LIFECYCLE_RULES.winback.minLapsedMs;
@@ -136,11 +159,12 @@ export function eligibleSince(user: LifecycleUserRow, template: LifecycleTemplat
 }
 
 /**
- * Cheap pre-filter for win-back: the users worth a Stripe lookup. Everything
- * except the lapsed-for-7-days check, which needs `subscriptionEndedAt`.
+ * Cheap pre-filter for win-back: the users whose Stripe subscriptions are
+ * worth reading. Everything except the lapsed-for-7-days check, which needs
+ * `subscriptionEndedAt`.
  */
 export function isWinbackPrecandidate(user: LifecycleUserRow): boolean {
-  return !!user.email && !!user.stripeCustomerId && !isPaying(user) && !STAFF_ROLES.has(user.role ?? '');
+  return !!user.email && !!user.stripeCustomerId && !hasSubscription(user) && !isStaff(user);
 }
 
 export function selectLifecycleCandidates(input: LifecycleSelectionInput): LifecycleSelection {

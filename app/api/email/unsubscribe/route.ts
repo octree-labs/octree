@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import {
@@ -43,7 +44,12 @@ async function handle(request: Request) {
 }
 
 async function unsubscribeByEmail(email: string, token: string) {
-  if (!process.env.EMAIL_UNSUBSCRIBE_SECRET || token !== generateUnsubscribeToken(email)) {
+  if (!process.env.EMAIL_UNSUBSCRIBE_SECRET) {
+    return NextResponse.json({ error: 'Invalid token' }, { status: 403 });
+  }
+  const expected = Buffer.from(generateUnsubscribeToken(email));
+  const actual = Buffer.from(token);
+  if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
     return NextResponse.json({ error: 'Invalid token' }, { status: 403 });
   }
 

@@ -6,6 +6,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 
 import {
   describeCheckoutSessionPlan,
+  grantCreditsFromCheckoutSession,
   recordStripeEvent,
   subscriptionLifecycleEvents,
   trackPurchaseFromCheckoutSession,
@@ -73,6 +74,22 @@ export async function POST(request: Request) {
           await trackPurchaseFromCheckoutSession(session);
         } catch (error) {
           console.error('Failed to track purchase conversion:', error);
+        }
+        // A paid credit pack (`mode: 'payment'`, `metadata.credits`): ledger
+        // row + balance. The ledger is unique on the session id, so a retry
+        // that got past the event log above still grants once. A database
+        // failure here must reach Stripe (500) so the delivery is retried
+        // and the buyer is not left without their credits.
+        if (session.mode === 'payment') {
+          const grant = await grantCreditsFromCheckoutSession(supabase, session);
+          if (grant.granted) {
+            captureServerEventAfterResponse(grant.userId, AnalyticsEvents.CREDITS_PURCHASED, {
+              credits: grant.credits,
+              amount: typeof session.amount_total === 'number' ? session.amount_total / 100 : null,
+              currency: session.currency ? session.currency.toUpperCase() : null,
+            });
+          }
+          break;
         }
         // PostHog `subscription_started` (the "paid" funnel step). Analytics
         // can never fail the webhook.

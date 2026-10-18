@@ -9,6 +9,7 @@ import {
   FREE_DAILY_EDIT_LIMIT,
   PRO_MONTHLY_EDIT_LIMIT,
 } from '@/data/constants';
+import { createCheckoutSession } from '@/lib/requests/subscription';
 
 interface UsageIndicatorProps {
   className?: string;
@@ -19,6 +20,8 @@ interface UsageData {
   monthlyEditCount: number;
   remainingEdits: number | null;
   remainingMonthlyEdits: number | null;
+  /** Purchased AI edits left; never expire. */
+  editCredits?: number;
   isPro: boolean;
   limitReached: boolean;
   monthlyLimitReached: boolean;
@@ -52,16 +55,8 @@ export function UpgradeButton() {
   const handleSubscribe = async () => {
     setIsLoading(true);
     try {
-      const response = await fetch('/api/checkout-session', {
-        method: 'POST',
-      });
-
-      if (response.ok) {
-        const checkoutUrl = await response.text();
-        window.location.href = checkoutUrl;
-      } else {
-        console.error('Failed to create checkout session');
-      }
+      const checkoutUrl = await createCheckoutSession({ plan: 'monthly', source: 'toolbar' });
+      window.location.href = checkoutUrl;
     } catch (error) {
       console.error('Error creating checkout session:', error);
     } finally {
@@ -164,22 +159,15 @@ export function UsageIndicator({ className }: UsageIndicatorProps) {
 
   const handleSubscribe = async () => {
     try {
-      const response = await fetch('/api/checkout-session', {
-        method: 'POST',
-      });
-
-      if (response.ok) {
-        const checkoutUrl = await response.text();
-        window.location.href = checkoutUrl;
-      } else {
-        console.error('Failed to create checkout session');
-      }
+      const checkoutUrl = await createCheckoutSession({ plan: 'monthly', source: 'toolbar' });
+      window.location.href = checkoutUrl;
     } catch (error) {
       console.error('Error creating checkout session:', error);
     }
   };
 
   const isAtLimit = limitReached || monthlyLimitReached;
+  const editCredits = usageData.editCredits ?? 0;
   const remaining = usageData.isPro ? remainingMonthlyEdits : remainingEdits;
   const total = usageData.isPro ? PRO_MONTHLY_EDIT_LIMIT : FREE_DAILY_EDIT_LIMIT;
   const used = usageData.isPro ? monthlyEditCount : editCount;
@@ -246,14 +234,19 @@ export function UsageIndicator({ className }: UsageIndicatorProps) {
                 {isAtLimit ? (
                   <p className="text-xs text-red-600">
                     {usageData.isPro
-                      ? 'Monthly limit reached. Resets next billing cycle.'
-                      : 'No free edits left. Resets tomorrow.'}
+                      ? 'Monthly limit reached. Resets next billing cycle, or buy 100 edits for $5 in Settings.'
+                      : 'No free edits left. Resets tomorrow, or buy 100 edits for $5.'}
                   </p>
                 ) : (
                   <p className="text-xs text-neutral-500">
                     {usageData.isPro
                       ? `${remaining} edits remaining this month`
                       : `${remaining} free edits remaining today`}
+                  </p>
+                )}
+                {editCredits > 0 && (
+                  <p className="mt-1 text-xs text-neutral-500">
+                    +{editCredits} purchased {editCredits === 1 ? 'credit' : 'credits'} (used after your plan edits)
                   </p>
                 )}
               </div>

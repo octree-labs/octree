@@ -51,7 +51,7 @@ async function openDocumentPreviewUpgradeDialog() {
   });
 }
 
-describe('DocumentPreview checkout plan flag', () => {
+describe('DocumentPreview checkout plan', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockedCreateCheckoutSession.mockImplementation(() => new Promise(() => {}));
@@ -64,14 +64,14 @@ describe('DocumentPreview checkout plan flag', () => {
     }) as any;
   });
 
-  it('sends annual: true (the $9.99/month price) when monthly is selected, like the paywall dialog', async () => {
+  it('sends plan: monthly by default, like the paywall dialog', async () => {
     await openDocumentPreviewUpgradeDialog();
 
     fireEvent.click(screen.getByRole('button', { name: /subscribe now/i }));
 
     await waitFor(() => expect(mockedCreateCheckoutSession).toHaveBeenCalledTimes(1));
     const documentPreviewArgs = mockedCreateCheckoutSession.mock.calls[0][0];
-    expect(documentPreviewArgs).toEqual({ annual: true, withTrial: false, source: 'generate-preview' });
+    expect(documentPreviewArgs).toEqual({ plan: 'monthly', withTrial: false, source: 'generate-preview' });
 
     // Reference caller: PaywallDialog with its default (monthly) selection.
     // It is store-driven (stores/paywall.ts), so open it first.
@@ -83,25 +83,59 @@ describe('DocumentPreview checkout plan flag', () => {
     expect(mockedCreateCheckoutSession.mock.calls[0][0]).toEqual({ ...documentPreviewArgs, source: 'paywall' });
   });
 
-  it('sends annual: false (the $4.99/week price) when monthly is toggled off', async () => {
+  it('sends plan: annual when Annual is picked', async () => {
     await openDocumentPreviewUpgradeDialog();
 
-    fireEvent.click(screen.getByRole('switch'));
+    fireEvent.click(screen.getByRole('radio', { name: /annual/i }));
     fireEvent.click(screen.getByRole('button', { name: /subscribe now/i }));
 
     await waitFor(() => expect(mockedCreateCheckoutSession).toHaveBeenCalledTimes(1));
-    expect(mockedCreateCheckoutSession.mock.calls[0][0]).toEqual({ annual: false, withTrial: false, source: 'generate-preview' });
+    expect(mockedCreateCheckoutSession.mock.calls[0][0]).toEqual({ plan: 'annual', withTrial: false, source: 'generate-preview' });
   });
 
-  it('shows the real plan prices rather than a per-week fraction', async () => {
+  it('sends plan: semester when the Semester pass is picked', async () => {
+    await openDocumentPreviewUpgradeDialog();
+
+    fireEvent.click(screen.getByRole('radio', { name: /semester pass/i }));
+    fireEvent.click(screen.getByRole('button', { name: /subscribe now/i }));
+
+    await waitFor(() => expect(mockedCreateCheckoutSession).toHaveBeenCalledTimes(1));
+    expect(mockedCreateCheckoutSession.mock.calls[0][0]).toEqual({ plan: 'semester', withTrial: false, source: 'generate-preview' });
+  });
+
+  it('shows the real plan prices and never the retired weekly plan', async () => {
     await openDocumentPreviewUpgradeDialog();
 
     expect(screen.getByText('$9.99')).toBeInTheDocument();
     expect(screen.getByText(/per month/)).toBeInTheDocument();
+    expect(screen.getByText('$29')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('switch'));
+    fireEvent.click(screen.getByRole('radio', { name: /annual/i }));
 
-    expect(screen.getByText('$4.99')).toBeInTheDocument();
-    expect(screen.getByText(/per week/)).toBeInTheDocument();
+    expect(screen.getByText('$79')).toBeInTheDocument();
+    expect(screen.getByText(/per year/)).toBeInTheDocument();
+    expect(screen.getAllByText(/\$6\.58\/mo/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/4\.99/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/per week/)).not.toBeInTheDocument();
+  });
+
+  it('offers the 100-edit credit pack from the paywall and starts a credits checkout', async () => {
+    PaywallActions.open('ai-edit');
+    render(<PaywallDialog />);
+
+    expect(screen.getByText(/buy 100 edits for \$5/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /buy 100 ai edits for \$5/i }));
+
+    await waitFor(() => expect(mockedCreateCheckoutSession).toHaveBeenCalledTimes(1));
+    expect(mockedCreateCheckoutSession.mock.calls[0][0]).toEqual({ plan: 'credits_100', source: 'paywall' });
+  });
+
+  it('shows only the credit pack to a Pro user who is out of monthly edits', async () => {
+    PaywallActions.open('ai-edit', 'monthly_limit');
+    render(<PaywallDialog />);
+
+    expect(screen.getByText(/used this month's AI edits/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /get octree pro/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /buy 100 ai edits for \$5/i })).toBeInTheDocument();
   });
 });

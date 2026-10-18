@@ -20,27 +20,48 @@ const mocks = vi.hoisted(() => {
   // period advanced (lib/subscription/billing-period.ts).
   const usageMaybeSingle = vi.fn().mockResolvedValue({ data: null, error: null });
   const usageSelect = vi.fn().mockReturnValue({ eq: () => ({ maybeSingle: usageMaybeSingle }) });
+  const ledgerInsert = vi.fn().mockResolvedValue({ error: null });
+  const rpc = vi.fn().mockResolvedValue({ data: 100, error: null });
+  const captureServerEvent = vi.fn().mockResolvedValue(undefined);
 
   const from = vi.fn((table: string) => {
     if (table === 'stripe_webhook_events') return { insert: eventsInsert };
     if (table === 'user_usage') return { update: usageUpdate, upsert: usageUpsert, select: usageSelect };
+    if (table === 'credit_purchases') return { insert: ledgerInsert };
     throw new Error(`unexpected table ${table}`);
   });
 
   return {
-    constructEvent, trackRedditConversion, eventsInsert, usageUpdate, usageUpdateEq, usageUpsert,
-    usageMaybeSingle, from,
+    constructEvent,
+    trackRedditConversion,
+    eventsInsert,
+    usageUpdate,
+    usageUpdateEq,
+    usageUpsert,
+    usageMaybeSingle,
+    ledgerInsert,
+    rpc,
+    captureServerEvent,
+    from,
   };
 });
 
 vi.mock('stripe', () => ({
   default: class StripeMock {
     webhooks = { constructEvent: mocks.constructEvent };
+    checkout = { sessions: { listLineItems: vi.fn().mockResolvedValue({ data: [] }) } };
   },
 }));
 
 vi.mock('@supabase/supabase-js', () => ({
-  createClient: () => ({ from: mocks.from }),
+  createClient: () => ({ from: mocks.from, rpc: mocks.rpc }),
+}));
+
+vi.mock('@/lib/posthog-server', () => ({
+  afterResponse: (work: () => Promise<void>) => void work(),
+  captureServerEvent: mocks.captureServerEvent,
+  captureServerEventAfterResponse: (...args: unknown[]) => void mocks.captureServerEvent(...args),
+  captureServerExceptionAfterResponse: vi.fn(),
 }));
 
 vi.mock('next/headers', () => ({
@@ -130,8 +151,78 @@ describe('POST /api/webhooks/stripe', () => {
       data: { is_pro: false, stripe_subscription_id: null, current_period_start: null },
       error: null,
     });
+    mocks.ledgerInsert.mockResolvedValue({ error: null });
+    mocks.rpc.mockResolvedValue({ data: 100, error: null });
     mocks.trackRedditConversion.mockResolvedValue(undefined);
     errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  describe('checkout.session.completed for a credit pack (mode: payment)', () => {
+    const creditsOverrides = {
+      id: 'cs_credits_1',
+      mode: 'payment',
+      amount_total: 500,
+      metadata: { user_id: 'user-1', plan: 'credits_100', credits: '100' },
+    };
+
+    it('writes the ledger row, adds the credits and captures credits_purchased', async () => {
+      mocks.constructEvent.mockReturnValue(checkoutEvent(creditsOverrides));
+
+      const res = await POST(makeRequest());
+
+      expect(res.status).toBe(200);
+      expect(mocks.ledgerInsert).toHaveBeenCalledWith({
+        user_id: 'user-1',
+        checkout_session_id: 'cs_credits_1',
+        credits: 100,
+        amount_cents: 500,
+        currency: 'usd',
+      });
+      expect(mocks.rpc).toHaveBeenCalledWith('add_edit_credits', { p_user_id: 'user-1', p_credits: 100 });
+      expect(mocks.captureServerEvent).toHaveBeenCalledWith('user-1', 'credits_purchased', {
+        credits: 100,
+        amount: 5,
+        currency: 'USD',
+      });
+      // Not a subscription: no subscription_started, no user_usage subscription write.
+      expect(mocks.captureServerEvent).not.toHaveBeenCalledWith('user-1', 'subscription_started', expect.anything());
+      expect(mocks.usageUpdate).not.toHaveBeenCalled();
+      // The Reddit Purchase still fires for a paid session.
+      expect(mocks.trackRedditConversion).toHaveBeenCalledTimes(1);
+    });
+
+    it('grants once when the same session comes back under a new event id', async () => {
+      mocks.constructEvent.mockReturnValue(checkoutEvent({ ...creditsOverrides }));
+      await POST(makeRequest());
+
+      mocks.constructEvent.mockReturnValue({ ...checkoutEvent(creditsOverrides), id: 'evt_checkout_2' });
+      mocks.ledgerInsert.mockResolvedValue({ error: { code: '23505', message: 'duplicate key' } });
+      const res = await POST(makeRequest());
+
+      expect(res.status).toBe(200);
+      expect(mocks.rpc).toHaveBeenCalledTimes(1);
+      expect(mocks.captureServerEvent).toHaveBeenCalledTimes(1);
+    });
+
+    it('returns 500 so Stripe retries when the ledger write fails for another reason', async () => {
+      mocks.constructEvent.mockReturnValue(checkoutEvent(creditsOverrides));
+      mocks.ledgerInsert.mockResolvedValue({ error: { code: '42P01', message: 'relation does not exist' } });
+
+      const res = await POST(makeRequest());
+
+      expect(res.status).toBe(500);
+      expect(mocks.rpc).not.toHaveBeenCalled();
+    });
+
+    it('does nothing for a payment-mode session without credits metadata', async () => {
+      mocks.constructEvent.mockReturnValue(checkoutEvent({ mode: 'payment', metadata: { user_id: 'user-1' } }));
+
+      const res = await POST(makeRequest());
+
+      expect(res.status).toBe(200);
+      expect(mocks.ledgerInsert).not.toHaveBeenCalled();
+      expect(mocks.rpc).not.toHaveBeenCalled();
+    });
   });
 
   describe('checkout.session.completed', () => {

@@ -12,17 +12,21 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
+import { PlanPicker, type PickerPlan } from '@/components/subscription/plan-picker';
 import { createCheckoutSession } from '@/lib/requests/subscription';
-import { FREE_DAILY_EDIT_LIMIT, PRO_FEATURES, PRO_MONTHLY_EDIT_LIMIT, PRO_PLANS } from '@/data/constants';
+import {
+  CREDIT_PACKS,
+  FREE_DAILY_EDIT_LIMIT,
+  PRO_FEATURES,
+  PRO_MONTHLY_EDIT_LIMIT,
+} from '@/data/constants';
 import type { ProFeature } from '@/lib/subscription/features';
 import { PaywallActions, usePaywall } from '@/stores/paywall';
 
 const COPY: Record<ProFeature, { title: string; description: string }> = {
   'ai-edit': {
     title: "You've used today's free AI edits",
-    description: `The free plan includes ${FREE_DAILY_EDIT_LIMIT} AI edits a day. Pro gives you ${PRO_MONTHLY_EDIT_LIMIT} a month.`,
+    description: `The free plan includes ${FREE_DAILY_EDIT_LIMIT} AI edits a day. Pro gives you ${PRO_MONTHLY_EDIT_LIMIT} a month, or buy ${CREDIT_PACKS.credits_100.credits} edits for ${CREDIT_PACKS.credits_100.price} that never expire.`,
   },
   export: {
     title: 'Export is a Pro feature',
@@ -34,23 +38,29 @@ const COPY: Record<ProFeature, { title: string; description: string }> = {
   },
 };
 
+/** A Pro subscriber out of monthly edits: upgrading cannot help, credits can. */
+const MONTHLY_LIMIT_COPY = {
+  title: "You've used this month's AI edits",
+  description: `Pro includes ${PRO_MONTHLY_EDIT_LIMIT} AI edits a month. Buy ${CREDIT_PACKS.credits_100.credits} more for ${CREDIT_PACKS.credits_100.price} (credits never expire) or wait for your monthly reset.`,
+};
+
 /**
  * The in-product paywall. Opened from anywhere with `PaywallActions.open(feature)`
  * (see stores/paywall.ts); mounted once per layout that has gated features.
  */
 export function PaywallDialog() {
-  const { open, feature } = usePaywall();
-  const [isMonthly, setIsMonthly] = useState(true);
+  const { open, feature, reason } = usePaywall();
+  const [plan, setPlan] = useState<PickerPlan>('monthly');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const copy = COPY[feature ?? 'ai-edit'];
-  const plan = isMonthly ? PRO_PLANS.monthly : PRO_PLANS.weekly;
+  const creditsOnly = reason === 'monthly_limit';
+  const copy = creditsOnly ? MONTHLY_LIMIT_COPY : COPY[feature ?? 'ai-edit'];
 
   const handleSubscribe = async () => {
     setIsSubmitting(true);
     try {
       const checkoutUrl = await createCheckoutSession({
-        annual: isMonthly,
+        plan,
         withTrial: false,
         source: 'paywall',
       });
@@ -71,46 +81,27 @@ export function PaywallDialog() {
         </DialogHeader>
 
         <div className="space-y-6">
-          <div className="space-y-1">
-            <div className="flex items-baseline gap-2">
-              <p className="text-3xl font-bold">
-                {isMonthly ? PRO_PLANS.monthly.weeklyEquivalent : PRO_PLANS.weekly.price}
-              </p>
-              <p className="text-sm text-muted-foreground">per week</p>
-              {isMonthly && (
-                <p className="text-sm text-muted-foreground line-through">
-                  {PRO_PLANS.weekly.price}
-                </p>
-              )}
+          <PlanPicker
+            plan={plan}
+            onPlanChange={setPlan}
+            source="paywall"
+            creditsOnly={creditsOnly}
+            disabled={isSubmitting}
+          />
+
+          {!creditsOnly && (
+            <div>
+              <p className="mb-3 text-sm font-semibold">What you get with Pro</p>
+              <ul className="space-y-2">
+                {PRO_FEATURES.map((text) => (
+                  <li key={text} className="flex gap-3 text-sm leading-5 text-muted-foreground">
+                    <Check className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>{text}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
-            <p className="text-xs text-muted-foreground">{plan.billingNote}</p>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <Switch
-              id="paywall-monthly-switch"
-              checked={isMonthly}
-              onCheckedChange={setIsMonthly}
-            />
-            <Label
-              htmlFor="paywall-monthly-switch"
-              className="cursor-pointer text-sm font-normal"
-            >
-              {isMonthly ? 'Monthly billing enabled' : 'Switch to monthly and save 50%'}
-            </Label>
-          </div>
-
-          <div>
-            <p className="mb-3 text-sm font-semibold">What you get with Pro</p>
-            <ul className="space-y-2">
-              {PRO_FEATURES.map((text) => (
-                <li key={text} className="flex gap-3 text-sm leading-5 text-muted-foreground">
-                  <Check className="mt-0.5 h-4 w-4 shrink-0" />
-                  <span>{text}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
+          )}
 
           <div className="flex gap-2">
             <Button
@@ -121,19 +112,23 @@ export function PaywallDialog() {
             >
               Not now
             </Button>
-            <Button
-              className="flex-1"
-              variant="gradient"
-              onClick={handleSubscribe}
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? 'Loading...' : 'Get Octree Pro →'}
-            </Button>
+            {!creditsOnly && (
+              <Button
+                className="flex-1"
+                variant="gradient"
+                onClick={handleSubscribe}
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? 'Loading...' : 'Get Octree Pro →'}
+              </Button>
+            )}
           </div>
 
-          <p className="text-center text-xs text-muted-foreground">
-            Cancel anytime. No questions asked.
-          </p>
+          {!creditsOnly && (
+            <p className="text-center text-xs text-muted-foreground">
+              Cancel anytime. No questions asked.
+            </p>
+          )}
         </div>
       </DialogContent>
     </Dialog>

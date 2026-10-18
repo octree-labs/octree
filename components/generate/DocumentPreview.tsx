@@ -10,16 +10,14 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
-import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
 import { FeatureList } from '@/app/onboarding/components/feature-list';
+import { PlanPicker, type PickerPlan } from '@/components/subscription/plan-picker';
 import { createCheckoutSession } from '@/lib/requests/subscription';
 import { subscriptionGrantsPro } from '@/lib/subscription/features';
 import PDFViewer from '@/components/pdf-viewer';
 import { toast } from 'sonner';
 import { CompilationError } from '@/types/compilation';
 import { makeCompilationRequest } from '@/lib/utils/compilation';
-import { PRO_PLANS } from '@/data/constants';
 
 interface SubscriptionData {
     hasSubscription: boolean;
@@ -47,7 +45,7 @@ export function DocumentPreview({ latex, title, onOpenInOctree, isCreatingProjec
     const [hasCompilationWarnings, setHasCompilationWarnings] = useState(false);
     const [subscriptionData, setSubscriptionData] = useState<SubscriptionData | null>(null);
     const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
-    const [isMonthly, setIsMonthly] = useState(true);
+    const [plan, setPlan] = useState<PickerPlan>('monthly');
     const [isCheckoutLoading, setIsCheckoutLoading] = useState(false);
 
     useEffect(() => {
@@ -75,10 +73,8 @@ export function DocumentPreview({ latex, title, onOpenInOctree, isCreatingProjec
     const handleSubscribe = async () => {
         setIsCheckoutLoading(true);
         try {
-            // Same convention as every other caller (paywall-dialog, toolbar,
-            // onboarding): `annual: true` is the $9.99/month plan.
             const checkoutUrl = await createCheckoutSession({
-                annual: isMonthly,
+                plan,
                 withTrial: false,
                 source: 'generate-preview',
             });
@@ -206,35 +202,13 @@ export function DocumentPreview({ latex, title, onOpenInOctree, isCreatingProjec
                     </DialogHeader>
 
                     <div className="space-y-6">
-                        <div className="flex items-center gap-2">
-                            <Switch
-                                id="monthly-switch-preview"
-                                checked={isMonthly}
-                                onCheckedChange={setIsMonthly}
-                            />
-                            <Label
-                                htmlFor="monthly-switch-preview"
-                                className="cursor-pointer text-sm font-normal"
-                            >
-                                Save 50% with monthly billing
-                            </Label>
-                        </div>
-
-                        <div className="space-y-1">
-                            <div className="flex items-baseline gap-2">
-                                <p className="text-3xl font-bold">
-                                    {isMonthly ? PRO_PLANS.monthly.price : PRO_PLANS.weekly.price}
-                                </p>
-                                <p className="text-sm text-muted-foreground">
-                                    per {isMonthly ? PRO_PLANS.monthly.interval : PRO_PLANS.weekly.interval}
-                                </p>
-                            </div>
-                            <p className="text-xs text-muted-foreground">
-                                {isMonthly
-                                    ? `${PRO_PLANS.monthly.weeklyEquivalent}/week equivalent — ${PRO_PLANS.monthly.billingNote}`
-                                    : PRO_PLANS.weekly.billingNote}
-                            </p>
-                        </div>
+                        <PlanPicker
+                            plan={plan}
+                            onPlanChange={setPlan}
+                            source="generate-preview"
+                            hideCredits
+                            disabled={isCheckoutLoading}
+                        />
 
                         <div>
                             <p className="mb-4 text-sm font-semibold">Octree Pro includes</p>

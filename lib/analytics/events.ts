@@ -44,6 +44,7 @@ export const AnalyticsEvents = {
   AI_EDIT_SERVED: 'ai_edit_served',
   EDIT_LIMIT_HIT_SERVER: 'edit_limit_hit_server',
   LIFECYCLE_EMAIL_SENT: 'lifecycle_email_sent',
+  CREDITS_PURCHASED: 'credits_purchased',
 } as const;
 
 export type AnalyticsEvent = (typeof AnalyticsEvents)[keyof typeof AnalyticsEvents];
@@ -52,8 +53,11 @@ export type SignupProvider = 'email' | 'google' | (string & {});
 export type OnboardingPlan = 'free' | 'pro';
 export type PaywallFeature = 'ai-edit' | 'export' | 'generate';
 export type PaywallReason = 'daily_limit' | 'pro_feature' | 'monthly_limit';
-export type CheckoutPlan = 'monthly' | 'weekly';
-export type CheckoutSource = 'onboarding' | 'paywall' | 'settings' | 'generate-preview';
+/** Recurring plans. `weekly` is retired for new purchases but still appears on legacy subscriptions. */
+export type CheckoutPlan = 'monthly' | 'annual' | 'semester' | 'weekly';
+/** Everything checkout can sell: the recurring plans plus one-time credit packs. */
+export type PurchasePlan = CheckoutPlan | 'credits_100';
+export type CheckoutSource = 'onboarding' | 'paywall' | 'settings' | 'generate-preview' | 'toolbar' | 'buy';
 export type ProjectSource = 'dashboard' | 'import' | 'generate';
 export type CancelOffer = 'pause' | 'discount';
 /** Stripe's `cancellation_details.feedback` enum. */
@@ -91,7 +95,7 @@ export interface AnalyticsEventProperties {
   [AnalyticsEvents.PAYWALL_DISMISSED]: { feature: PaywallFeature };
   [AnalyticsEvents.EDIT_LIMIT_HIT]: { is_pro: boolean; source: 'chat' | 'accept' };
   [AnalyticsEvents.CHECKOUT_STARTED]: {
-    plan: CheckoutPlan;
+    plan: PurchasePlan;
     source: CheckoutSource;
     with_trial: boolean;
   };
@@ -142,12 +146,18 @@ export interface AnalyticsEventProperties {
   [AnalyticsEvents.LIFECYCLE_EMAIL_SENT]: {
     template: 'welcome' | 'limit_hit' | 'day7' | 'winback';
   };
+  /** A credit pack was paid for (Stripe webhook); `amount` in major units. */
+  [AnalyticsEvents.CREDITS_PURCHASED]: {
+    credits: number;
+    amount: number | null;
+    currency: string | null;
+  };
 }
 
 /**
- * The `annual` flag of createCheckoutSession is historical: `true` buys the
- * $9.99/month price and `false` the $4.99/week price (see
- * app/api/checkout-session/route.ts). Analytics names the plan honestly.
+ * The legacy `annual` flag of createCheckoutSession: `true` buys the
+ * $9.99/month price. `false` used to buy the retired $4.99/week price and is
+ * now refused by the route, so it is still reported honestly as `weekly`.
  */
 export function checkoutPlanFromAnnualFlag(annual: boolean): CheckoutPlan {
   return annual ? 'monthly' : 'weekly';

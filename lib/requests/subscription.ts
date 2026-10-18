@@ -3,12 +3,21 @@ import {
   AnalyticsEvents,
   checkoutPlanFromAnnualFlag,
   type CheckoutSource,
+  type PurchasePlan,
 } from '@/lib/analytics/events';
 import { track } from '@/lib/analytics/track';
 import type { CancelFeedback } from '@/lib/analytics/events';
 import type { PauseMonths, SubscriptionOfferState } from '@/lib/stripe-subscription';
 
+export type CheckoutPlanRequest = Exclude<PurchasePlan, 'weekly'>;
+
 interface CreateCheckoutSessionOptions {
+  /** What to buy. Preferred over the legacy `annual` flag. */
+  plan?: CheckoutPlanRequest;
+  /**
+   * Legacy flag: `true` is the $9.99/month plan. `false` used to be the
+   * weekly plan, which the API now refuses; new callers pass `plan`.
+   */
   annual?: boolean;
   withTrial?: boolean;
   /** Where the checkout was started from; only used for analytics. */
@@ -21,7 +30,8 @@ interface CreateCheckoutSessionOptions {
  * place (before the redirect, so it is never lost to the navigation).
  */
 export const createCheckoutSession = async ({
-  annual = false,
+  plan,
+  annual,
   withTrial = false,
   source = 'settings',
 }: CreateCheckoutSessionOptions = {}): Promise<string> => {
@@ -35,23 +45,27 @@ export const createCheckoutSession = async ({
     throw new Error('User not authenticated');
   }
 
+  // Without either flag the API sells the monthly plan; mirror that here.
+  const requested: PurchasePlan =
+    plan ?? (annual === undefined ? 'monthly' : checkoutPlanFromAnnualFlag(annual));
+
   const response = await fetch('/api/checkout-session', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ annual, withTrial }),
+    body: JSON.stringify(plan ? { plan, withTrial } : { annual, withTrial }),
   });
 
   if (!response.ok) {
-    const errorData = await response.json();
+    const errorData = await response.json().catch(() => ({}));
     throw new Error(errorData.error || 'Failed to create checkout session');
   }
 
   const checkoutUrl = await response.text();
 
   track(AnalyticsEvents.CHECKOUT_STARTED, {
-    plan: checkoutPlanFromAnnualFlag(annual),
+    plan: requested,
     source,
     with_trial: withTrial,
   });

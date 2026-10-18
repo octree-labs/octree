@@ -1,27 +1,63 @@
 // Subscription and usage limits
 export const FREE_DAILY_EDIT_LIMIT = 5;
 export const PRO_MONTHLY_EDIT_LIMIT = 500;
-export const PRO_SUBSCRIPTION_PRICE = 4.99;
 
-// Display copy for the two live Stripe prices. Keep in sync with lib/stripe-config.ts:
-// `proAnnual` is the $9.99/month price and `pro` is the $4.99/week price
-// (`createCheckoutSession({ annual: true })` buys the monthly plan).
+/**
+ * Display copy for everything the app sells. The single source of truth for
+ * labels and prices in the UI; the Stripe prices themselves are provisioned
+ * from lib/stripe-prices.ts (same amounts, keyed by `lookup_key`).
+ *
+ * The $4.99/week plan is retired for new purchases and has no entry here;
+ * existing weekly subscribers keep their subscription.
+ */
 export const PRO_PLANS = {
   monthly: {
+    id: 'monthly',
+    label: 'Monthly',
     amount: 9.99,
     price: '$9.99',
     interval: 'month',
-    // What the monthly plan works out to per week, next to the weekly plan's $4.99.
-    weeklyEquivalent: '$2.49',
-    billingNote: 'Billed monthly at $9.99/month — save 50%',
+    intervalLabel: 'per month',
+    billingNote: 'Billed monthly at $9.99/month. Cancel anytime.',
   },
-  weekly: {
-    amount: 4.99,
-    price: '$4.99',
-    interval: 'week',
-    billingNote: 'Billed weekly at $4.99/week',
+  annual: {
+    id: 'annual',
+    label: 'Annual',
+    amount: 79,
+    price: '$79',
+    interval: 'year',
+    intervalLabel: 'per year',
+    monthlyEquivalent: '$6.58',
+    badge: '2 months free',
+    billingNote: 'Billed yearly at $79 ($6.58/mo, 2 months free). Cancel anytime.',
+  },
+  semester: {
+    id: 'semester',
+    label: 'Semester pass',
+    amount: 29,
+    price: '$29',
+    interval: '4 months',
+    intervalLabel: 'per 4 months',
+    tagline: '4 months of Pro for the term',
+    billingNote: 'Billed every 4 months at $29. Cancel anytime.',
   },
 } as const;
+
+export type ProPlanId = keyof typeof PRO_PLANS;
+
+/** One-time AI edit credit packs. Credits never expire. */
+export const CREDIT_PACKS = {
+  credits_100: {
+    id: 'credits_100',
+    credits: 100,
+    amount: 5,
+    price: '$5',
+    label: '100 AI edits for $5',
+    note: 'One-time purchase. Credits never expire and are used after your plan allowance.',
+  },
+} as const;
+
+export type CreditPackId = keyof typeof CREDIT_PACKS;
 
 export const DEFAULT_LATEX_CONTENT = (title: string) => `\\documentclass{article}
 \\usepackage[utf8]{inputenc}

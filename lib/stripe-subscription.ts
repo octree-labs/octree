@@ -185,3 +185,48 @@ export function describeSubscriptionOffers(subscription: Stripe.Subscription): S
       : null,
   };
 }
+
+export interface PriceIntervalLike {
+  interval: string | null | undefined;
+  interval_count?: number | null | undefined;
+}
+
+export type PlanKind = 'monthly' | 'annual' | 'semester' | 'weekly' | 'other';
+
+/** Which plan a recurring price interval is, for display. */
+export function planKindFromInterval(recurring: PriceIntervalLike | null | undefined): PlanKind {
+  if (!recurring?.interval) return 'other';
+  const count = recurring.interval_count ?? 1;
+  if (recurring.interval === 'year' && count === 1) return 'annual';
+  if (recurring.interval === 'month' && count === 4) return 'semester';
+  if (recurring.interval === 'month' && count === 1) return 'monthly';
+  if (recurring.interval === 'week' && count === 1) return 'weekly';
+  return 'other';
+}
+
+/**
+ * The status card's one-line plan description, e.g. "Annual, renews 1/2/2027"
+ * or "Semester pass until 1/2/2027". `cancelAtPeriodEnd` turns "renews" into
+ * "ends".
+ */
+export function describePlanPeriod(
+  recurring: PriceIntervalLike | null | undefined,
+  periodEnd: Date,
+  cancelAtPeriodEnd: boolean,
+  formatDate: (d: Date) => string = (d) => d.toLocaleDateString()
+): string {
+  const when = formatDate(periodEnd);
+  const verb = cancelAtPeriodEnd ? 'ends' : 'renews';
+  switch (planKindFromInterval(recurring)) {
+    case 'annual':
+      return `Annual, ${verb} ${when}`;
+    case 'semester':
+      return cancelAtPeriodEnd ? `Semester pass until ${when}` : `Semester pass until ${when}, then renews`;
+    case 'monthly':
+      return `Monthly, ${verb} ${when}`;
+    case 'weekly':
+      return `Weekly (legacy plan), ${verb} ${when}`;
+    default:
+      return `${verb.charAt(0).toUpperCase() + verb.slice(1)} ${when}`;
+  }
+}

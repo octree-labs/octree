@@ -39,6 +39,36 @@ export type Database = {
   }
   public: {
     Tables: {
+      credit_purchases: {
+        Row: {
+          amount_cents: number
+          checkout_session_id: string
+          created_at: string
+          credits: number
+          currency: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          amount_cents?: number
+          checkout_session_id: string
+          created_at?: string
+          credits: number
+          currency?: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          amount_cents?: number
+          checkout_session_id?: string
+          created_at?: string
+          credits?: number
+          currency?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       drafts: {
         Row: {
           consumed_at: string | null
@@ -365,6 +395,7 @@ export type Database = {
           current_period_start: string | null
           daily_reset_date: string
           edit_count: number
+          edit_credits: number
           id: string
           is_pro: boolean
           monthly_edit_count: number
@@ -386,6 +417,7 @@ export type Database = {
           current_period_start?: string | null
           daily_reset_date?: string
           edit_count?: number
+          edit_credits?: number
           id?: string
           is_pro?: boolean
           monthly_edit_count?: number
@@ -407,6 +439,7 @@ export type Database = {
           current_period_start?: string | null
           daily_reset_date?: string
           edit_count?: number
+          edit_credits?: number
           id?: string
           is_pro?: boolean
           monthly_edit_count?: number
@@ -464,6 +497,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      add_edit_credits: {
+        Args: { p_credits: number; p_user_id: string }
+        Returns: number
+      }
       admin_daily_signups: {
         Args: never
         Returns: {
@@ -482,6 +519,7 @@ export type Database = {
         Args: { p_email: string; p_max_attempts: number; p_template: string; p_user_id: string }
         Returns: boolean
       }
+      consume_edit_credit: { Args: { p_user_id: string }; Returns: boolean }
       increment_edit_count: { Args: { p_user_id: string }; Returns: boolean }
       update_user_subscription_status: {
         Args: {

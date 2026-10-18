@@ -9,6 +9,7 @@ import {
   type CheckoutPlan,
 } from '@/lib/analytics/events';
 import { STRIPE_PRICE_IDS } from '@/lib/stripe-config';
+import { PRICE_LOOKUP_KEYS, PRICE_METADATA_KEY, isPriceLookupKey } from '@/lib/stripe-prices';
 
 /** One server-side analytics event with its typed properties. */
 export type ServerAnalyticsEvent = {
@@ -17,9 +18,27 @@ export type ServerAnalyticsEvent = {
 
 type SubscriptionInterval = AnalyticsEventProperties['subscription_started']['interval'];
 
-function planFromPriceId(priceId: string | null | undefined): CheckoutPlan | 'unknown' {
-  if (priceId === STRIPE_PRICE_IDS.proAnnual) return 'monthly';
-  if (priceId === STRIPE_PRICE_IDS.pro) return 'weekly';
+const PLAN_BY_LOOKUP_KEY: Record<string, CheckoutPlan> = {
+  [PRICE_LOOKUP_KEYS.monthly]: 'monthly',
+  [PRICE_LOOKUP_KEYS.annual]: 'annual',
+  [PRICE_LOOKUP_KEYS.semester]: 'semester',
+};
+
+/**
+ * Which plan a Stripe price is. New prices are recognised by their
+ * `lookup_key` or `metadata.octree_plan` (lib/stripe-prices.ts), never by a
+ * hard-coded id; the two pre-existing prices (monthly, and the retired
+ * weekly plan that existing subscribers are still on) fall back to the ids
+ * in lib/stripe-config.ts.
+ */
+export function planFromPrice(
+  price: Pick<Stripe.Price, 'id'> & Partial<Pick<Stripe.Price, 'lookup_key' | 'metadata'>> | null | undefined
+): CheckoutPlan | 'unknown' {
+  if (!price) return 'unknown';
+  const key = price.lookup_key ?? price.metadata?.[PRICE_METADATA_KEY];
+  if (isPriceLookupKey(key) && key in PLAN_BY_LOOKUP_KEY) return PLAN_BY_LOOKUP_KEY[key];
+  if (price.id === STRIPE_PRICE_IDS.proAnnual) return 'monthly';
+  if (price.id === STRIPE_PRICE_IDS.pro) return 'weekly';
   return 'unknown';
 }
 
@@ -51,7 +70,7 @@ export async function describeCheckoutSessionPlan(
   }
 
   return {
-    plan: planFromPriceId(price?.id),
+    plan: planFromPrice(price),
     interval: intervalFromPrice(price),
     amount: typeof session.amount_total === 'number' ? session.amount_total / 100 : null,
     currency: session.currency ? session.currency.toUpperCase() : null,
@@ -201,4 +220,61 @@ export async function trackPurchaseFromCheckoutSession(
   });
 
   return true;
+}
+
+/** The credit pack a paid Checkout Session carries, or null for anything else. */
+export function creditsFromCheckoutSession(
+  session: Pick<Stripe.Checkout.Session, 'mode' | 'payment_status' | 'metadata'>
+): { userId: string; credits: number } | null {
+  if (session.mode !== 'payment' || session.payment_status !== 'paid') return null;
+  const userId = session.metadata?.user_id;
+  const credits = Number(session.metadata?.credits);
+  if (!userId || !Number.isInteger(credits) || credits <= 0) return null;
+  return { userId, credits };
+}
+
+export type CreditGrantResult =
+  | { granted: true; userId: string; credits: number; balance: number | null }
+  | { granted: false; reason: 'not_credits' | 'duplicate' };
+
+/**
+ * Credits a paid credit-pack Checkout Session to the buyer: one ledger row
+ * (`credit_purchases`, unique on the session id) and then the balance bump.
+ * A redelivered event hits the unique constraint and grants nothing, so the
+ * ledger insert, not the event log, is the idempotency guard. Any other
+ * database error is thrown so Stripe retries the delivery.
+ */
+export async function grantCreditsFromCheckoutSession(
+  supabase: SupabaseClient<any, any, any>,
+  session: Pick<Stripe.Checkout.Session, 'id' | 'mode' | 'payment_status' | 'metadata' | 'amount_total' | 'currency'>
+): Promise<CreditGrantResult> {
+  const pack = creditsFromCheckoutSession(session);
+  if (!pack) return { granted: false, reason: 'not_credits' };
+
+  const { error: ledgerError } = await supabase.from('credit_purchases').insert({
+    user_id: pack.userId,
+    checkout_session_id: session.id,
+    credits: pack.credits,
+    amount_cents: typeof session.amount_total === 'number' ? session.amount_total : 0,
+    currency: session.currency ?? 'usd',
+  });
+
+  if (ledgerError) {
+    // 23505 = unique_violation: this session was already credited.
+    if (ledgerError.code === '23505') return { granted: false, reason: 'duplicate' };
+    throw ledgerError;
+  }
+
+  const { data, error } = await supabase.rpc('add_edit_credits', {
+    p_user_id: pack.userId,
+    p_credits: pack.credits,
+  });
+  if (error) throw error;
+
+  return {
+    granted: true,
+    userId: pack.userId,
+    credits: pack.credits,
+    balance: typeof data === 'number' ? data : null,
+  };
 }

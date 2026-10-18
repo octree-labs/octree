@@ -5,7 +5,7 @@ import type { TablesInsert } from '@/database.types';
 
 // Import helper modules
 import { createSSEHeaders } from '@/lib/octra-agent/stream-handling';
-import { FREE_DAILY_EDIT_LIMIT, PRO_MONTHLY_EDIT_LIMIT } from '@/data/constants';
+import { decideAllowance, limitReachedMessage } from '@/lib/usage/allowance';
 import { AnalyticsEvents } from '@/lib/analytics/events';
 import { captureServerEventAfterResponse, captureServerExceptionAfterResponse } from '@/lib/posthog-server';
 
@@ -34,18 +34,21 @@ export async function POST(request: Request) {
     // Check if user has unlimited edits (whitelisted)
     const hasUnlimited = hasUnlimitedEdits(user.email);
     let isProUser = hasUnlimited;
+    // Set when the plan allowance is spent and a purchased credit pays instead.
+    let useCredit = false;
 
     // If not unlimited, check usage limits
     if (!hasUnlimited) {
       const usageRes = await supabase
         .from('user_usage')
-        .select('edit_count, monthly_edit_count, is_pro, daily_reset_date, monthly_reset_date')
+        .select('edit_count, monthly_edit_count, edit_credits, is_pro, daily_reset_date, monthly_reset_date')
         .eq('user_id', user.id)
         .single();
       
       let usageData = usageRes.data as {
         edit_count: number;
         monthly_edit_count: number;
+        edit_credits: number;
         is_pro: boolean;
         daily_reset_date: string | null;
         monthly_reset_date: string | null;
@@ -71,7 +74,7 @@ export async function POST(request: Request) {
           supabase.from('user_usage') as any
         )
           .insert(newUsagePayload)
-          .select('edit_count, monthly_edit_count, daily_reset_date, monthly_reset_date, is_pro')
+          .select('edit_count, monthly_edit_count, edit_credits, daily_reset_date, monthly_reset_date, is_pro')
           .single();
         
         if (newUsageRes.error) {
@@ -85,6 +88,7 @@ export async function POST(request: Request) {
         usageData = newUsageRes.data as {
           edit_count: number;
           monthly_edit_count: number;
+          edit_credits: number;
           is_pro: boolean;
           daily_reset_date: string | null;
           monthly_reset_date: string | null;
@@ -97,45 +101,33 @@ export async function POST(request: Request) {
         );
       }
 
-      // Now usageData is guaranteed to exist, perform limit checks
+      // Now usageData is guaranteed to exist, perform limit checks.
+      // Daily/monthly allowance first, then purchased credits, then 429
+      // (lib/usage/allowance.ts has the table).
       if (usageData) {
-        const isPro = usageData.is_pro;
-        isProUser = Boolean(isPro);
-        const editCount = usageData.edit_count || 0;
-        const monthlyEditCount = usageData.monthly_edit_count || 0;
+        const isPro = Boolean(usageData.is_pro);
+        isProUser = isPro;
+        const decision = decideAllowance(usageData, isPro);
 
-        // Check if daily reset is needed for free users
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const dailyResetDate = usageData.daily_reset_date 
-          ? new Date(usageData.daily_reset_date + 'T00:00:00')
-          : null;
-        const needsDailyReset = !isPro && dailyResetDate && today > dailyResetDate;
-
-        // Check limits
-        const hasReachedLimit = isPro
-          ? monthlyEditCount >= PRO_MONTHLY_EDIT_LIMIT
-          : (!needsDailyReset && editCount >= FREE_DAILY_EDIT_LIMIT);
-
-        if (hasReachedLimit) {
-          const limitMessage = isPro
-            ? `You've reached your monthly limit of ${PRO_MONTHLY_EDIT_LIMIT} edits. Your limit will reset on your billing date.`
-            : `You've reached your daily limit of ${FREE_DAILY_EDIT_LIMIT} edits. Upgrade to Pro for ${PRO_MONTHLY_EDIT_LIMIT} edits per month!`;
-
-          captureServerEventAfterResponse(user.id, AnalyticsEvents.EDIT_LIMIT_HIT_SERVER, { is_pro: Boolean(isPro) });
+        if (decision === 'blocked') {
+          captureServerEventAfterResponse(user.id, AnalyticsEvents.EDIT_LIMIT_HIT_SERVER, { is_pro: isPro });
           return NextResponse.json(
-            { error: limitMessage, limitReached: true, upgradeRequired: !isPro },
+            { error: limitReachedMessage(isPro), limitReached: true, upgradeRequired: !isPro, creditsOffered: true },
             { status: 429 }
           );
         }
+        useCredit = decision === 'credit';
       }
     }
 
     if (!hasUnlimited) {
       let incrementResult;
       try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const { data, error } = await supabase.rpc('increment_edit_count', { p_user_id: user.id } as any);
+        const { data, error } = await supabase.rpc(
+          useCredit ? 'consume_edit_credit' : 'increment_edit_count',
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          { p_user_id: user.id } as any
+        );
         
         if (error) {
           console.error('Failed to increment edit count:', error);
@@ -154,8 +146,15 @@ export async function POST(request: Request) {
         );
       }
 
-      // If increment returned false, the limit was reached between our check and the increment (concurrent requests).
-      // Deny the request to prevent over-quota usage.
+      // The allowance ran out between the check and the increment (concurrent
+      // requests): a purchased credit may still cover it.
+      if (!incrementResult && !useCredit) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const credit = await supabase.rpc('consume_edit_credit', { p_user_id: user.id } as any);
+        incrementResult = credit.data === true;
+      }
+
+      // Nothing left: deny the request to prevent over-quota usage.
       if (!incrementResult) {
         console.warn(`[Security] Race condition detected: increment denied for user ${user.id}`);
         
@@ -170,12 +169,8 @@ export async function POST(request: Request) {
         const isPro = usageData?.is_pro || false;
         captureServerEventAfterResponse(user.id, AnalyticsEvents.EDIT_LIMIT_HIT_SERVER, { is_pro: isPro });
 
-        const limitMessage = isPro
-          ? `You've reached your monthly limit of ${PRO_MONTHLY_EDIT_LIMIT} edits. Your limit will reset on your billing date.`
-          : `You've reached your daily limit of ${FREE_DAILY_EDIT_LIMIT} edits. Upgrade to Pro for ${PRO_MONTHLY_EDIT_LIMIT} edits per month!`;
-
         return NextResponse.json(
-          { error: limitMessage, limitReached: true, upgradeRequired: !isPro },
+          { error: limitReachedMessage(isPro), limitReached: true, upgradeRequired: !isPro, creditsOffered: true },
           { status: 429 }
         );
       }

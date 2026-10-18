@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
@@ -6,6 +7,8 @@ import { getAllProjects } from '@/actions/get-projects';
 import { getUserUsageStatus } from '@/actions/get-user';
 import { getUserWalkthroughStatus } from '@/actions/get-walkthrough';
 import { DashboardWithWalkthrough } from '@/components/dashboard/dashboard-with-walkthrough';
+import { PaywallDialog } from '@/components/subscription/paywall-dialog';
+import { UpgradeParam } from '@/components/lifecycle/upgrade-param';
 
 export default async function Dashboard() {
   const supabase = await createClient();
@@ -43,12 +46,19 @@ export default async function Dashboard() {
   }
 
   return (
-    <DashboardWithWalkthrough
-      data={data}
-      userName={userName}
-      userId={user.id}
-      shouldShowWalkthrough={shouldShowWalkthrough}
-      generateWalkthroughCompleted={generateWalkthroughCompleted}
-    />
+    <>
+      {/* `?upgrade=1` from the lifecycle emails opens the paywall here. */}
+      <Suspense fallback={null}>
+        <UpgradeParam />
+      </Suspense>
+      <PaywallDialog />
+      <DashboardWithWalkthrough
+        data={data}
+        userName={userName}
+        userId={user.id}
+        shouldShowWalkthrough={shouldShowWalkthrough}
+        generateWalkthroughCompleted={generateWalkthroughCompleted}
+      />
+    </>
   );
 }

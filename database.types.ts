@@ -80,6 +80,24 @@ export type Database = {
           },
         ]
       }
+      email_preferences: {
+        Row: {
+          marketing_opt_out: boolean
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          marketing_opt_out?: boolean
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          marketing_opt_out?: boolean
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       email_suppressions: {
         Row: {
           created_at: string
@@ -180,6 +198,33 @@ export type Database = {
           prompt?: string
           status?: string
           title?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      lifecycle_emails: {
+        Row: {
+          email: string
+          id: string
+          resend_id: string | null
+          sent_at: string
+          template: string
+          user_id: string
+        }
+        Insert: {
+          email: string
+          id?: string
+          resend_id?: string | null
+          sent_at?: string
+          template: string
+          user_id: string
+        }
+        Update: {
+          email?: string
+          id?: string
+          resend_id?: string | null
+          sent_at?: string
+          template?: string
           user_id?: string
         }
         Relationships: []

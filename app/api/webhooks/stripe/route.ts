@@ -13,6 +13,11 @@ import {
 import { AnalyticsEvents } from '@/lib/analytics/events';
 import { effectiveSubscriptionStatus, isProStatus } from '@/lib/stripe-subscription';
 import {
+  monthlyResetDateFor,
+  startsNewBillingPeriod,
+  type StoredBillingRow,
+} from '@/lib/subscription/billing-period';
+import {
   afterResponse,
   captureServerEvent,
   captureServerEventAfterResponse,
@@ -117,9 +122,30 @@ export async function POST(request: Request) {
           const effectiveStatus = effectiveSubscriptionStatus(subscription);
           const isActive = isProStatus(effectiveStatus);
 
-          const monthlyResetDate = isActive
-            ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
-            : undefined;
+          // Stripe sends customer.subscription.updated for renewals, but
+          // also for cancel_at_period_end toggles, pauses, discounts and
+          // metadata writes. Only a new billing period resets the Pro
+          // monthly counter (lib/subscription/billing-period.ts); the
+          // other writes keep it.
+          const { data: storedRow, error: storedError } = await supabase
+            .from('user_usage')
+            .select('is_pro, stripe_subscription_id, current_period_start')
+            .eq('user_id', userId)
+            .maybeSingle();
+          if (storedError) {
+            // Unknown state: keep the counter. A missed renewal still resets
+            // lazily on monthly_reset_date inside increment_edit_count.
+            console.error('Failed to read user_usage before subscription update:', storedError);
+          }
+          const resetMonthly = !storedError && startsNewBillingPeriod(storedRow as StoredBillingRow | null, {
+            customerId,
+            subscriptionId: subscription.id,
+            status: effectiveStatus,
+            isPro: isActive,
+            currentPeriodStart,
+            currentPeriodEnd,
+            cancelAtPeriodEnd: subscription.cancel_at_period_end,
+          });
 
           const updateData: any = {
             stripe_customer_id: customerId,
@@ -132,9 +158,9 @@ export async function POST(request: Request) {
             updated_at: new Date().toISOString(),
           };
 
-          if (isActive) {
+          if (resetMonthly) {
             updateData.monthly_edit_count = 0;
-            updateData.monthly_reset_date = monthlyResetDate;
+            updateData.monthly_reset_date = monthlyResetDateFor(currentPeriodEnd);
           }
 
           const { error: updateError } = await supabase

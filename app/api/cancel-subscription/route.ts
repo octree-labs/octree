@@ -1,63 +1,61 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+
 import { stripe } from '@/lib/stripe';
-import { resolveStripeCustomer } from '@/lib/stripe-customer';
-import { captureServerExceptionAfterResponse } from '@/lib/posthog-server';
+import { requireOwnedSubscription, subscriptionSummary } from '@/lib/subscription-save';
+import { isCancelFeedback, trimCancelComment } from '@/lib/stripe-subscription';
+import { AnalyticsEvents } from '@/lib/analytics/events';
+import {
+  captureServerEventAfterResponse,
+  captureServerExceptionAfterResponse,
+} from '@/lib/posthog-server';
 
-export async function POST() {
+/**
+ * Turns renewal off at the end of the current period, recording why on the
+ * Stripe subscription (`cancellation_details`). The reason is required: the
+ * cancel dialog collects it before the button is enabled. Idempotent: a
+ * subscription whose renewal is already off is returned as is.
+ */
+export async function POST(request: Request) {
   try {
-    const supabase = await createClient();
-
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    let body: { feedback?: unknown; comment?: unknown } = {};
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
     }
-
-    const customer = await resolveStripeCustomer(supabase, user);
-
-    if (!customer) {
-      return NextResponse.json(
-        { error: 'No customer found for this user' },
-        { status: 404 }
-      );
+    const { feedback } = body;
+    if (!isCancelFeedback(feedback)) {
+      return NextResponse.json({ error: 'A cancellation reason is required' }, { status: 400 });
     }
+    const comment = trimCancelComment(body.comment);
 
-    // Get the user's subscription from Stripe using customer ID
-    const subscriptions = await stripe.subscriptions.list({
-      customer: customer.customerId,
-      status: 'active',
-      limit: 1,
-    });
+    const owned = await requireOwnedSubscription();
+    if (!owned.ok) return owned.response;
+    const { user, subscription } = owned.value;
 
-    if (subscriptions.data.length === 0) {
-      return NextResponse.json(
-        { error: 'No active subscription found' },
-        { status: 404 }
-      );
+    if (subscription.cancel_at_period_end) {
+      return NextResponse.json({
+        success: true,
+        alreadyCanceled: true,
+        subscription: subscriptionSummary(subscription),
+      });
     }
-
-    const subscription = subscriptions.data[0];
 
     // Cancel the subscription at the end of the current period
-    const canceledSubscription = await stripe.subscriptions.update(
-      subscription.id,
-      {
-        cancel_at_period_end: true,
-      }
-    );
+    const canceledSubscription = await stripe.subscriptions.update(subscription.id, {
+      cancel_at_period_end: true,
+      cancellation_details: { feedback, ...(comment ? { comment } : {}) },
+    });
+
+    captureServerEventAfterResponse(user.id, AnalyticsEvents.SUBSCRIPTION_CANCEL_CONFIRMED, {
+      feedback,
+      has_comment: Boolean(comment),
+    });
 
     return NextResponse.json({
       success: true,
-      subscription: {
-        id: canceledSubscription.id,
-        status: canceledSubscription.status,
-        cancel_at_period_end: canceledSubscription.cancel_at_period_end,
-        current_period_end: canceledSubscription.current_period_end,
-      },
+      alreadyCanceled: false,
+      subscription: subscriptionSummary(canceledSubscription),
     });
   } catch (error) {
     console.error('Error canceling subscription:', error);

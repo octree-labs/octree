@@ -10,13 +10,13 @@ import {
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { CreditCard, AlertCircle, CheckCircle, Zap } from 'lucide-react';
+import { CreditCard, AlertCircle, CheckCircle, PauseCircle, Zap } from 'lucide-react';
 import { PRO_MONTHLY_EDIT_LIMIT } from '@/data/constants';
-import { CancelSubscriptionDialog } from '@/components/subscription/cancel-subscription-dialog';
+import { CancelDialog } from '@/components/subscription/cancel-dialog';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { FeatureList } from '@/app/onboarding/components/feature-list';
-import { createCheckoutSession } from '@/lib/requests/subscription';
+import { createCheckoutSession, resumeSubscription } from '@/lib/requests/subscription';
 import { toast } from 'sonner';
 
 interface SubscriptionData {
@@ -27,6 +27,14 @@ interface SubscriptionData {
     cancel_at_period_end: boolean;
     current_period_end: number;
     current_period_start: number;
+    /** `paused` once a paused subscription's paid period has ended. */
+    effective_status: string;
+    /** Unix seconds; set while collection is paused. */
+    paused_until: number | null;
+    /** Unix seconds; while paused, Pro stays on until then. */
+    pause_paid_through: number | null;
+    has_discount: boolean;
+    discount_coupon_id: string | null;
     items: Array<{
       id: string;
       price: {
@@ -58,6 +66,7 @@ export function SubscriptionStatus() {
   const [isLoading, setIsLoading] = useState(true);
   const [isCheckoutLoading, setIsCheckoutLoading] = useState(false);
   const [isManageLoading, setIsManageLoading] = useState(false);
+  const [isResumeLoading, setIsResumeLoading] = useState(false);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [isMonthly, setIsMonthly] = useState(true);
 
@@ -114,6 +123,22 @@ export function SubscriptionStatus() {
       console.error('Error opening billing portal:', error);
     } finally {
       setIsManageLoading(false);
+    }
+  };
+
+  const handleResume = async () => {
+    setIsResumeLoading(true);
+    try {
+      await resumeSubscription();
+      toast.success('Subscription resumed. Welcome back.');
+      await fetchSubscriptionStatus();
+    } catch (error) {
+      console.error('Error resuming subscription:', error);
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to resume subscription.'
+      );
+    } finally {
+      setIsResumeLoading(false);
     }
   };
 
@@ -213,8 +238,17 @@ export function SubscriptionStatus() {
   }
 
   if (hasSubscription && subscription) {
-    const isActive = subscription.status === 'active';
+    // Paused (free plan now) vs. a pause scheduled for when the paid period ends.
+    const isPaused = subscription.effective_status === 'paused';
+    const pauseScheduled = !isPaused && subscription.paused_until != null;
+    const isActive = subscription.status === 'active' && !isPaused;
     const isCancelling = subscription.cancel_at_period_end;
+    const pausedUntil =
+      subscription.paused_until != null ? new Date(subscription.paused_until * 1000) : null;
+    const pausePaidThrough =
+      subscription.pause_paid_through != null
+        ? new Date(subscription.pause_paid_through * 1000)
+        : null;
     const periodEnd = new Date(subscription.current_period_end * 1000);
     const periodStart = new Date(subscription.current_period_start * 1000);
     const hasUnlimitedAccess = usage.hasUnlimitedEdits;
@@ -239,12 +273,38 @@ export function SubscriptionStatus() {
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium text-neutral-700">Status</span>
             <Badge variant={isActive ? 'default' : 'secondary'}>
-              {isActive
+              {isPaused
+                ? 'Paused'
+                : isActive
                 ? 'Active'
                 : subscription.status.charAt(0).toUpperCase() +
                   subscription.status.slice(1).toLowerCase()}
             </Badge>
           </div>
+
+          {(isPaused || pauseScheduled) && (
+            <div className="flex items-center justify-between gap-2 rounded-md bg-neutral-100 p-3">
+              <span className="flex items-center gap-2 text-sm text-neutral-700">
+                <PauseCircle className="h-4 w-4 text-neutral-500" />
+                {isPaused
+                  ? pausedUntil
+                    ? `Paused until ${pausedUntil.toLocaleDateString()} · free plan until then`
+                    : 'Paused · free plan until you resume'
+                  : `Pro until ${(pausePaidThrough ?? periodEnd).toLocaleDateString()}, then paused${
+                      pausedUntil ? ` until ${pausedUntil.toLocaleDateString()}` : ''
+                    }`}
+              </span>
+              <Button
+                variant="link"
+                size="sm"
+                className="h-auto p-0"
+                onClick={handleResume}
+                disabled={isResumeLoading}
+              >
+                {isResumeLoading ? 'Resuming...' : 'Resume'}
+              </Button>
+            </div>
+          )}
 
           {isCancelling && (
             <div className="flex items-center gap-2 rounded-md bg-orange-50 p-3">
@@ -283,7 +343,7 @@ export function SubscriptionStatus() {
               <span className="text-sm text-neutral-500">
                 {hasUnlimitedAccess
                   ? 'Unlimited edits enabled'
-                  : subscription.status === 'active'
+                  : isActive
                     ? `${usage.monthlyEditCount}/50 monthly edits`
                     : `${usage.editCount} edits`}
               </span>
@@ -295,7 +355,7 @@ export function SubscriptionStatus() {
             </div>
           </div>
 
-          {subscription.status === 'active' &&
+          {isActive &&
             (hasUnlimitedAccess ? (
               <div className="rounded-lg bg-blue-50 p-3">
                 <p className="text-sm text-blue-700">
@@ -342,7 +402,7 @@ export function SubscriptionStatus() {
             >
               {isManageLoading ? 'Loading...' : 'Manage Plan'}
             </Button>
-            {isActive && !isCancelling && (
+            {(isActive || isPaused || pauseScheduled) && !isCancelling && (
               <Button
                 variant="outline"
                 size="sm"
@@ -353,7 +413,7 @@ export function SubscriptionStatus() {
             )}
           </div>
 
-          <CancelSubscriptionDialog
+          <CancelDialog
             open={showCancelDialog}
             onOpenChange={handleCancelDialogChange}
           />

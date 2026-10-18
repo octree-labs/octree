@@ -11,6 +11,7 @@ import {
   trackPurchaseFromCheckoutSession,
 } from '@/lib/stripe-webhook';
 import { AnalyticsEvents } from '@/lib/analytics/events';
+import { effectiveSubscriptionStatus, isProStatus } from '@/lib/stripe-subscription';
 import {
   afterResponse,
   captureServerEvent,
@@ -109,9 +110,12 @@ export async function POST(request: Request) {
             ? new Date(subscription.current_period_end * 1000).toISOString()
             : null;
 
-          const isActive =
-            subscription.status === 'active' ||
-            subscription.status === 'trialing';
+          // A paused subscription (`pause_collection` set) is still `active`
+          // to Stripe but `paused` to the app: no Pro while no invoice is
+          // collected. Stripe clears the pause at `resumes_at` and sends
+          // another `customer.subscription.updated`, which flips it back.
+          const effectiveStatus = effectiveSubscriptionStatus(subscription);
+          const isActive = isProStatus(effectiveStatus);
 
           const monthlyResetDate = isActive
             ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
@@ -120,7 +124,7 @@ export async function POST(request: Request) {
           const updateData: any = {
             stripe_customer_id: customerId,
             stripe_subscription_id: subscription.id,
-            subscription_status: subscription.status,
+            subscription_status: effectiveStatus,
             current_period_start: currentPeriodStart,
             current_period_end: currentPeriodEnd,
             cancel_at_period_end: subscription.cancel_at_period_end,
@@ -143,10 +147,7 @@ export async function POST(request: Request) {
             throw updateError;
           }
 
-          if (
-            subscription.status === 'active' ||
-            subscription.status === 'trialing'
-          ) {
+          if (isActive) {
             // @ts-ignore
             const { error: upsertError } = await supabase
               .from('user_usage')

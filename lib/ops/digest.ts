@@ -109,6 +109,8 @@ export interface SubscriptionLike {
   created: number;
   canceled_at: number | null;
   cancellation_details?: { reason: string | null } | null;
+  /** Set while payment collection is paused (cancel-flow save offer); still `active` to Stripe. */
+  pause_collection?: { behavior: string; resumes_at: number | null } | null;
   items: { data: SubscriptionItemLike[] };
 }
 
@@ -183,6 +185,9 @@ export function computeMrr(subscriptions: SubscriptionLike[]): MrrSummary {
 
   for (const sub of subscriptions) {
     if (!MRR_STATUSES.has(sub.status)) continue;
+    // Paused collection: Stripe keeps the status `active` but voids every
+    // invoice until `resumes_at`, so nothing recurs. Not MRR, not churn.
+    if (sub.pause_collection) continue;
     if (sub.status === 'active') activeCount += 1;
     else trialingCount += 1;
 

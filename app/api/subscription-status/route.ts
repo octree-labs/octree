@@ -6,6 +6,13 @@ import type Stripe from 'stripe';
 import { stripe } from '@/lib/stripe';
 import { hasUnlimitedEdits } from '@/lib/paywall';
 import { resolveStripeCustomer } from '@/lib/stripe-customer';
+import {
+  appliedCouponId,
+  effectiveSubscriptionStatus,
+  pausePaidThrough,
+  pauseResumesAt,
+  subscriptionHasDiscount,
+} from '@/lib/stripe-subscription';
 import type { Tables } from '@/database.types';
 import {
   FREE_DAILY_EDIT_LIMIT,
@@ -157,7 +164,12 @@ function buildUsageResponse(
 ) {
   const editCount = usageData?.edit_count || 0;
   const monthlyEditCount = usageData?.monthly_edit_count || 0;
-  const isActive = subscription?.status === 'active';
+  // Paused collection reads as the free tier once the paid period has ended
+  // (see lib/stripe-subscription.ts). `usageData.is_pro` was read before the
+  // RPC below rewrote it, so it must not be trusted for a paused subscription.
+  const effectiveStatus = subscription ? effectiveSubscriptionStatus(subscription) : null;
+  const isActive = effectiveStatus === 'active';
+  const isPaused = effectiveStatus === 'paused';
 
   const baseRemainingEdits = isActive
     ? Math.max(0, PRO_MONTHLY_EDIT_LIMIT - monthlyEditCount)
@@ -172,7 +184,7 @@ function buildUsageResponse(
       : isActive
         ? baseRemainingEdits
         : 0,
-    isPro: isActive || hasUnlimited || usageData?.is_pro || false,
+    isPro: isActive || hasUnlimited || (!isPaused && Boolean(usageData?.is_pro)),
     limitReached: hasUnlimited
       ? false
       : isActive
@@ -201,7 +213,9 @@ async function updateSubscriptionInDB(
       p_user_id: userId,
       p_stripe_customer_id: customerId,
       p_stripe_subscription_id: subscription.id,
-      p_subscription_status: subscription.status,
+      // `paused` (not Stripe's `active`) so the RPC derives is_pro = false
+      // while collection is paused, matching the webhook.
+      p_subscription_status: effectiveSubscriptionStatus(subscription),
       p_current_period_start: new Date(
         subscription.current_period_start * 1000
       ).toISOString(),
@@ -280,6 +294,13 @@ export async function GET() {
         cancel_at_period_end: subscription.cancel_at_period_end,
         current_period_end: subscription.current_period_end,
         current_period_start: subscription.current_period_start,
+        // `paused` once a paused subscription's paid period has ended; the
+        // client gates Pro features on this, not on `status`.
+        effective_status: effectiveSubscriptionStatus(subscription),
+        paused_until: pauseResumesAt(subscription),
+        pause_paid_through: pausePaidThrough(subscription),
+        has_discount: subscriptionHasDiscount(subscription),
+        discount_coupon_id: appliedCouponId(subscription),
         items: subscription.items.data.map((item) => ({
           id: item.id,
           price: {

@@ -102,6 +102,8 @@ describe('MRR normalisation', () => {
       sub({ id: 'c', amount: 2000, currency: 'cad' }),
       sub({ id: 'd', amount: 9900, status: 'canceled' }),
       sub({ id: 'e', amount: 9900, status: 'past_due' }),
+      // Paused collection: still `active` to Stripe but every invoice is voided.
+      sub({ id: 'f', amount: 9900, pause_collection: { behavior: 'void', resumes_at: null } }),
     ]);
     expect(mrr.usd).toBe(25);
     expect(mrr.cad).toBe(20);

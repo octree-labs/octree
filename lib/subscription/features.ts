@@ -70,6 +70,12 @@ export function canUseFeature(
 /** Shape of the JSON returned by GET /api/subscription-status. */
 export interface SubscriptionStatusResponse {
   hasSubscription: boolean;
+  /**
+   * `effective_status` is `paused` while collection is paused and the paid
+   * period has ended: the subscription exists (Stripe says `active`) but
+   * grants no Pro features.
+   */
+  subscription?: ({ effective_status?: string } & Record<string, unknown>) | null;
   usage: {
     isPro: boolean;
     hasUnlimitedEdits: boolean;
@@ -78,12 +84,19 @@ export interface SubscriptionStatusResponse {
   } & Record<string, unknown>;
 }
 
+/** A subscription that currently grants Pro: present and not in a paused window. */
+export function subscriptionGrantsPro(
+  data: Pick<SubscriptionStatusResponse, 'hasSubscription' | 'subscription'> | null | undefined
+): boolean {
+  return Boolean(data?.hasSubscription) && data?.subscription?.effective_status !== 'paused';
+}
+
 export function toFeatureUsage(
   data: SubscriptionStatusResponse | null | undefined
 ): FeatureUsage | null {
   if (!data?.usage) return null;
   return {
-    isPro: Boolean(data.hasSubscription || data.usage.isPro),
+    isPro: Boolean(subscriptionGrantsPro(data) || data.usage.isPro),
     hasUnlimitedEdits: Boolean(data.usage.hasUnlimitedEdits),
     limitReached: Boolean(data.usage.limitReached),
     monthlyLimitReached: Boolean(data.usage.monthlyLimitReached),

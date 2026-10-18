@@ -35,6 +35,11 @@ export const AnalyticsEvents = {
   SUBSCRIPTION_CANCELED: 'subscription_canceled',
   SUBSCRIPTION_PAST_DUE: 'subscription_past_due',
   SUBSCRIPTION_REACTIVATED: 'subscription_reactivated',
+  CANCEL_FLOW_OPENED: 'cancel_flow_opened',
+  CANCEL_OFFER_ACCEPTED: 'cancel_offer_accepted',
+  SUBSCRIPTION_PAUSED: 'subscription_paused',
+  SUBSCRIPTION_RESUMED: 'subscription_resumed',
+  SUBSCRIPTION_CANCEL_CONFIRMED: 'subscription_cancel_confirmed',
   IMPORT_COMPLETED: 'import_completed',
   AI_EDIT_SERVED: 'ai_edit_served',
   EDIT_LIMIT_HIT_SERVER: 'edit_limit_hit_server',
@@ -49,6 +54,15 @@ export type PaywallReason = 'daily_limit' | 'pro_feature' | 'monthly_limit';
 export type CheckoutPlan = 'monthly' | 'weekly';
 export type CheckoutSource = 'onboarding' | 'paywall' | 'settings' | 'generate-preview';
 export type ProjectSource = 'dashboard' | 'import' | 'generate';
+export type CancelOffer = 'pause' | 'discount';
+/** Stripe's `cancellation_details.feedback` enum. */
+export type CancelFeedback =
+  | 'unused'
+  | 'too_expensive'
+  | 'missing_features'
+  | 'low_quality'
+  | 'switched_service'
+  | 'other';
 export type ExportFormat = 'pdf' | 'zip';
 
 export interface AnalyticsEventProperties {
@@ -96,6 +110,25 @@ export interface AnalyticsEventProperties {
   [AnalyticsEvents.SUBSCRIPTION_REACTIVATED]: {
     previous_status: string | null;
     status: string;
+  };
+  [AnalyticsEvents.CANCEL_FLOW_OPENED]: {
+    is_paused: boolean;
+    has_discount: boolean;
+    cancel_at_period_end: boolean;
+  };
+  [AnalyticsEvents.CANCEL_OFFER_ACCEPTED]: { offer: CancelOffer };
+  [AnalyticsEvents.SUBSCRIPTION_PAUSED]: {
+    months: number;
+    /** Unix seconds; when Stripe resumes collection on its own. */
+    resumes_at: number;
+  };
+  [AnalyticsEvents.SUBSCRIPTION_RESUMED]: {
+    /** `user`: the Resume button; a scheduled resume is not an app event. */
+    source: 'user';
+  };
+  [AnalyticsEvents.SUBSCRIPTION_CANCEL_CONFIRMED]: {
+    feedback: CancelFeedback;
+    has_comment: boolean;
   };
   [AnalyticsEvents.IMPORT_COMPLETED]: { source: string; title_length: number };
   [AnalyticsEvents.AI_EDIT_SERVED]: {

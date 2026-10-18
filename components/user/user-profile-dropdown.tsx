@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { resetAnalytics } from '@/lib/analytics/track';
 import { useRouter } from 'next/navigation';
@@ -13,7 +12,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { CancelSubscriptionDialog } from '@/components/subscription/cancel-subscription-dialog';
 import {
   User,
   Settings,
@@ -27,7 +25,6 @@ interface UserProfileDropdownProps {
 }
 
 export function UserProfileDropdown({ userName }: UserProfileDropdownProps) {
-  const [isCancelDialogOpen, setIsCancelDialogOpen] = useState(false);
   const router = useRouter();
 
   const handleLogout = async () => {
@@ -73,11 +70,6 @@ export function UserProfileDropdown({ userName }: UserProfileDropdownProps) {
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-
-      <CancelSubscriptionDialog
-        open={isCancelDialogOpen}
-        onOpenChange={setIsCancelDialogOpen}
-      />
     </>
   );
 }

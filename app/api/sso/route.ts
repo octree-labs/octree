@@ -12,7 +12,8 @@ function withCors(res: NextResponse) {
 }
 
 export async function OPTIONS() {
-  return withCors(NextResponse.json({}, { status: 204 }));
+  // 204 must have no body (the Response constructor throws otherwise).
+  return withCors(new NextResponse(null, { status: 204 }));
 }
 
 export async function POST(req: NextRequest) {

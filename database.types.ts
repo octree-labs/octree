@@ -41,27 +41,44 @@ export type Database = {
     Tables: {
       drafts: {
         Row: {
+          consumed_at: string | null
+          consumed_by: string | null
           content: string
           created_at: string
           id: string
+          project_id: string | null
           source: string | null
           title: string | null
         }
         Insert: {
+          consumed_at?: string | null
+          consumed_by?: string | null
           content: string
           created_at?: string
           id?: string
+          project_id?: string | null
           source?: string | null
           title?: string | null
         }
         Update: {
+          consumed_at?: string | null
+          consumed_by?: string | null
           content?: string
           created_at?: string
           id?: string
+          project_id?: string | null
           source?: string | null
           title?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "drafts_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       email_suppressions: {
         Row: {

@@ -3,6 +3,7 @@
 // @ts-nocheck
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { importPath, setPendingDraftCookie } from '@/lib/import/pending-draft';
 
 const allowedOrigin = process.env.ALLOWED_TOOLS_ORIGIN || 'https://tools.useoctree.com';
 
@@ -15,7 +16,8 @@ function withCors(response: NextResponse) {
 }
 
 export async function OPTIONS() {
-  return withCors(NextResponse.json({}, { status: 204 }));
+  // 204 must have no body (the Response constructor throws otherwise).
+  return withCors(new NextResponse(null, { status: 204 }));
 }
 
 export async function GET(request: NextRequest) {
@@ -70,8 +72,11 @@ export async function POST(request: NextRequest) {
     }
 
     const url = new URL(request.url);
-    const redirectUrl = new URL(`/import?draft=${encodeURIComponent(data.id)}`, url.origin);
+    const redirectUrl = new URL(importPath(data.id), url.origin);
     const res = NextResponse.redirect(redirectUrl, { status: 303 });
+    // Remember the draft across sign-up / login so the import survives auth
+    // paths that drop the `next` param (OAuth, email confirmation, homepage).
+    setPendingDraftCookie(res, data.id);
     // For top-level navigation initiated by form POST, CORS headers are not required, but harmless
     return withCors(res);
   } catch (err) {

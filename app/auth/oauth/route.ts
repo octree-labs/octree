@@ -1,12 +1,20 @@
 import { NextResponse } from 'next/server';
 import { buildRedirectUrl } from '@/lib/auth/redirect';
 import { createClient } from '@/lib/supabase/server';
+import { pendingDraftFromCookieHeader } from '@/lib/import/pending-draft';
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get('code');
   const nextParam = searchParams.get('next') ?? '/';
-  const next = nextParam.startsWith('/') ? nextParam : '/';
+  let next = nextParam.startsWith('/') ? nextParam : '/';
+
+  // A draft posted from tools.useoctree.com is still waiting: finish the
+  // import instead of landing on the dashboard. The import route reads the
+  // id from the cookie and clears it.
+  if (next === '/' && pendingDraftFromCookieHeader(request.headers.get('cookie'))) {
+    next = '/import';
+  }
 
   if (code) {
     const supabase = await createClient();

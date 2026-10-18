@@ -48,7 +48,8 @@ export async function updateSession(request: NextRequest) {
     !request.nextUrl.pathname.startsWith('/login') &&
     !request.nextUrl.pathname.startsWith('/auth') &&
     // "Open in Octree" imports render their own sign-up landing when logged out.
-    !request.nextUrl.pathname.startsWith('/import')
+    // Exactly /import and /import/*; nothing else under a shared prefix.
+    !(request.nextUrl.pathname === '/import' || request.nextUrl.pathname.startsWith('/import/'))
   ) {
     const url = request.nextUrl.clone();
     url.pathname = '/auth/login';

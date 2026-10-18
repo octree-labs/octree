@@ -17,20 +17,25 @@ const mocks = vi.hoisted(() => {
   const draftMaybeSingle = vi.fn();
   const draftSelectEq = vi.fn(() => ({ maybeSingle: draftMaybeSingle }));
   const draftSelect = vi.fn(() => ({ eq: draftSelectEq }));
-  const draftUpdateEq = vi.fn().mockResolvedValue({ error: null });
+  const draftUpdateSelect = vi.fn();
+  const draftUpdateIs = vi.fn(() => ({ select: draftUpdateSelect }));
+  const draftUpdateEq = vi.fn(() => ({ is: draftUpdateIs }));
   const draftUpdate = vi.fn(() => ({ eq: draftUpdateEq }));
 
   const projectSingle = vi.fn();
   const projectInsert = vi.fn(() => ({ select: () => ({ single: projectSingle }) }));
+  const projectDeleteEq = vi.fn().mockResolvedValue({ error: null });
+  const projectDelete = vi.fn(() => ({ eq: projectDeleteEq }));
 
   const fileInsert = vi.fn().mockResolvedValue({ error: null });
 
   const upload = vi.fn().mockResolvedValue({ error: null });
+  const remove = vi.fn().mockResolvedValue({ error: null });
   const getPublicUrl = vi.fn(() => ({ data: { publicUrl: 'https://cdn/main.tex' } }));
 
   const from = vi.fn((table: string) => {
     if (table === 'drafts') return { select: draftSelect, update: draftUpdate };
-    if (table === 'projects') return { insert: projectInsert };
+    if (table === 'projects') return { insert: projectInsert, delete: projectDelete };
     if (table === 'files') return { insert: fileInsert };
     throw new Error(`unexpected table ${table}`);
   });
@@ -43,10 +48,14 @@ const mocks = vi.hoisted(() => {
     draftMaybeSingle,
     draftUpdate,
     draftUpdateEq,
+    draftUpdateIs,
+    draftUpdateSelect,
     projectInsert,
     projectSingle,
+    projectDeleteEq,
     fileInsert,
     upload,
+    remove,
     getPublicUrl,
     from,
     trackRedditConversion,
@@ -57,7 +66,9 @@ vi.mock('@/lib/supabase/server', () => ({
   createClient: async () => ({
     auth: { getUser: mocks.getUser },
     from: mocks.from,
-    storage: { from: () => ({ upload: mocks.upload, getPublicUrl: mocks.getPublicUrl }) },
+    storage: {
+      from: () => ({ upload: mocks.upload, remove: mocks.remove, getPublicUrl: mocks.getPublicUrl }),
+    },
   }),
 }));
 
@@ -86,18 +97,24 @@ function draftRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function user(createdAt: Date) {
-  return { id: 'user-1', email: 'new@example.com', created_at: createdAt.toISOString() };
+function user(createdAt: Date, provider = 'google') {
+  return {
+    id: 'user-1',
+    email: 'new@example.com',
+    created_at: createdAt.toISOString(),
+    app_metadata: { provider, providers: [provider] },
+  };
 }
 
 const oldUser = () => user(new Date(Date.now() - 2 * 60 * 60 * 1000));
 const freshUser = () => user(new Date(Date.now() - 60 * 1000));
+const freshEmailUser = () => user(new Date(Date.now() - 60 * 1000), 'email');
 
 describe('GET /import', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.draftMaybeSingle.mockResolvedValue({ data: draftRow(), error: null });
-    mocks.draftUpdateEq.mockResolvedValue({ error: null });
+    mocks.draftUpdateSelect.mockResolvedValue({ data: [{ id: DRAFT_ID }], error: null });
     mocks.projectSingle.mockResolvedValue({ data: { id: PROJECT_ID }, error: null });
     mocks.fileInsert.mockResolvedValue({ error: null });
     mocks.upload.mockResolvedValue({ error: null });
@@ -157,6 +174,7 @@ describe('GET /import', () => {
     expect(update).toMatchObject({ consumed_by: 'user-1', project_id: PROJECT_ID });
     expect(Date.parse(update.consumed_at as string)).toBeGreaterThanOrEqual(before - 1000);
     expect(mocks.draftUpdateEq).toHaveBeenCalledWith('id', DRAFT_ID);
+    expect(mocks.draftUpdateIs).toHaveBeenCalledWith('consumed_at', null);
     expect(mocks.from('drafts')).not.toHaveProperty('delete');
 
     expect(res.headers.get('location')).toBe(
@@ -195,7 +213,7 @@ describe('GET /import', () => {
   });
 
   it('still lands in the project when the consumption update fails', async () => {
-    mocks.draftUpdateEq.mockResolvedValue({ error: { message: 'no policy' } });
+    mocks.draftUpdateSelect.mockResolvedValue({ data: null, error: { message: 'no policy' } });
 
     const res = await GET(makeRequest(`/import?draft=${DRAFT_ID}`));
 
@@ -204,8 +222,51 @@ describe('GET /import', () => {
     );
   });
 
+  it('still lands in the project when the update touches 0 rows but the draft is unconsumed (migration missing)', async () => {
+    mocks.draftUpdateSelect.mockResolvedValue({ data: [], error: null });
+
+    const res = await GET(makeRequest(`/import?draft=${DRAFT_ID}`));
+
+    expect(mocks.projectDeleteEq).not.toHaveBeenCalled();
+    expect(res.headers.get('location')).toBe(
+      `https://app.useoctree.com/projects/${PROJECT_ID}?welcome=1`
+    );
+  });
+
+  it('drops the duplicate project and lands on the first one when a concurrent request won the claim', async () => {
+    mocks.draftUpdateSelect.mockResolvedValue({ data: [], error: null });
+    mocks.draftMaybeSingle
+      .mockResolvedValueOnce({ data: draftRow(), error: null })
+      .mockResolvedValueOnce({
+        data: { consumed_at: '2026-10-18T00:00:00Z', consumed_by: 'user-1', project_id: 'first' },
+        error: null,
+      });
+
+    const res = await GET(makeRequest(`/import?draft=${DRAFT_ID}`));
+
+    expect(mocks.projectDeleteEq).toHaveBeenCalledWith('id', PROJECT_ID);
+    expect(mocks.remove).toHaveBeenCalledWith([`projects/${PROJECT_ID}/main.tex`]);
+    expect(res.headers.get('location')).toBe('https://app.useoctree.com/projects/first?welcome=1');
+    expect(res.headers.get('set-cookie')).toMatch(/Max-Age=0/i);
+  });
+
+  it('goes home when a concurrent request from another user won the claim', async () => {
+    mocks.draftUpdateSelect.mockResolvedValue({ data: [], error: null });
+    mocks.draftMaybeSingle
+      .mockResolvedValueOnce({ data: draftRow(), error: null })
+      .mockResolvedValueOnce({
+        data: { consumed_at: '2026-10-18T00:00:00Z', consumed_by: 'user-2', project_id: 'theirs' },
+        error: null,
+      });
+
+    const res = await GET(makeRequest(`/import?draft=${DRAFT_ID}`));
+
+    expect(mocks.projectDeleteEq).toHaveBeenCalledWith('id', PROJECT_ID);
+    expect(res.headers.get('location')).toBe('https://app.useoctree.com/');
+  });
+
   describe('Reddit SignUp', () => {
-    it('fires once for a user created in the last 10 minutes', async () => {
+    it('fires once for an OAuth user created in the last 10 minutes', async () => {
       mocks.getUser.mockResolvedValue({ data: { user: freshUser() } });
 
       await GET(makeRequest(`/import?draft=${DRAFT_ID}`));
@@ -221,6 +282,14 @@ describe('GET /import', () => {
 
     it('does not fire for an existing user', async () => {
       mocks.getUser.mockResolvedValue({ data: { user: oldUser() } });
+
+      await GET(makeRequest(`/import?draft=${DRAFT_ID}`));
+
+      expect(mocks.trackRedditConversion).not.toHaveBeenCalled();
+    });
+
+    it('does not fire for a fresh email sign-up (signup-form already fired the pixel)', async () => {
+      mocks.getUser.mockResolvedValue({ data: { user: freshEmailUser() } });
 
       await GET(makeRequest(`/import?draft=${DRAFT_ID}`));
 

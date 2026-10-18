@@ -31,7 +31,11 @@ function projectUrl(origin: string, projectId: string, welcome: boolean) {
   return url;
 }
 
-function isNewUser(user: User, now = Date.now()) {
+function isOAuthSignUp(user: User, now = Date.now()) {
+  // Email sign-ups already fire SignUp from components/auth/signup-form.tsx;
+  // OAuth sign-ups never run that client code, so only they are counted here.
+  const provider = user.app_metadata?.provider;
+  if (!provider || provider === 'email') return false;
   if (!user.created_at) return false;
   const createdAt = Date.parse(user.created_at);
   return Number.isFinite(createdAt) && now - createdAt < NEW_USER_WINDOW_MS;
@@ -137,21 +141,51 @@ export async function GET(request: NextRequest) {
   }
 
   // Keep the draft and mark it consumed so the funnel is measurable
-  // (consumed_at IS NULL = abandoned). Non-fatal: the project already exists.
+  // (consumed_at IS NULL = abandoned). `consumed_at is null` in the filter
+  // (mirrored by the RLS policy) means a draft is claimed at most once even
+  // when two requests race past the SELECT above.
   const consumption: TablesUpdate<'drafts'> = {
     consumed_at: new Date().toISOString(),
     consumed_by: user.id,
     project_id: project.id,
   };
-  const { error: consumeError } = (await (supabase.from('drafts') as any)
+  const { data: claimed, error: consumeError } = (await (supabase.from('drafts') as any)
     .update(consumption)
-    .eq('id', draftId)) as { error: unknown };
+    .eq('id', draftId)
+    .is('consumed_at', null)
+    .select('id')) as { data: Array<Pick<Tables<'drafts'>, 'id'>> | null; error: unknown };
 
   if (consumeError) {
+    // Non-fatal: the project already exists.
     console.error('Error marking draft consumed:', consumeError);
+  } else if (!claimed || claimed.length === 0) {
+    // 0 rows: either a concurrent request consumed the draft after our SELECT,
+    // or RLS filtered the row (the UPDATE policy from migration
+    // 20261018100000_drafts_consumption is not applied yet).
+    const { data: current } = (await (supabase.from('drafts') as any)
+      .select('consumed_at, consumed_by, project_id')
+      .eq('id', draftId)
+      .maybeSingle()) as {
+      data: Pick<DraftRow, 'consumed_at' | 'consumed_by' | 'project_id'> | null;
+    };
+
+    if (current?.consumed_at) {
+      // Lost the race: drop the duplicate project and land on the first one.
+      await (supabase.from('projects') as any).delete().eq('id', project.id);
+      await supabase.storage.from('octree').remove([filePath]);
+      if (current.consumed_by === user.id && current.project_id) {
+        return redirectAndForget(projectUrl(url.origin, current.project_id, true));
+      }
+      return redirectAndForget(new URL('/', url.origin));
+    }
+
+    console.error(
+      'Draft consumption updated 0 rows; is migration 20261018100000_drafts_consumption applied?',
+      { draftId }
+    );
   }
 
-  if (isNewUser(user)) {
+  if (isOAuthSignUp(user)) {
     // Google sign-ups never reach the client-side SignUp pixel, so record the
     // conversion here. `lib/reddit-capi` has no custom-property support, so
     // the draft source is not attached. Keyed on the user id so a retry

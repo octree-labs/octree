@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 
 import { createClient } from '@/lib/supabase/client';
+import { resetAnalytics } from '@/lib/analytics/track';
 import { Button } from '@/components/ui/button';
 // Card imports removed — using plain layout instead
 // import {
@@ -73,6 +74,7 @@ export default function OnboardingPage() {
   const handleLogout = async () => {
     const supabase = createClient();
     await supabase.auth.signOut();
+    resetAnalytics();
     router.push('/auth/login');
   };
 
@@ -130,6 +132,7 @@ export default function OnboardingPage() {
         const checkoutUrl = await createCheckoutSession({
           annual: isMonthly,
           withTrial: false,
+          source: 'onboarding',
         });
         // The user has only clicked through to Stripe here; `Purchase` is sent
         // server-side from the Stripe webhook once the session is actually paid.

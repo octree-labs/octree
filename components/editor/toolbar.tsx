@@ -13,6 +13,8 @@ import {
 import { useSubscriptionUsage } from '@/hooks/use-subscription-usage';
 import { canUseFeature } from '@/lib/subscription/features';
 import { PaywallActions } from '@/stores/paywall';
+import { AnalyticsEvents, type ExportFormat } from '@/lib/analytics/events';
+import { track } from '@/lib/analytics/track';
 import {
   Loader2,
   Download,
@@ -58,7 +60,8 @@ export function EditorToolbar({
   const exportAccess = canUseFeature(usage, 'export');
   const showExportLock = !exportAccess.allowed && exportAccess.reason === 'paywall';
 
-  const gateExport = (run: () => void) => {
+  const gateExport = (format: ExportFormat, run: () => void) => {
+    track(AnalyticsEvents.EXPORT_CLICKED, { format, allowed: exportAccess.allowed });
     if (exportAccess.allowed) {
       run();
       return;
@@ -71,8 +74,8 @@ export function EditorToolbar({
     PaywallActions.open('export');
   };
 
-  const handleExportPDF = () => gateExport(onExportPDF);
-  const handleExportZIP = () => gateExport(onExportZIP);
+  const handleExportPDF = () => gateExport('pdf', onExportPDF);
+  const handleExportZIP = () => gateExport('zip', onExportZIP);
   return (
     <>
     <div

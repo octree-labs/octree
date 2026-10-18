@@ -71,7 +71,7 @@ describe('DocumentPreview checkout plan flag', () => {
 
     await waitFor(() => expect(mockedCreateCheckoutSession).toHaveBeenCalledTimes(1));
     const documentPreviewArgs = mockedCreateCheckoutSession.mock.calls[0][0];
-    expect(documentPreviewArgs).toEqual({ annual: true, withTrial: false });
+    expect(documentPreviewArgs).toEqual({ annual: true, withTrial: false, source: 'generate-preview' });
 
     // Reference caller: PaywallDialog with its default (monthly) selection.
     // It is store-driven (stores/paywall.ts), so open it first.
@@ -80,7 +80,7 @@ describe('DocumentPreview checkout plan flag', () => {
     render(<PaywallDialog />);
     fireEvent.click(screen.getByRole('button', { name: /get octree pro/i }));
     await waitFor(() => expect(mockedCreateCheckoutSession).toHaveBeenCalledTimes(1));
-    expect(mockedCreateCheckoutSession.mock.calls[0][0]).toEqual(documentPreviewArgs);
+    expect(mockedCreateCheckoutSession.mock.calls[0][0]).toEqual({ ...documentPreviewArgs, source: 'paywall' });
   });
 
   it('sends annual: false (the $4.99/week price) when monthly is toggled off', async () => {
@@ -90,7 +90,7 @@ describe('DocumentPreview checkout plan flag', () => {
     fireEvent.click(screen.getByRole('button', { name: /subscribe now/i }));
 
     await waitFor(() => expect(mockedCreateCheckoutSession).toHaveBeenCalledTimes(1));
-    expect(mockedCreateCheckoutSession.mock.calls[0][0]).toEqual({ annual: false, withTrial: false });
+    expect(mockedCreateCheckoutSession.mock.calls[0][0]).toEqual({ annual: false, withTrial: false, source: 'generate-preview' });
   });
 
   it('shows the real plan prices rather than a per-week fraction', async () => {

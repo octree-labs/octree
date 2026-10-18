@@ -3,6 +3,7 @@ import { headers } from 'next/headers';
 import { stripe } from '@/lib/stripe';
 import { createClient } from '@/lib/supabase/server';
 import { resolveStripeCustomer } from '@/lib/stripe-customer';
+import { captureServerException } from '@/lib/posthog-server';
 
 export async function POST() {
   try {
@@ -37,6 +38,7 @@ export async function POST() {
     return NextResponse.json({ url: session.url });
   } catch (err: any) {
     console.error('Error creating billing portal session:', err);
+    await captureServerException(err, { route: 'api/billing-portal' });
     return NextResponse.json(
       { error: err?.message || 'An error occurred' },
       { status: err?.statusCode || 500 }

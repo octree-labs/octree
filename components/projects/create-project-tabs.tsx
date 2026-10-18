@@ -10,6 +10,8 @@ import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { importProject } from '@/lib/requests/project';
 import { useCreateProject } from '@/hooks/create-project-client';
+import { AnalyticsEvents } from '@/lib/analytics/events';
+import { track } from '@/lib/analytics/track';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
@@ -106,6 +108,7 @@ export function CreateProjectTabs({
             ? `Project imported successfully! ${data.texFiles} LaTeX file(s) and ${data.otherFiles} other file(s).`
             : `Project imported successfully! ${data.texFiles} LaTeX file(s).`;
         toast.success(message);
+        track(AnalyticsEvents.PROJECT_CREATED, { source: 'import' });
         setSelectedFile(null);
         onSuccess(data.projectId);
       }

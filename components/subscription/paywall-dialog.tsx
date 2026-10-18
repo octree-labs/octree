@@ -52,6 +52,7 @@ export function PaywallDialog() {
       const checkoutUrl = await createCheckoutSession({
         annual: isMonthly,
         withTrial: false,
+        source: 'paywall',
       });
       window.location.href = checkoutUrl;
     } catch (error) {

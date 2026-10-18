@@ -15,6 +15,20 @@ import {
   makeCompilationRequest,
 } from '@/lib/utils/compilation';
 import { uploadProjectPreview } from '@/lib/utils/project-preview';
+import { AnalyticsEvents } from '@/lib/analytics/events';
+import { shouldSample, track } from '@/lib/analytics/track';
+
+/** Successful compiles are captured 1 in N; failures always. */
+const COMPILE_SUCCESS_SAMPLE_RATE = 10;
+
+function trackCompileCompleted(success: boolean, startedAt: number) {
+  if (success && !shouldSample(COMPILE_SUCCESS_SAMPLE_RATE)) return;
+  track(AnalyticsEvents.COMPILE_COMPLETED, {
+    success,
+    duration_ms: Math.round(performance.now() - startedAt),
+    sample_rate: success ? COMPILE_SUCCESS_SAMPLE_RATE : 1,
+  });
+}
 
 export interface CompilationState {
   compiling: boolean;
@@ -186,6 +200,7 @@ export function useEditorCompilation({
     setCompiling(true);
     setCompilationError(null);
 
+    const startedAt = performance.now();
     let handled = false;
     try {
       const currentContent = editorRef.current?.getValue() || content;
@@ -219,6 +234,7 @@ export function useEditorCompilation({
         setPdfData(data.pdf);
         setCompilationError(null);
         if (projectId) uploadProjectPreview(projectId, data.pdf).catch(console.error);
+        trackCompileCompleted(true, startedAt);
         return true;
       }
 
@@ -241,6 +257,7 @@ export function useEditorCompilation({
         });
       }
 
+      trackCompileCompleted(false, startedAt);
       return false;
     } finally {
       setCompiling(false);

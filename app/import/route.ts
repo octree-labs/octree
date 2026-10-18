@@ -4,6 +4,8 @@ import { createClient } from '@/lib/supabase/server';
 import type { Tables, TablesInsert, TablesUpdate } from '@/database.types';
 import { getContentTypeByFilename } from '@/lib/constants/file-types';
 import { trackRedditConversion } from '@/lib/reddit-capi';
+import { AnalyticsEvents } from '@/lib/analytics/events';
+import { captureServerEvent, captureServerException } from '@/lib/posthog-server';
 import {
   PENDING_DRAFT_COOKIE,
   clearPendingDraftCookie,
@@ -118,6 +120,7 @@ export async function GET(request: NextRequest) {
 
   if (uploadError) {
     console.error('Error uploading file to storage:', uploadError);
+    await captureServerException(uploadError, { distinctId: user.id, route: 'import', extra: { step: 'upload' } });
     return redirectAndForget(new URL('/', url.origin));
   }
 
@@ -137,6 +140,7 @@ export async function GET(request: NextRequest) {
 
   if (fileError) {
     console.error('Error creating file record:', fileError);
+    await captureServerException(fileError, { distinctId: user.id, route: 'import', extra: { step: 'file-record' } });
     return redirectAndForget(projectUrl(url.origin, project.id, true));
   }
 
@@ -206,6 +210,8 @@ export async function GET(request: NextRequest) {
       console.error('Reddit SignUp tracking failed:', error);
     }
   }
+
+  await captureServerEvent(user.id, AnalyticsEvents.IMPORT_COMPLETED, { source: String(draft.source ?? 'tools'), title: projectData.title });
 
   // Always land in the editor; `welcome=1` lets the editor show its own
   // onboarding / Pro prompt instead of bouncing through /onboarding.

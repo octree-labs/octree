@@ -5,9 +5,13 @@ import Stripe from 'stripe';
 import { createAdminClient } from '@/lib/supabase/admin';
 
 import {
+  describeCheckoutSessionPlan,
   recordStripeEvent,
+  subscriptionLifecycleEvents,
   trackPurchaseFromCheckoutSession,
 } from '@/lib/stripe-webhook';
+import { AnalyticsEvents } from '@/lib/analytics/events';
+import { captureServerEvent, captureServerException } from '@/lib/posthog-server';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2025-02-24.acacia',
@@ -58,6 +62,20 @@ export async function POST(request: Request) {
           await trackPurchaseFromCheckoutSession(session);
         } catch (error) {
           console.error('Failed to track purchase conversion:', error);
+        }
+        // PostHog `subscription_started` (the "paid" funnel step). Analytics
+        // can never fail the webhook.
+        try {
+          const userId = session.metadata?.user_id;
+          if (userId && session.payment_status === 'paid') {
+            await captureServerEvent(
+              userId,
+              AnalyticsEvents.SUBSCRIPTION_STARTED,
+              await describeCheckoutSessionPlan(stripe, session)
+            );
+          }
+        } catch (error) {
+          console.error('PostHog subscription_started failed:', error);
         }
         break;
       }
@@ -142,10 +160,18 @@ export async function POST(request: Request) {
               );
             }
           }
-
-
         } catch (error) {
           console.error('Error updating subscription in database:', error);
+        }
+
+        // PostHog churn / recovery events, after the DB writes. Never fails
+        // the webhook.
+        try {
+          for (const lifecycle of subscriptionLifecycleEvents(event as any)) {
+            await captureServerEvent(userId, lifecycle.event, lifecycle.properties);
+          }
+        } catch (error) {
+          console.error('PostHog subscription lifecycle event failed:', error);
         }
         break;
     }
@@ -153,6 +179,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ received: true });
   } catch (error) {
     console.error('Webhook processing failed:', error);
+    await captureServerException(error, { route: 'api/webhooks/stripe' });
     return NextResponse.json(
       { error: 'Webhook processing failed' },
       { status: 500 }

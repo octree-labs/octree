@@ -42,6 +42,8 @@ import { markGenerateWalkthroughSeen } from '@/lib/requests/walkthrough';
 import { useSubscriptionUsage } from '@/hooks/use-subscription-usage';
 import { canUseFeature } from '@/lib/subscription/features';
 import { PaywallActions } from '@/stores/paywall';
+import { AnalyticsEvents } from '@/lib/analytics/events';
+import { track } from '@/lib/analytics/track';
 
 const GENERATE_ONBOARDING_STORAGE_KEY = 'octree_generate_onboarding_completed';
 const SUCCESS_MESSAGE_PREFIX = 'Document generated successfully.';
@@ -183,6 +185,10 @@ export function GeneratePageContent({
   const submitPrompt = useCallback(() => {
     if (isPlanLoading) return;
     if (generateAccess.allowed) {
+      track(AnalyticsEvents.GENERATE_SUBMITTED, {
+        attachment_count: attachedFiles.length,
+        is_continuation: Boolean(currentDocument),
+      });
       generateDocument();
       return;
     }
@@ -193,7 +199,14 @@ export function GeneratePageContent({
       return;
     }
     PaywallActions.open('generate');
-  }, [isPlanLoading, generateAccess, generateDocument, refreshPlan]);
+  }, [
+    isPlanLoading,
+    generateAccess,
+    generateDocument,
+    refreshPlan,
+    attachedFiles.length,
+    currentDocument,
+  ]);
 
   const scrollRef = useAutoScroll<HTMLDivElement>();
   const [isCreatingProject, setIsCreatingProject] = useState(false);
@@ -270,6 +283,7 @@ export function GeneratePageContent({
         return;
       }
       if (result.projectId) {
+        track(AnalyticsEvents.PROJECT_CREATED, { source: 'generate' });
         router.push(`/projects/${result.projectId}`);
       }
     } catch {

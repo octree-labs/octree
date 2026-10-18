@@ -19,6 +19,10 @@ export interface FeatureUsage {
   limitReached?: boolean;
   /** Pro monthly edit limit reached. */
   monthlyLimitReached?: boolean;
+  /** Free generations left (every account starts with one). Pro: ignored. */
+  freeGenerationsRemaining?: number;
+  /** One-off generation credits bought through Checkout. Pro: ignored. */
+  generationCredits?: number;
 }
 
 export type FeatureAccess =
@@ -33,7 +37,16 @@ export type FeatureAccess =
       reason: 'paywall' | 'monthly-limit' | 'unknown';
     };
 
-const PRO_ONLY_FEATURES: ReadonlySet<ProFeature> = new Set(['export', 'generate']);
+const PRO_ONLY_FEATURES: ReadonlySet<ProFeature> = new Set(['export']);
+
+/**
+ * Generations a non-Pro user can still start: the free one plus any bought
+ * credits. The server decides for real (`consume_generation`); this only
+ * drives the badge and whether submitting opens the paywall.
+ */
+export function remainingGenerations(usage: FeatureUsage): number {
+  return Math.max(0, usage.freeGenerationsRemaining ?? 0) + Math.max(0, usage.generationCredits ?? 0);
+}
 
 export function canUseFeature(
   usage: FeatureUsage | null | undefined,
@@ -53,6 +66,13 @@ export function canUseFeature(
 
   if (PRO_ONLY_FEATURES.has(feature)) {
     return usage.isPro ? { allowed: true } : { allowed: false, reason: 'paywall' };
+  }
+
+  if (feature === 'generate') {
+    // Pro is unlimited; otherwise one free generation, then credits.
+    return usage.isPro || remainingGenerations(usage) > 0
+      ? { allowed: true }
+      : { allowed: false, reason: 'paywall' };
   }
 
   // feature === 'ai-edit'
@@ -81,6 +101,9 @@ export interface SubscriptionStatusResponse {
     hasUnlimitedEdits: boolean;
     limitReached: boolean;
     monthlyLimitReached: boolean;
+    /** Absent from older responses; treated as 0. */
+    freeGenerationsRemaining?: number;
+    generationCredits?: number;
   } & Record<string, unknown>;
 }
 
@@ -100,5 +123,7 @@ export function toFeatureUsage(
     hasUnlimitedEdits: Boolean(data.usage.hasUnlimitedEdits),
     limitReached: Boolean(data.usage.limitReached),
     monthlyLimitReached: Boolean(data.usage.monthlyLimitReached),
+    freeGenerationsRemaining: Number(data.usage.freeGenerationsRemaining ?? 0) || 0,
+    generationCredits: Number(data.usage.generationCredits ?? 0) || 0,
   };
 }

@@ -2,6 +2,18 @@
 export const FREE_DAILY_EDIT_LIMIT = 5;
 export const PRO_MONTHLY_EDIT_LIMIT = 500;
 
+// Generate allowance: every account gets this many free generations, then
+// Pro (unlimited) or a one-off credit. Keep in sync with
+// supabase/migrations/20261018150000_generate_allowance.sql (consume_generation
+// only ever grants one free generation) and lib/stripe-prices.ts.
+export const FREE_GENERATION_ALLOWANCE = 1;
+export const GENERATE_SINGLE_PRICE = {
+  amount: 2.99,
+  price: '$2.99',
+  lookupKey: 'octree_generate_single',
+  productName: 'One AI document generation',
+} as const;
+
 /**
  * Display copy for everything the app sells. The single source of truth for
  * labels and prices in the UI; the Stripe prices themselves are provisioned

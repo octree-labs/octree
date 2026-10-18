@@ -17,8 +17,10 @@ import { createCheckoutSession } from '@/lib/requests/subscription';
 import {
   CREDIT_PACKS,
   FREE_DAILY_EDIT_LIMIT,
+  GENERATE_SINGLE_PRICE,
   PRO_FEATURES,
   PRO_MONTHLY_EDIT_LIMIT,
+  PRO_PLANS,
 } from '@/data/constants';
 import type { ProFeature } from '@/lib/subscription/features';
 import { PaywallActions, usePaywall } from '@/stores/paywall';
@@ -44,33 +46,114 @@ const MONTHLY_LIMIT_COPY = {
   description: `Pro includes ${PRO_MONTHLY_EDIT_LIMIT} AI edits a month. Buy ${CREDIT_PACKS.credits_100.credits} more for ${CREDIT_PACKS.credits_100.price} (credits never expire) or wait for your monthly reset.`,
 };
 
+/** The free generation is spent: sell Pro, or just this one document. */
+const GENERATE_QUOTA_COPY = {
+  title: "You've used your free generation",
+  description:
+    'Every account gets one free document. Go Pro for unlimited generations, or buy just this one.',
+};
+
 /**
  * The in-product paywall. Opened from anywhere with `PaywallActions.open(feature)`
  * (see stores/paywall.ts); mounted once per layout that has gated features.
+ *
+ * With `offers` including `single` (only Generate does this, with reason
+ * `generate_quota`) it shows two buttons: the monthly Pro subscription and
+ * the one-off $2.99 generation credit.
  */
 export function PaywallDialog() {
-  const { open, feature, reason } = usePaywall();
+  const { open, feature, reason, offers } = usePaywall();
   const [plan, setPlan] = useState<PickerPlan>('monthly');
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState<'pro' | 'single' | null>(null);
 
   const creditsOnly = reason === 'monthly_limit';
-  const copy = creditsOnly ? MONTHLY_LIMIT_COPY : COPY[feature ?? 'ai-edit'];
+  const offersSingle = feature === 'generate' && offers.includes('single');
+  const copy = creditsOnly
+    ? MONTHLY_LIMIT_COPY
+    : feature === 'generate' && reason === 'generate_quota'
+      ? GENERATE_QUOTA_COPY
+      : COPY[feature ?? 'ai-edit'];
 
-  const handleSubscribe = async () => {
-    setIsSubmitting(true);
+  const startCheckout = async (
+    kind: 'pro' | 'single',
+    request: Parameters<typeof createCheckoutSession>[0]
+  ) => {
+    setIsSubmitting(kind);
     try {
-      const checkoutUrl = await createCheckoutSession({
-        plan,
-        withTrial: false,
-        source: 'paywall',
-      });
+      const checkoutUrl = await createCheckoutSession(request);
       window.location.href = checkoutUrl;
     } catch (error) {
       console.error('Failed to create checkout session:', error);
       toast.error('Failed to start checkout. Please try again.');
-      setIsSubmitting(false);
+      setIsSubmitting(null);
     }
   };
+
+  const handleSubscribe = () => startCheckout('pro', { plan, withTrial: false, source: 'paywall' });
+
+  if (offersSingle) {
+    return (
+      <Dialog open={open} onOpenChange={(next) => !next && PaywallActions.close()}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{copy.title}</DialogTitle>
+            <DialogDescription>{copy.description}</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="rounded-lg border p-4">
+              <div className="flex items-baseline justify-between gap-2">
+                <p className="font-semibold">Octree Pro</p>
+                <p className="text-sm text-muted-foreground">{PRO_PLANS.monthly.price}/mo</p>
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {PRO_MONTHLY_EDIT_LIMIT} AI edits a month, unlimited generations, PDF and ZIP export.
+              </p>
+              <Button
+                className="mt-3 w-full"
+                variant="gradient"
+                // The monthly plan it displays, whatever the picker state is.
+                onClick={() => startCheckout('pro', { plan: 'monthly', withTrial: false, source: 'paywall' })}
+                disabled={isSubmitting !== null}
+              >
+                {isSubmitting === 'pro' ? 'Loading...' : `Go Pro — ${PRO_PLANS.monthly.price}/mo`}
+              </Button>
+              <p className="mt-2 text-center text-xs text-muted-foreground">
+                {PRO_PLANS.monthly.billingNote}
+              </p>
+            </div>
+
+            <div className="rounded-lg border p-4">
+              <div className="flex items-baseline justify-between gap-2">
+                <p className="font-semibold">Just this document</p>
+                <p className="text-sm text-muted-foreground">{GENERATE_SINGLE_PRICE.price} once</p>
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">One more generation, no subscription.</p>
+              <Button
+                className="mt-3 w-full"
+                variant="outline"
+                onClick={() => startCheckout('single', { plan: 'generate_single', source: 'paywall' })}
+                disabled={isSubmitting !== null}
+              >
+                {isSubmitting === 'single'
+                  ? 'Loading...'
+                  : `Generate this one — ${GENERATE_SINGLE_PRICE.price}`}
+              </Button>
+            </div>
+
+            <Button
+              variant="ghost"
+              className="w-full"
+              onClick={PaywallActions.close}
+              disabled={isSubmitting !== null}
+            >
+              Not now
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && PaywallActions.close()}>
@@ -86,7 +169,7 @@ export function PaywallDialog() {
             onPlanChange={setPlan}
             source="paywall"
             creditsOnly={creditsOnly}
-            disabled={isSubmitting}
+            disabled={isSubmitting !== null}
           />
 
           {!creditsOnly && (
@@ -108,7 +191,7 @@ export function PaywallDialog() {
               variant="outline"
               className="flex-1"
               onClick={PaywallActions.close}
-              disabled={isSubmitting}
+              disabled={isSubmitting !== null}
             >
               Not now
             </Button>
@@ -117,9 +200,9 @@ export function PaywallDialog() {
                 className="flex-1"
                 variant="gradient"
                 onClick={handleSubscribe}
-                disabled={isSubmitting}
+                disabled={isSubmitting !== null}
               >
-                {isSubmitting ? 'Loading...' : 'Get Octree Pro →'}
+                {isSubmitting === 'pro' ? 'Loading...' : 'Get Octree Pro →'}
               </Button>
             )}
           </div>

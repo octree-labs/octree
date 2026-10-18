@@ -1,8 +1,13 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { captureServerExceptionAfterResponse } from '@/lib/posthog-server';
+import { createAdminClient } from '@/lib/supabase/admin';
+import {
+  captureServerEventAfterResponse,
+  captureServerExceptionAfterResponse,
+} from '@/lib/posthog-server';
 import { hasUnlimitedEdits } from '@/lib/paywall';
 import { createSSEHeaders } from '@/lib/octra-agent/stream-handling';
+import { AnalyticsEvents, type GenerationKind } from '@/lib/analytics/events';
 import type { ConversationSummary } from '@/types/conversation';
 
 export const runtime = 'nodejs';
@@ -80,26 +85,6 @@ export async function POST(request: Request) {
       );
     }
 
-    // Generate is Pro-only. The client disables the form for free users; this
-    // keeps the API consistent with that (402 => open the paywall).
-    if (!hasUnlimitedEdits(user.email)) {
-      const { data: usage } = await supabase
-        .from('user_usage')
-        .select('is_pro')
-        .eq('user_id', user.id)
-        .maybeSingle<{ is_pro: boolean | null }>();
-
-      if (!usage?.is_pro) {
-        return NextResponse.json(
-          {
-            error: 'Generating documents requires Octree Pro.',
-            upgradeRequired: true,
-          },
-          { status: 402 }
-        );
-      }
-    }
-
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
       return NextResponse.json(
@@ -126,6 +111,53 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+
+    // Allowance: Pro is unlimited; everyone else gets one free generation,
+    // then credits bought through Checkout. `consume_generation` is a
+    // SECURITY DEFINER, self-only RPC (the user_usage guard trigger refuses
+    // these columns from the user session), so it runs on the user's client.
+    //
+    // It is consumed here, after the request has been validated and just
+    // before the model call, and handed back (`refund_generation`, service
+    // role only, so it goes through the admin client) if the model produced
+    // nothing, so a provider outage never costs the free one.
+    const kind = await consumeGeneration(supabase, user);
+    if (kind === 'error') {
+      // Fail closed without a sales pitch: a 402 here would show the paywall
+      // to a Pro user during a database hiccup.
+      return NextResponse.json(
+        { error: 'Could not check your generation allowance. Please try again.' },
+        { status: 503 }
+      );
+    }
+    if (kind === 'blocked') {
+      return NextResponse.json(
+        {
+          error:
+            "You've used your free generation. Go Pro for unlimited generations, or buy just this one.",
+          upgradeRequired: true,
+          reason: 'generate_quota',
+          offers: ['pro', 'single'],
+        },
+        { status: 402 }
+      );
+    }
+    captureServerEventAfterResponse(user.id, AnalyticsEvents.GENERATE_ALLOWANCE_USED, {
+      kind,
+      is_continuation: !!(documentId && currentLatex),
+    });
+    const refundIfUnused = async (producedOutput: boolean) => {
+      if (kind === 'pro' || producedOutput) return;
+      try {
+        const { error: refundError } = await createAdminClient().rpc('refund_generation', {
+          p_user_id: user.id,
+          p_kind: kind,
+        });
+        if (refundError) console.error('refund_generation failed:', refundError);
+      } catch (refundError) {
+        console.error('refund_generation failed:', refundError);
+      }
+    };
 
     const isContinuation = !!(documentId && currentLatex);
     const sessionId = documentId || crypto.randomUUID();
@@ -175,6 +207,8 @@ export async function POST(request: Request) {
             encoder.encode(`event: ${event}\ndata: ${payload}\n\n`)
           );
         };
+
+        let producedOutput = false;
 
         try {
           write('session', { id: sessionId });
@@ -257,6 +291,7 @@ export async function POST(request: Request) {
               try {
                 const event = JSON.parse(data);
                 if (event.type === 'content_block_delta' && event.delta?.text) {
+                  producedOutput = true;
                   accumulatedContent += event.delta.text;
                   chunkBuffer += event.delta.text;
 
@@ -309,6 +344,9 @@ export async function POST(request: Request) {
         } catch (err) {
           const message =
             err instanceof Error ? err.message : 'Generation failed';
+          // Nothing came back from the model: the user did not get a
+          // generation, so they keep their free one / credit.
+          await refundIfUnused(producedOutput);
           write('error', { message });
           controller.close();
         }
@@ -324,6 +362,36 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
+}
+
+// The server client's generated Functions type does not resolve for the
+// new RPCs (same reason track-edit casts increment_edit_count's args).
+type SupabaseRpcClient = {
+  rpc: (fn: any, args?: any) => PromiseLike<{ data: unknown; error: unknown }>;
+};
+
+/**
+ * Who pays for this generation. Whitelisted accounts (lib/paywall.ts) count
+ * as Pro without touching the database; everyone else goes through
+ * `consume_generation`, whose answer is one of pro | free | credit | blocked.
+ * An RPC failure or an answer this code does not know is `error`: the gate
+ * fails closed (503, retry) rather than open (a free unlimited generate) or
+ * into the paywall (a 402 would upsell a Pro user over a database hiccup).
+ */
+async function consumeGeneration(
+  supabase: SupabaseRpcClient,
+  user: { id: string; email?: string | null }
+): Promise<GenerationKind | 'blocked' | 'error'> {
+  if (hasUnlimitedEdits(user.email)) return 'pro';
+
+  const { data, error } = await supabase.rpc('consume_generation', { p_user_id: user.id });
+  if (error) {
+    console.error('consume_generation failed:', error);
+    return 'error';
+  }
+  if (data === 'pro' || data === 'free' || data === 'credit' || data === 'blocked') return data;
+  console.error('consume_generation returned an unknown answer:', data);
+  return 'error';
 }
 
 function extractLatex(content: string): string | null {

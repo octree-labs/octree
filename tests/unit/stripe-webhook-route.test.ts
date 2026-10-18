@@ -235,6 +235,121 @@ describe('POST /api/webhooks/stripe', () => {
     });
   });
 
+  describe('checkout.session.completed for a one-off generation credit (mode: payment)', () => {
+    const generationOverrides = {
+      id: 'cs_generate_1',
+      mode: 'payment',
+      amount_total: 299,
+      metadata: { user_id: 'user-1', plan: 'generate_single', generation_credits: '1' },
+    };
+    const grantArgs = {
+      p_user_id: 'user-1',
+      p_checkout_session_id: 'cs_generate_1',
+      p_credits: 1,
+      p_amount_cents: 299,
+      p_currency: 'usd',
+    };
+
+    it('grants the credit through grant_generation_purchase and captures generation_purchased', async () => {
+      mocks.constructEvent.mockReturnValue(checkoutEvent(generationOverrides));
+      mocks.rpc.mockResolvedValue({ data: 1, error: null });
+
+      const res = await POST(makeRequest());
+
+      expect(res.status).toBe(200);
+      await expect(res.json()).resolves.toEqual({ received: true });
+      // Only the generation RPC: the edit-credit grant does not run without `metadata.credits`.
+      expect(mocks.rpc).toHaveBeenCalledTimes(1);
+      expect(mocks.rpc).toHaveBeenCalledWith('grant_generation_purchase', grantArgs);
+      expect(mocks.captureServerEvent).toHaveBeenCalledWith('user-1', 'generation_purchased', {
+        credits: 1,
+        amount: 2.99,
+        currency: 'USD',
+      });
+      expect(mocks.captureServerEvent).not.toHaveBeenCalledWith('user-1', 'credits_purchased', expect.anything());
+      expect(mocks.captureServerEvent).not.toHaveBeenCalledWith('user-1', 'subscription_started', expect.anything());
+      expect(mocks.usageUpdate).not.toHaveBeenCalled();
+      // The grant lands before the idempotency log is written.
+      expect(mocks.rpc.mock.invocationCallOrder[0]).toBeLessThan(mocks.eventsInsert.mock.invocationCallOrder[0]);
+      expect(mocks.eventsInsert).toHaveBeenCalledWith({ id: 'evt_checkout_1', type: 'checkout.session.completed' });
+      expect(mocks.trackRedditConversion).toHaveBeenCalledTimes(1);
+    });
+
+    it('grants nothing when Stripe redelivers the same event (the ledger answers NULL)', async () => {
+      mocks.constructEvent.mockReturnValue(checkoutEvent(generationOverrides));
+      mocks.rpc.mockResolvedValue({ data: null, error: null });
+      mocks.eventsInsert.mockResolvedValue({ error: { code: '23505', message: 'duplicate key' } });
+
+      const res = await POST(makeRequest());
+
+      expect(res.status).toBe(200);
+      expect(mocks.rpc).toHaveBeenCalledTimes(1);
+      expect(mocks.captureServerEvent).not.toHaveBeenCalled();
+      // Conversion tracking is keyed on the event log, so it is skipped on the replay.
+      expect(mocks.trackRedditConversion).not.toHaveBeenCalled();
+    });
+
+    it('returns 500 so Stripe retries when the grant RPC fails, and the retry grants', async () => {
+      mocks.constructEvent.mockReturnValue(checkoutEvent(generationOverrides));
+      mocks.rpc.mockResolvedValueOnce({ data: null, error: { message: 'db down' } });
+
+      const failed = await POST(makeRequest());
+
+      expect(failed.status).toBe(500);
+      expect(mocks.eventsInsert).not.toHaveBeenCalled();
+      expect(mocks.captureServerEvent).not.toHaveBeenCalled();
+
+      mocks.rpc.mockResolvedValueOnce({ data: 1, error: null });
+      const retried = await POST(makeRequest());
+
+      expect(retried.status).toBe(200);
+      expect(mocks.rpc).toHaveBeenCalledTimes(2);
+      expect(mocks.captureServerEvent).toHaveBeenCalledWith('user-1', 'generation_purchased', expect.anything());
+    });
+
+    it.each([
+      ['a subscription session', { mode: 'subscription', metadata: { user_id: 'user-1', generation_credits: '1' } }],
+      ['a payment session without credit metadata', { mode: 'payment', metadata: { user_id: 'user-1' } }],
+      ['an unpaid payment session', { ...generationOverrides, payment_status: 'unpaid' }],
+      ['a zero credit count', { ...generationOverrides, metadata: { user_id: 'user-1', generation_credits: '0' } }],
+    ])('grants nothing for %s', async (_label, overrides) => {
+      mocks.constructEvent.mockReturnValue(checkoutEvent(overrides));
+
+      const res = await POST(makeRequest());
+
+      expect(res.status).toBe(200);
+      expect(mocks.rpc).not.toHaveBeenCalled();
+    });
+
+    it('logs and returns 200 for a credit session with no user_id (nothing to grant to)', async () => {
+      mocks.constructEvent.mockReturnValue(
+        checkoutEvent({ ...generationOverrides, metadata: { generation_credits: '1' } })
+      );
+
+      const res = await POST(makeRequest());
+
+      expect(res.status).toBe(200);
+      expect(mocks.rpc).not.toHaveBeenCalled();
+      expect(errorSpy).toHaveBeenCalled();
+    });
+
+    it('a session carrying both one-off products grants each through its own RPC', async () => {
+      mocks.constructEvent.mockReturnValue(
+        checkoutEvent({
+          ...generationOverrides,
+          metadata: { user_id: 'user-1', credits: '100', generation_credits: '1' },
+        })
+      );
+      mocks.rpc.mockResolvedValue({ data: 1, error: null });
+
+      const res = await POST(makeRequest());
+
+      expect(res.status).toBe(200);
+      expect(mocks.rpc).toHaveBeenCalledWith('grant_credit_purchase', expect.objectContaining({ p_credits: 100 }));
+      expect(mocks.rpc).toHaveBeenCalledWith('grant_generation_purchase', expect.objectContaining({ p_credits: 1 }));
+    });
+  });
+
   describe('checkout.session.completed', () => {
     it('records the event id, then sends one Reddit Purchase and returns 200', async () => {
       mocks.constructEvent.mockReturnValue(checkoutEvent());

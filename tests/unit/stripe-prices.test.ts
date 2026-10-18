@@ -171,4 +171,20 @@ describe('getOrCreatePrice', () => {
     await expect(getOrCreatePrice(PRICE_LOOKUP_KEYS.annual, client)).rejects.toThrow('rate limited');
     await expect(getOrCreatePrice(PRICE_LOOKUP_KEYS.annual, client)).resolves.toBe('price_second_try');
   });
+
+  it('creates the $2.99 one-off generation price (no recurring) on a miss', async () => {
+    const { client, create } = makeClient();
+
+    const id = await getOrCreatePrice(PRICE_LOOKUP_KEYS.generate_single, client);
+
+    expect(id).toBe('price_octree_generate_single');
+    const [params] = create.mock.calls[0];
+    expect(params).toMatchObject({
+      currency: 'usd',
+      unit_amount: 299,
+      lookup_key: 'octree_generate_single',
+      product_data: { name: 'One AI document generation' },
+    });
+    expect(params).not.toHaveProperty('recurring');
+  });
 });

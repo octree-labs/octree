@@ -17,6 +17,7 @@ import {
 import type { Tables } from '@/database.types';
 import {
   FREE_DAILY_EDIT_LIMIT,
+  FREE_GENERATION_ALLOWANCE,
   PRO_MONTHLY_EDIT_LIMIT,
 } from '@/data/constants';
 import {
@@ -207,6 +208,13 @@ function buildUsageResponse(
         : false,
     monthlyResetDate: usageData?.monthly_reset_date || null,
     hasUnlimitedEdits: hasUnlimited,
+    // Generate allowance (consume_generation decides for real; this drives
+    // the badge and the paywall offers on /generate).
+    freeGenerationsRemaining: Math.max(
+      0,
+      FREE_GENERATION_ALLOWANCE - (usageData?.free_generations_used ?? 0)
+    ),
+    generationCredits: Math.max(0, usageData?.generation_credits ?? 0),
   };
 }
 

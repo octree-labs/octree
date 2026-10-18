@@ -193,6 +193,58 @@ export async function recordStripeEvent(
 }
 
 /**
+ * The generation credits a Checkout Session bought, or 0 when it is not a
+ * paid, payment-mode session carrying `metadata.generation_credits`
+ * (app/api/checkout-session sets that for the $2.99 one-off).
+ */
+export function generationCreditsFromSession(
+  session: Pick<Stripe.Checkout.Session, 'mode' | 'payment_status' | 'metadata'>
+): number {
+  if (session.mode !== 'payment' || session.payment_status !== 'paid') return 0;
+  const raw = session.metadata?.generation_credits;
+  if (raw == null) return 0;
+  const credits = Number.parseInt(String(raw), 10);
+  return Number.isInteger(credits) && credits > 0 ? credits : 0;
+}
+
+export type GrantGenerationCreditsResult =
+  | { granted: true; userId: string; credits: number }
+  | { granted: false; reason: 'not_a_credit_purchase' | 'missing_user' | 'already_granted' };
+
+/**
+ * Grants the credits a paid one-off Checkout Session bought. Runs with the
+ * service-role client through the service-role-only
+ * `grant_generation_purchase` RPC, which writes the `generation_purchases`
+ * ledger row (unique per session id) and moves the balance in ONE
+ * transaction and returns NULL when the session was already credited. So a
+ * redelivered event grants once, and a failure (thrown here, 500 from the
+ * webhook) commits nothing: Stripe's retry grants cleanly instead of finding
+ * a ledger row without its balance.
+ */
+export async function grantGenerationCredits(
+  supabase: SupabaseClient<any, any, any>,
+  session: Stripe.Checkout.Session
+): Promise<GrantGenerationCreditsResult> {
+  const credits = generationCreditsFromSession(session);
+  if (credits === 0) return { granted: false, reason: 'not_a_credit_purchase' };
+
+  const userId = session.metadata?.user_id;
+  if (!userId) return { granted: false, reason: 'missing_user' };
+
+  const { data, error } = await supabase.rpc('grant_generation_purchase', {
+    p_user_id: userId,
+    p_checkout_session_id: session.id,
+    p_credits: credits,
+    p_amount_cents: typeof session.amount_total === 'number' ? session.amount_total : null,
+    p_currency: session.currency ?? null,
+  });
+  if (error) throw error;
+  if (data === null || data === undefined) return { granted: false, reason: 'already_granted' };
+
+  return { granted: true, userId, credits };
+}
+
+/**
  * Sends the Reddit `Purchase` conversion for a paid Checkout Session.
  * The session id is the conversion id, so Reddit also dedupes on its side.
  * Returns false when the session is not a paid one (`unpaid`, or

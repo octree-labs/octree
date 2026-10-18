@@ -5,6 +5,7 @@ import Stripe from 'stripe';
 import { stripe } from '@/lib/stripe';
 import { createClient } from '@/lib/supabase/server';
 import { STRIPE_PRICE_IDS } from '@/lib/stripe-config';
+import { captureServerExceptionAfterResponse } from '@/lib/posthog-server';
 
 export async function POST(request: Request) {
   try {
@@ -76,6 +77,7 @@ export async function POST(request: Request) {
 
     return new NextResponse(session.url, { status: 200 });
   } catch (err: any) {
+    captureServerExceptionAfterResponse(err, { route: 'api/checkout-session' });
     return NextResponse.json(
       { error: err?.message || 'An error occurred' },
       { status: err?.statusCode || 500 }

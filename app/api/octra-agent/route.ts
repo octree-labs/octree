@@ -6,9 +6,15 @@ import type { TablesInsert } from '@/database.types';
 // Import helper modules
 import { createSSEHeaders } from '@/lib/octra-agent/stream-handling';
 import { FREE_DAILY_EDIT_LIMIT, PRO_MONTHLY_EDIT_LIMIT } from '@/data/constants';
+import { AnalyticsEvents } from '@/lib/analytics/events';
+import { captureServerEventAfterResponse, captureServerExceptionAfterResponse } from '@/lib/posthog-server';
+
+/** `ai_edit_served` is captured for 1 in N requests to bound event volume. */
+const AI_EDIT_SERVED_SAMPLE_RATE = 10;
 
 export const runtime = 'nodejs';
 export async function POST(request: Request) {
+  let distinctId: string | undefined;
   try {
     const supabase = await createClient();
     const {
@@ -23,9 +29,11 @@ export async function POST(request: Request) {
     }
 
     const user = session.user;
+    distinctId = user.id;
 
     // Check if user has unlimited edits (whitelisted)
     const hasUnlimited = hasUnlimitedEdits(user.email);
+    let isProUser = hasUnlimited;
 
     // If not unlimited, check usage limits
     if (!hasUnlimited) {
@@ -92,6 +100,7 @@ export async function POST(request: Request) {
       // Now usageData is guaranteed to exist, perform limit checks
       if (usageData) {
         const isPro = usageData.is_pro;
+        isProUser = Boolean(isPro);
         const editCount = usageData.edit_count || 0;
         const monthlyEditCount = usageData.monthly_edit_count || 0;
 
@@ -113,6 +122,7 @@ export async function POST(request: Request) {
             ? `You've reached your monthly limit of ${PRO_MONTHLY_EDIT_LIMIT} edits. Your limit will reset on your billing date.`
             : `You've reached your daily limit of ${FREE_DAILY_EDIT_LIMIT} edits. Upgrade to Pro for ${PRO_MONTHLY_EDIT_LIMIT} edits per month!`;
 
+          captureServerEventAfterResponse(user.id, AnalyticsEvents.EDIT_LIMIT_HIT_SERVER, { is_pro: Boolean(isPro) });
           return NextResponse.json(
             { error: limitMessage, limitReached: true, upgradeRequired: !isPro },
             { status: 429 }
@@ -158,7 +168,8 @@ export async function POST(request: Request) {
         
         const usageData = usageRes.data as { is_pro: boolean; edit_count: number; monthly_edit_count: number } | null;
         const isPro = usageData?.is_pro || false;
-        
+        captureServerEventAfterResponse(user.id, AnalyticsEvents.EDIT_LIMIT_HIT_SERVER, { is_pro: isPro });
+
         const limitMessage = isPro
           ? `You've reached your monthly limit of ${PRO_MONTHLY_EDIT_LIMIT} edits. Your limit will reset on your billing date.`
           : `You've reached your daily limit of ${FREE_DAILY_EDIT_LIMIT} edits. Upgrade to Pro for ${PRO_MONTHLY_EDIT_LIMIT} edits per month!`;
@@ -189,6 +200,14 @@ export async function POST(request: Request) {
       '[Octra Proxy] Forwarding authenticated request to remote Claude Code server:',
       remoteUrl
     );
+
+    if (Math.floor(Math.random() * AI_EDIT_SERVED_SAMPLE_RATE) === 0) {
+      captureServerEventAfterResponse(user.id, AnalyticsEvents.AI_EDIT_SERVED, {
+        model: typeof body?.model === 'string' ? body.model : 'default',
+        is_pro: isProUser,
+        sample_rate: AI_EDIT_SERVED_SAMPLE_RATE,
+      });
+    }
 
     const res = await fetch(remoteUrl, {
       method: 'POST',
@@ -289,6 +308,7 @@ export async function POST(request: Request) {
     return new Response(readable, { headers: createSSEHeaders() });
   } catch (error) {
     console.error('Octra Agent SDK error:', error);
+    captureServerExceptionAfterResponse(error, { distinctId, route: 'api/octra-agent' });
     const message = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json(
       { error: 'Failed to process agent request', details: message },

@@ -52,7 +52,8 @@ export function MonacoEditor({
   }, []);
 
   return (
-    <div className={className}>
+    // `data-ph-mask`: LaTeX source is masked in PostHog session replay.
+    <div className={className} data-ph-mask="">
       <Editor
         height="100%"
         defaultLanguage="latex"

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { captureServerExceptionAfterResponse } from '@/lib/posthog-server';
 import type Stripe from 'stripe';
 import { stripe } from '@/lib/stripe';
 import { hasUnlimitedEdits } from '@/lib/paywall';
@@ -293,6 +294,7 @@ export async function GET() {
     });
   } catch (error) {
     console.error('Error fetching subscription status:', error);
+    captureServerExceptionAfterResponse(error, { route: 'api/subscription-status' });
     return NextResponse.json(
       { error: 'Failed to fetch subscription status' },
       { status: 500 }

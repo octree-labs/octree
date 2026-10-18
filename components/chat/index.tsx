@@ -9,6 +9,8 @@ import { OctreeLogo } from '@/components/icons/octree-logo';
 import { EditSuggestion } from '@/types/edit';
 import { useChatStream } from './use-chat-stream';
 import { PaywallActions } from '@/stores/paywall';
+import { AnalyticsEvents } from '@/lib/analytics/events';
+import { track } from '@/lib/analytics/track';
 import { useEditProposals } from './use-edit-proposals';
 import { useFileAttachments } from './use-file-attachments';
 import { ChatMessageComponent } from './chat-message';
@@ -163,6 +165,11 @@ export function Chat({
     checkpointsRef.current.set(userMsg.id, fileContent);
     setMessages((prev) => [...prev, userMsg]);
 
+    track(AnalyticsEvents.AI_EDIT_REQUESTED, {
+      has_selection: Boolean(textFromEditor),
+      attachment_count: attachments.length,
+    });
+
     setInput('');
     clearAttachments(); // Clear attachments after sending
 
@@ -266,6 +273,12 @@ export function Chat({
           const data = await response.json();
           errorMessage = data.error || errorMessage;
           // Free user out of daily AI edits: the fix is upgrading, so show the paywall.
+          if (response.status === 429) {
+            track(AnalyticsEvents.EDIT_LIMIT_HIT, {
+              is_pro: !data.upgradeRequired,
+              source: 'chat',
+            });
+          }
           if (response.status === 429 && data.upgradeRequired) {
             PaywallActions.open('ai-edit');
           }
@@ -443,7 +456,8 @@ export function Chat({
   }
 
   return (
-    <div className="flex h-full flex-col bg-white">
+    // `data-ph-mask`: prompts and AI replies are masked in PostHog session replay.
+    <div className="flex h-full flex-col bg-white" data-ph-mask="">
       <div className="flex flex-shrink-0 items-center justify-between border-b border-slate-200 px-4 py-2">
         <div className="flex items-center gap-1.5">
           {!embedded && (

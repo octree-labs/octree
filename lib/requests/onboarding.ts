@@ -1,6 +1,8 @@
 import type { User } from '@supabase/supabase-js';
 import { upsertUserUsage } from '@/lib/requests/user';
 import { trackRedditEvent } from '@/lib/reddit-pixel';
+import { AnalyticsEvents } from '@/lib/analytics/events';
+import { track } from '@/lib/analytics/track';
 
 type OnboardingUser = Pick<User, 'id' | 'email'> & {
   app_metadata?: Partial<User['app_metadata']>;
@@ -26,6 +28,7 @@ export function isSignUpAlreadyTracked(user: OnboardingUser): boolean {
  */
 export async function completeFreeOnboarding(user: OnboardingUser): Promise<void> {
   await upsertUserUsage(user.id, { onboarding_completed: true });
+  track(AnalyticsEvents.ONBOARDING_COMPLETED, { plan: 'free' });
   if (!isSignUpAlreadyTracked(user)) {
     trackRedditEvent('SignUp', user.email ?? undefined);
   }

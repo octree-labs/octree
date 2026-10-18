@@ -78,6 +78,7 @@ export function DocumentPreview({ latex, title, onOpenInOctree, isCreatingProjec
             const checkoutUrl = await createCheckoutSession({
                 annual: isMonthly,
                 withTrial: false,
+                source: 'generate-preview',
             });
             window.location.href = checkoutUrl;
         } catch (error) {

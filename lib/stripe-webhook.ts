@@ -2,6 +2,146 @@ import type Stripe from 'stripe';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { trackRedditConversion } from '@/lib/reddit-capi';
+import {
+  AnalyticsEvents,
+  type AnalyticsEvent,
+  type AnalyticsEventProperties,
+  type CheckoutPlan,
+} from '@/lib/analytics/events';
+import { STRIPE_PRICE_IDS } from '@/lib/stripe-config';
+
+/** One server-side analytics event with its typed properties. */
+export type ServerAnalyticsEvent = {
+  [E in AnalyticsEvent]: { event: E; properties: AnalyticsEventProperties[E] };
+}[AnalyticsEvent];
+
+type SubscriptionInterval = AnalyticsEventProperties['subscription_started']['interval'];
+
+function planFromPriceId(priceId: string | null | undefined): CheckoutPlan | 'unknown' {
+  if (priceId === STRIPE_PRICE_IDS.proAnnual) return 'monthly';
+  if (priceId === STRIPE_PRICE_IDS.pro) return 'weekly';
+  return 'unknown';
+}
+
+function intervalFromPrice(price: Stripe.Price | null | undefined): SubscriptionInterval {
+  const interval = price?.recurring?.interval;
+  return interval === 'month' || interval === 'week' || interval === 'year' || interval === 'day'
+    ? interval
+    : 'unknown';
+}
+
+/**
+ * The `subscription_started` properties for a paid Checkout Session. The
+ * line item is fetched from Stripe because the webhook payload does not
+ * include it; any failure degrades to `unknown` rather than throwing.
+ */
+export async function describeCheckoutSessionPlan(
+  stripe: Pick<Stripe, 'checkout'>,
+  session: Stripe.Checkout.Session
+): Promise<AnalyticsEventProperties['subscription_started']> {
+  let price: Stripe.Price | null | undefined;
+  try {
+    const items = await stripe.checkout.sessions.listLineItems(session.id, {
+      limit: 1,
+      expand: ['data.price'],
+    });
+    price = items.data[0]?.price;
+  } catch (error) {
+    console.error('Could not read checkout line items for analytics:', error);
+  }
+
+  return {
+    plan: planFromPriceId(price?.id),
+    interval: intervalFromPrice(price),
+    amount: typeof session.amount_total === 'number' ? session.amount_total / 100 : null,
+    currency: session.currency ? session.currency.toUpperCase() : null,
+  };
+}
+
+const DELINQUENT_STATUSES = new Set(['past_due', 'unpaid']);
+const RECOVERABLE_STATUSES = new Set(['past_due', 'unpaid', 'incomplete']);
+
+/**
+ * Maps a `customer.subscription.*` event to the lifecycle events the funnel
+ * needs (churn and recovery). Pure, so it is unit-testable; the route is
+ * responsible for sending them.
+ *
+ * - created (active/trialing)      -> onboarding_completed { plan: 'pro' }
+ * - updated, renewal switched off  -> subscription_canceled { at_period_end }
+ * - deleted                        -> subscription_canceled { deleted }
+ * - updated, status -> past_due    -> subscription_past_due
+ * - updated, renewal switched back on, or status past_due -> active
+ *                                  -> subscription_reactivated
+ *
+ * `onboarding_completed` fires for every first subscription of a customer
+ * record, so a user who re-subscribes months later counts again; the paid
+ * onboarding path has no other server-side signal.
+ */
+export function subscriptionLifecycleEvents(event: {
+  type: string;
+  data: {
+    object: Stripe.Subscription;
+    previous_attributes?: Partial<Stripe.Subscription> | null;
+  };
+}): ServerAnalyticsEvent[] {
+  const subscription = event.data.object;
+  const previous = event.data.previous_attributes ?? {};
+  const status = subscription.status;
+  const events: ServerAnalyticsEvent[] = [];
+
+  if (event.type === 'customer.subscription.created') {
+    if (status === 'active' || status === 'trialing') {
+      events.push({
+        event: AnalyticsEvents.ONBOARDING_COMPLETED,
+        properties: { plan: 'pro' },
+      });
+    }
+    return events;
+  }
+
+  if (event.type === 'customer.subscription.deleted') {
+    events.push({
+      event: AnalyticsEvents.SUBSCRIPTION_CANCELED,
+      properties: { kind: 'deleted', status },
+    });
+    return events;
+  }
+
+  if (event.type !== 'customer.subscription.updated') return events;
+
+  const renewalChanged = typeof previous.cancel_at_period_end === 'boolean';
+  if (renewalChanged && subscription.cancel_at_period_end) {
+    events.push({
+      event: AnalyticsEvents.SUBSCRIPTION_CANCELED,
+      properties: { kind: 'at_period_end', status },
+    });
+  } else if (renewalChanged && !subscription.cancel_at_period_end && status === 'active') {
+    events.push({
+      event: AnalyticsEvents.SUBSCRIPTION_REACTIVATED,
+      properties: { previous_status: previous.status ?? status, status },
+    });
+  }
+
+  const statusChanged = typeof previous.status === 'string' && previous.status !== status;
+  if (statusChanged && DELINQUENT_STATUSES.has(status)) {
+    events.push({
+      event: AnalyticsEvents.SUBSCRIPTION_PAST_DUE,
+      properties: { status },
+    });
+  } else if (
+    statusChanged &&
+    status === 'active' &&
+    previous.status &&
+    RECOVERABLE_STATUSES.has(previous.status)
+  ) {
+    events.push({
+      event: AnalyticsEvents.SUBSCRIPTION_REACTIVATED,
+      properties: { previous_status: previous.status, status },
+    });
+  }
+
+  return events;
+}
 
 /**
  * Records a Stripe event id so retried deliveries are processed once.

@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { resetAnalytics } from '@/lib/analytics/track';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import {
@@ -32,6 +33,7 @@ export function UserProfileDropdown({ userName }: UserProfileDropdownProps) {
   const handleLogout = async () => {
     const supabase = createClient();
     await supabase.auth.signOut();
+    resetAnalytics();
     router.push('/auth/login');
   };
 

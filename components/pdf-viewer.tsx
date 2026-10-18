@@ -51,18 +51,22 @@ function PDFViewerWrapper({
   forwardSyncTarget,
 }: PDFViewerWrapperProps) {
   return (
-    <PDFErrorBoundary>
-      <DynamicPDFViewer
-        pdfData={pdfData}
-        isLoading={isLoading}
-        compilationError={compilationError}
-        onRetryCompile={onRetryCompile}
-        onDismissError={onDismissError}
-        onFixWithAI={onFixWithAI}
-        onReverseSync={onReverseSync}
-        forwardSyncTarget={forwardSyncTarget}
-      />
-    </PDFErrorBoundary>
+    // `pdf-preview` / `data-ph-mask` keep the rendered document out of
+    // PostHog session replay (components/providers/posthog.tsx).
+    <div className="pdf-preview h-full w-full" data-ph-mask="">
+      <PDFErrorBoundary>
+        <DynamicPDFViewer
+          pdfData={pdfData}
+          isLoading={isLoading}
+          compilationError={compilationError}
+          onRetryCompile={onRetryCompile}
+          onDismissError={onDismissError}
+          onFixWithAI={onFixWithAI}
+          onReverseSync={onReverseSync}
+          forwardSyncTarget={forwardSyncTarget}
+        />
+      </PDFErrorBoundary>
+    </div>
   );
 }
 

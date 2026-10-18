@@ -5,6 +5,8 @@ import { toast } from 'sonner';
 import { useEditLimitCache } from '../use-edit-limit-cache';
 import { PRO_MONTHLY_EDIT_LIMIT } from '@/data/constants';
 import { PaywallActions } from '@/stores/paywall';
+import { AnalyticsEvents } from '@/lib/analytics/events';
+import { track } from '@/lib/analytics/track';
 import { useSuggestionQueue } from './use-suggestion-queue';
 import { useSuggestionDecorations } from './use-suggestion-decorations';
 import { acceptSingleEdit, acceptAllEdits, rejectEdit, acceptEditDirect, AcceptEditOptions } from './suggestion-operations';
@@ -26,6 +28,7 @@ export function useEditSuggestions({
   // Free users get the paywall; Pro users at their monthly cap get a message,
   // since upgrading would not help them.
   const notifyLimitReached = useCallback(() => {
+    track(AnalyticsEvents.EDIT_LIMIT_HIT, { is_pro: isPro, source: 'accept' });
     if (isPro) {
       toast.error(
         `You've reached your monthly limit of ${PRO_MONTHLY_EDIT_LIMIT} AI edits. It resets on your billing date.`
@@ -85,6 +88,7 @@ export function useEditSuggestions({
           onOtherFileEdited
         );
       }
+      track(AnalyticsEvents.AI_EDIT_ACCEPTED, { count: 1, mode: 'single' });
     },
     [canEdit, notifyLimitReached, editor, monacoInstance, editSuggestions, setEditSuggestions, currentFilePath, onSwitchFile, onOtherFileEdited]
   );
@@ -99,6 +103,11 @@ export function useEditSuggestions({
       notifyLimitReached();
       return;
     }
+
+    track(AnalyticsEvents.AI_EDIT_ACCEPTED, {
+      count: pendingSuggestions.length,
+      mode: 'all',
+    });
 
     // Use Monaco if editor model is available, otherwise fall back to direct
     if (editor && monacoInstance && editor.getModel()) {

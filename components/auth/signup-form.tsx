@@ -2,6 +2,8 @@
 
 import { cn } from '@/lib/utils';
 import { createClient } from '@/lib/supabase/client';
+import { AnalyticsEvents } from '@/lib/analytics/events';
+import { track } from '@/lib/analytics/track';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -64,6 +66,9 @@ export function SignUpForm({
       if (error) throw error;
 
       setSignupSuccess(true);
+      // OAuth sign-ups never pass through this form; app/auth/oauth/route.ts
+      // reports those server-side.
+      track(AnalyticsEvents.SIGNUP_COMPLETED, { provider: 'email' });
       const conversionId = crypto.randomUUID();
       window.rdt?.('track', 'SignUp', { conversionId });
       fetch('/api/reddit-capi', {

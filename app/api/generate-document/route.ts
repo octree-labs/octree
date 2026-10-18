@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { captureServerExceptionAfterResponse } from '@/lib/posthog-server';
 import { hasUnlimitedEdits } from '@/lib/paywall';
 import { createSSEHeaders } from '@/lib/octra-agent/stream-handling';
 import type { ConversationSummary } from '@/types/conversation';
@@ -316,6 +317,7 @@ export async function POST(request: Request) {
 
     return new Response(stream, { headers: createSSEHeaders() });
   } catch (error) {
+    captureServerExceptionAfterResponse(error, { route: 'api/generate-document' });
     const message = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json(
       { error: 'Failed to process request', details: message },

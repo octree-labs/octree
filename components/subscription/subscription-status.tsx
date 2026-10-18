@@ -87,6 +87,7 @@ export function SubscriptionStatus() {
       const checkoutUrl = await createCheckoutSession({
         annual: isMonthly,
         withTrial: false,
+        source: 'settings',
       });
       window.location.href = checkoutUrl;
     } catch (error) {

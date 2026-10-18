@@ -11,6 +11,10 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': resolve(__dirname, './'),
+      // Next.js resolves `server-only` itself at build time (to this same
+      // shim on the server). Vitest has no such rule, so server modules that
+      // import it (lib/stripe.ts, lib/supabase/admin.ts) need the alias to load.
+      'server-only': resolve(__dirname, 'node_modules/next/dist/compiled/server-only/empty.js'),
     },
   },
   esbuild: {

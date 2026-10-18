@@ -269,6 +269,184 @@ end $$;
 reset role;
 select set_config('request.jwt.claims', '', true);
 
+---------------------------------------------------------------------------
+-- Counter edge cases and upserts, as user 1 again (row reseeded to 5 edits).
+---------------------------------------------------------------------------
+update public.user_usage set is_pro = false, subscription_status = 'inactive', edit_count = 5
+where user_id = '00000000-0000-4000-8000-000000000001';
+
+set local role authenticated;
+select set_config('request.jwt.claims',
+  '{"sub":"00000000-0000-4000-8000-000000000001","role":"authenticated"}', true);
+
+do $$
+begin
+  update public.user_usage set edit_count = 7
+  where user_id = '00000000-0000-4000-8000-000000000001';
+  raise exception 'FAIL: user could move edit_count from 5 to 7 in one statement';
+exception when insufficient_privilege then
+  raise notice 'PASS: user edit_count 5 -> 7 in one statement is rejected';
+end $$;
+
+do $$
+begin
+  update public.user_usage set user_id = '00000000-0000-4000-8000-000000000002'
+  where user_id = '00000000-0000-4000-8000-000000000001';
+  raise exception 'FAIL: user could re-point their row at another user_id';
+exception when insufficient_privilege then
+  raise notice 'PASS: user change of user_id is rejected';
+end $$;
+
+-- A +1 per statement is allowed by design: it only ever charges the caller
+-- more. Repeating it in one transaction climbs past the daily limit, which
+-- is harmless (the limit is enforced by increment_edit_count and the API,
+-- which read the counter; a user can only make it larger).
+do $$
+declare n integer;
+begin
+  for i in 1..10 loop
+    update public.user_usage set edit_count = edit_count + 1
+    where user_id = '00000000-0000-4000-8000-000000000001';
+  end loop;
+  select edit_count into n from public.user_usage
+  where user_id = '00000000-0000-4000-8000-000000000001';
+  if n <> 15 then
+    raise exception 'FAIL: ten +1 statements left edit_count at %', n;
+  end if;
+  raise notice 'PASS: user +1 per statement is accepted (5 -> 15 over ten statements; counters only climb)';
+end $$;
+
+-- PostgREST upsert of the caller's own row.
+do $$
+declare r public.user_usage;
+begin
+  insert into public.user_usage (user_id, is_pro, onboarding_completed)
+  values ('00000000-0000-4000-8000-000000000001', false, true)
+  on conflict (user_id) do update set onboarding_completed = excluded.onboarding_completed;
+  select * into r from public.user_usage where user_id = '00000000-0000-4000-8000-000000000001';
+  if not r.onboarding_completed or r.is_pro then
+    raise exception 'FAIL: upsert with is_pro=false did not land as expected';
+  end if;
+  raise notice 'PASS: user upsert of own row with is_pro=false is accepted';
+end $$;
+
+do $$
+begin
+  insert into public.user_usage (user_id, is_pro, onboarding_completed)
+  values ('00000000-0000-4000-8000-000000000001', true, true)
+  on conflict (user_id) do update set is_pro = excluded.is_pro;
+  raise exception 'FAIL: user could upsert is_pro=true';
+exception when insufficient_privilege then
+  raise notice 'PASS: user upsert of own row with is_pro=true is rejected';
+end $$;
+
+do $$
+begin
+  insert into public.user_usage (user_id)
+  values ('00000000-0000-4000-8000-000000000001')
+  on conflict (user_id) do update set edit_count = 0, daily_reset_date = current_date + 1;
+  raise exception 'FAIL: user could reset counters through ON CONFLICT DO UPDATE';
+exception when insufficient_privilege then
+  raise notice 'PASS: user ON CONFLICT DO UPDATE of counters is rejected';
+end $$;
+
+reset role;
+select set_config('request.jwt.claims', '', true);
+
+---------------------------------------------------------------------------
+-- As anon: RLS already hides every row; nothing is writable.
+---------------------------------------------------------------------------
+set local role anon;
+select set_config('request.jwt.claims', '{"role":"anon"}', true);
+
+do $$
+declare n integer;
+begin
+  update public.user_usage set is_pro = true;
+  get diagnostics n = row_count;
+  if n <> 0 then
+    raise exception 'FAIL: anon updated % rows', n;
+  end if;
+  raise notice 'PASS: anon UPDATE touches no rows';
+end $$;
+
+do $$
+begin
+  insert into public.user_usage (user_id) values ('00000000-0000-4000-8000-000000000001');
+  raise exception 'FAIL: anon could insert';
+exception when insufficient_privilege or unique_violation then
+  raise notice 'PASS: anon INSERT is rejected';
+end $$;
+
+reset role;
+select set_config('request.jwt.claims', '', true);
+
+---------------------------------------------------------------------------
+-- As the service role: everything the users were refused must succeed.
+---------------------------------------------------------------------------
+insert into auth.users (id, email, aud, role)
+values ('00000000-0000-4000-8000-000000000003', 'guard-test-3@example.com', 'authenticated', 'authenticated');
+delete from public.user_usage where user_id = '00000000-0000-4000-8000-000000000003';
+
+set local role service_role;
+select set_config('request.jwt.claims', '{"role":"service_role"}', true);
+
+do $$
+declare r public.user_usage;
+begin
+  insert into public.user_usage (user_id, is_pro, subscription_status, stripe_customer_id, edit_count)
+  values ('00000000-0000-4000-8000-000000000003', true, 'active', 'cus_3', 4);
+  select * into r from public.user_usage where user_id = '00000000-0000-4000-8000-000000000003';
+  if not r.is_pro or r.edit_count <> 4 then
+    raise exception 'FAIL: service role INSERT of a pro row did not land';
+  end if;
+  raise notice 'PASS: service role INSERT with is_pro=true / counters is accepted';
+end $$;
+
+do $$
+declare r public.user_usage;
+begin
+  update public.user_usage
+  set edit_count = 0, monthly_edit_count = 0,
+      daily_reset_date = current_date - 1, monthly_reset_date = current_date + 400,
+      user_id = user_id,
+      onboarding_completed = false, referral_source = 'svc', role = 'svc', use_case = 'svc'
+  where user_id = '00000000-0000-4000-8000-000000000001';
+  select * into r from public.user_usage where user_id = '00000000-0000-4000-8000-000000000001';
+  if r.edit_count <> 0 or r.daily_reset_date <> current_date - 1 or r.referral_source <> 'svc' then
+    raise exception 'FAIL: service role reset/profile update did not stick';
+  end if;
+  raise notice 'PASS: service role reset of counters, reset dates and profile columns is accepted';
+end $$;
+
+do $$
+declare r public.user_usage;
+begin
+  insert into public.user_usage (user_id, is_pro, onboarding_completed)
+  values ('00000000-0000-4000-8000-000000000001', true, true)
+  on conflict (user_id) do update set is_pro = excluded.is_pro, onboarding_completed = excluded.onboarding_completed;
+  select * into r from public.user_usage where user_id = '00000000-0000-4000-8000-000000000001';
+  if not r.is_pro then
+    raise exception 'FAIL: service role upsert of is_pro=true did not stick';
+  end if;
+  raise notice 'PASS: service role upsert with is_pro=true is accepted';
+end $$;
+
+do $$
+declare ok boolean; n integer;
+begin
+  ok := public.increment_edit_count('00000000-0000-4000-8000-000000000003');
+  select edit_count, monthly_edit_count into n, n from public.user_usage
+  where user_id = '00000000-0000-4000-8000-000000000003';
+  if not ok then
+    raise exception 'FAIL: service role increment_edit_count(other user) returned false';
+  end if;
+  raise notice 'PASS: service role RPC increment_edit_count(any user) is accepted';
+end $$;
+
+reset role;
+select set_config('request.jwt.claims', '', true);
+
 do $$
 begin
   raise notice 'ALL PASSED';

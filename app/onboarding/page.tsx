@@ -175,7 +175,7 @@ export default function OnboardingPage() {
         return;
       }
 
-      await completeFreeOnboarding(user.id, user.email);
+      await completeFreeOnboarding(user);
       router.push('/');
     } catch (error) {
       console.error('Failed to continue on the free plan:', error);

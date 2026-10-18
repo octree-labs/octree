@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 import { DocumentPreview } from '@/components/generate/DocumentPreview';
 import { PaywallDialog } from '@/components/subscription/paywall-dialog';
+import { PaywallActions } from '@/stores/paywall';
 import { createCheckoutSession } from '@/lib/requests/subscription';
 
 vi.mock('@/lib/requests/subscription', () => ({
@@ -73,7 +74,9 @@ describe('DocumentPreview checkout plan flag', () => {
     expect(documentPreviewArgs).toEqual({ annual: true, withTrial: false });
 
     // Reference caller: PaywallDialog with its default (monthly) selection.
+    // It is store-driven (stores/paywall.ts), so open it first.
     mockedCreateCheckoutSession.mockClear();
+    PaywallActions.open('export');
     render(<PaywallDialog />);
     fireEvent.click(screen.getByRole('button', { name: /get octree pro/i }));
     await waitFor(() => expect(mockedCreateCheckoutSession).toHaveBeenCalledTimes(1));

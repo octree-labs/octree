@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback, memo } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo, memo } from 'react';
 import { useRouter } from 'next/navigation';
+import { toast } from 'sonner';
 import {
   ArrowUp,
   Loader2,
@@ -169,17 +170,30 @@ export function GeneratePageContent({
 
   // Generate is Pro-only: free users can see the page, but submitting opens
   // the paywall. The send button stays disabled until the plan is known.
-  const { usage: subscriptionUsage, isLoading: isPlanLoading } = useSubscriptionUsage();
-  const generateAccess = canUseFeature(subscriptionUsage, 'generate');
+  const {
+    usage: subscriptionUsage,
+    isLoading: isPlanLoading,
+    refresh: refreshPlan,
+  } = useSubscriptionUsage();
+  const generateAccess = useMemo(
+    () => canUseFeature(subscriptionUsage, 'generate'),
+    [subscriptionUsage]
+  );
 
   const submitPrompt = useCallback(() => {
     if (isPlanLoading) return;
-    if (!generateAccess.allowed) {
-      PaywallActions.open('generate');
+    if (generateAccess.allowed) {
+      generateDocument();
       return;
     }
-    generateDocument();
-  }, [isPlanLoading, generateAccess.allowed, generateDocument]);
+    if (generateAccess.reason === 'unknown') {
+      // The status request failed: don't paywall a possibly-Pro user.
+      toast.error("Couldn't check your plan. Please try again.");
+      void refreshPlan();
+      return;
+    }
+    PaywallActions.open('generate');
+  }, [isPlanLoading, generateAccess, generateDocument, refreshPlan]);
 
   const scrollRef = useAutoScroll<HTMLDivElement>();
   const [isCreatingProject, setIsCreatingProject] = useState(false);

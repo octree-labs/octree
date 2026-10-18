@@ -21,6 +21,7 @@ import {
   Lock,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 
 interface EditorToolbarProps {
   /** Left side of the toolbar (pane tabs, formatting). */
@@ -45,31 +46,33 @@ export function EditorToolbar({
   hasPdfData = false,
 }: EditorToolbarProps) {
   const [isMac, setIsMac] = useState(true);
-  const { usage } = useSubscriptionUsage();
+  const { usage, isLoading: isPlanLoading, refresh: refreshPlan } = useSubscriptionUsage();
 
   useEffect(() => {
     setIsMac(navigator.platform.toUpperCase().indexOf('MAC') >= 0);
   }, []);
 
-  // Export is Pro-only. Until the plan has loaded this is "not allowed", so a
-  // click opens the paywall rather than silently doing nothing.
-  const canExport = canUseFeature(usage, 'export').allowed;
+  // Export is Pro-only. The menu items are disabled until the plan has loaded
+  // so a Pro user never sees the paywall; if the plan could not be loaded at
+  // all, say so instead of guessing.
+  const exportAccess = canUseFeature(usage, 'export');
+  const showExportLock = !exportAccess.allowed && exportAccess.reason === 'paywall';
 
-  const handleExportPDF = () => {
-    if (!canExport) {
-      PaywallActions.open('export');
-    } else {
-      onExportPDF();
+  const gateExport = (run: () => void) => {
+    if (exportAccess.allowed) {
+      run();
+      return;
     }
+    if (exportAccess.reason === 'unknown') {
+      toast.error("Couldn't check your plan. Please try again.");
+      void refreshPlan();
+      return;
+    }
+    PaywallActions.open('export');
   };
 
-  const handleExportZIP = () => {
-    if (!canExport) {
-      PaywallActions.open('export');
-    } else {
-      onExportZIP();
-    }
-  };
+  const handleExportPDF = () => gateExport(onExportPDF);
+  const handleExportZIP = () => gateExport(onExportZIP);
   return (
     <>
     <div
@@ -101,20 +104,21 @@ export function EditorToolbar({
             <DropdownMenuContent align="end">
               <DropdownMenuItem
                 onClick={handleExportPDF}
-                disabled={!hasPdfData}
+                disabled={!hasPdfData || isPlanLoading}
                 className="gap-2"
               >
                 <FileText className="size-4" />
                 Export as PDF
-                {!canExport && <Lock className="ml-auto size-3 text-amber-500" />}
+                {showExportLock && <Lock className="ml-auto size-3 text-amber-500" />}
               </DropdownMenuItem>
-              <DropdownMenuItem 
+              <DropdownMenuItem
                 onClick={handleExportZIP}
+                disabled={isPlanLoading}
                 className="gap-2"
               >
                 <FolderArchive className="size-4" />
                 Export as ZIP
-                {!canExport && <Lock className="ml-auto size-3 text-amber-500" />}
+                {showExportLock && <Lock className="ml-auto size-3 text-amber-500" />}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

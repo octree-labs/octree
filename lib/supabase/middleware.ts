@@ -46,7 +46,9 @@ export async function updateSession(request: NextRequest) {
     !user &&
     !isApiRoute &&
     !request.nextUrl.pathname.startsWith('/login') &&
-    !request.nextUrl.pathname.startsWith('/auth')
+    !request.nextUrl.pathname.startsWith('/auth') &&
+    // "Open in Octree" imports render their own sign-up landing when logged out.
+    !request.nextUrl.pathname.startsWith('/import')
   ) {
     const url = request.nextUrl.clone();
     url.pathname = '/auth/login';

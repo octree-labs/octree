@@ -1,20 +1,54 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-nocheck
 import { NextRequest, NextResponse } from 'next/server';
+import type { User } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
-import { TablesInsert } from '@/database.types';
+import type { Tables, TablesInsert, TablesUpdate } from '@/database.types';
 import { getContentTypeByFilename } from '@/lib/constants/file-types';
+import { trackRedditConversion } from '@/lib/reddit-capi';
+import {
+  PENDING_DRAFT_COOKIE,
+  clearPendingDraftCookie,
+  importStartPath,
+  isDraftId,
+} from '@/lib/import/pending-draft';
 
-type UsageRecord = {
-  onboarding_completed: boolean | null;
-};
+type DraftRow = Pick<
+  Tables<'drafts'>,
+  'id' | 'title' | 'content' | 'source' | 'consumed_at' | 'consumed_by' | 'project_id'
+>;
+
+/** A user whose account is younger than this when the import completes counts as a sign-up. */
+const NEW_USER_WINDOW_MS = 10 * 60 * 1000;
+
+function redirectAndForget(url: URL) {
+  // Every exit except the logged-out landing drops the cookie, so a stale or
+  // already-consumed draft can never bounce the homepage back here.
+  return clearPendingDraftCookie(NextResponse.redirect(url));
+}
+
+function projectUrl(origin: string, projectId: string, welcome: boolean) {
+  const url = new URL(`/projects/${projectId}`, origin);
+  if (welcome) url.searchParams.set('welcome', '1');
+  return url;
+}
+
+function isNewUser(user: User, now = Date.now()) {
+  if (!user.created_at) return false;
+  const createdAt = Date.parse(user.created_at);
+  return Number.isFinite(createdAt) && now - createdAt < NEW_USER_WINDOW_MS;
+}
 
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);
-  const draftId = url.searchParams.get('draft');
+  const queryDraft = url.searchParams.get('draft');
+  const cookieDraft = request.cookies.get(PENDING_DRAFT_COOKIE)?.value;
+  const draftId = isDraftId(queryDraft)
+    ? queryDraft
+    : isDraftId(cookieDraft)
+      ? cookieDraft
+      : null;
+
   if (!draftId) {
-    return NextResponse.redirect(new URL('/', url.origin));
+    return redirectAndForget(new URL('/', url.origin));
   }
 
   const supabase = await createClient();
@@ -23,45 +57,49 @@ export async function GET(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    const loginUrl = new URL('/auth/login', url.origin);
-    loginUrl.searchParams.set(
-      'next',
-      `/import?draft=${encodeURIComponent(draftId)}`
-    );
-    return NextResponse.redirect(loginUrl);
+    // Logged out: show the "Open <title> in Octree" landing with sign-up /
+    // login instead of a bare login redirect. The cookie stays so the draft
+    // survives whichever auth path the visitor takes.
+    return NextResponse.redirect(new URL(importStartPath(draftId), url.origin));
   }
 
-  // Fetch draft
-  const { data: draft, error: draftError } = await (supabase
-    .from('drafts' as any)
-    .select('*')
+  // The generated Database type resolves table rows to `never` in this repo,
+  // so queries are cast like the rest of the codebase (see actions/*.ts).
+  const { data: draft, error: draftError } = (await (supabase.from('drafts') as any)
+    .select('id, title, content, source, consumed_at, consumed_by, project_id')
     .eq('id', draftId)
-    .single() as any);
+    .maybeSingle()) as { data: DraftRow | null; error: unknown };
 
   if (draftError || !draft) {
-    return NextResponse.redirect(new URL('/', url.origin));
+    return redirectAndForget(new URL('/', url.origin));
   }
 
-  const title: string = (draft.title as string) || 'Imported from Tools';
-  const content: string = draft.content as string;
+  if (draft.consumed_at) {
+    // Back button / double submit: send the owner to the project they already got.
+    if (draft.consumed_by === user.id && draft.project_id) {
+      return redirectAndForget(projectUrl(url.origin, draft.project_id, false));
+    }
+    return redirectAndForget(new URL('/', url.origin));
+  }
 
-  // Create project
+  const title = draft.title || 'Imported from Tools';
+  const content = draft.content;
+
   const projectData: TablesInsert<'projects'> = {
     title: title.slice(0, 120),
     user_id: user.id,
   };
 
-  const { data: project, error: projectError } = await supabase
-    .from('projects')
+  const { data: project, error: projectError } = (await (supabase.from('projects') as any)
     .insert(projectData)
     .select()
-    .single();
+    .single()) as { data: Pick<Tables<'projects'>, 'id'> | null; error: unknown };
 
   if (projectError || !project) {
-    return NextResponse.redirect(new URL('/', url.origin));
+    console.error('Error creating project for draft:', projectError);
+    return redirectAndForget(new URL('/', url.origin));
   }
 
-  // Upload file content to Supabase Storage
   const mimeType = getContentTypeByFilename('main.tex');
   const blob = new Blob([content], { type: mimeType });
   const filePath = `projects/${project.id}/main.tex`;
@@ -76,15 +114,11 @@ export async function GET(request: NextRequest) {
 
   if (uploadError) {
     console.error('Error uploading file to storage:', uploadError);
-    return NextResponse.redirect(new URL('/', url.origin));
+    return redirectAndForget(new URL('/', url.origin));
   }
 
-  // Get public URL for the file
-  const { data: urlData } = supabase.storage
-    .from('octree')
-    .getPublicUrl(filePath);
+  const { data: urlData } = supabase.storage.from('octree').getPublicUrl(filePath);
 
-  // Insert file record
   const fileToInsert: TablesInsert<'files'> = {
     project_id: project.id,
     name: 'main.tex',
@@ -93,31 +127,53 @@ export async function GET(request: NextRequest) {
     url: urlData.publicUrl,
   };
 
-  const { error: fileError } = await supabase
-    .from('files')
-    .insert(fileToInsert);
+  const { error: fileError } = (await (supabase.from('files') as any).insert(
+    fileToInsert
+  )) as { error: unknown };
 
   if (fileError) {
     console.error('Error creating file record:', fileError);
-    return NextResponse.redirect(
-      new URL(`/projects/${project.id}`, url.origin)
-    );
+    return redirectAndForget(projectUrl(url.origin, project.id, true));
   }
 
-  await (supabase
-    .from('drafts' as any)
-    .delete()
-    .eq('id', draftId) as any);
+  // Keep the draft and mark it consumed so the funnel is measurable
+  // (consumed_at IS NULL = abandoned). Non-fatal: the project already exists.
+  const consumption: TablesUpdate<'drafts'> = {
+    consumed_at: new Date().toISOString(),
+    consumed_by: user.id,
+    project_id: project.id,
+  };
+  const { error: consumeError } = (await (supabase.from('drafts') as any)
+    .update(consumption)
+    .eq('id', draftId)) as { error: unknown };
 
-  const { data: usageData } = await supabase
-    .from('user_usage')
-    .select('onboarding_completed')
-    .eq('user_id', user.id)
-    .maybeSingle<UsageRecord>();
-
-  if (!usageData?.onboarding_completed) {
-    return NextResponse.redirect(new URL('/onboarding', url.origin));
+  if (consumeError) {
+    console.error('Error marking draft consumed:', consumeError);
   }
 
-  return NextResponse.redirect(new URL(`/projects/${project.id}`, url.origin));
+  if (isNewUser(user)) {
+    // Google sign-ups never reach the client-side SignUp pixel, so record the
+    // conversion here. `lib/reddit-capi` has no custom-property support, so
+    // the draft source is not attached. Keyed on the user id so a retry
+    // (or a later caller using the same convention) dedupes on Reddit's side.
+    try {
+      await trackRedditConversion({
+        eventName: 'SignUp',
+        conversionId: `signup-${user.id}`,
+        email: user.email ?? undefined,
+        externalId: user.id,
+        ipAddress:
+          request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+          request.headers.get('x-real-ip') ||
+          undefined,
+        userAgent: request.headers.get('user-agent') || undefined,
+      });
+    } catch (error) {
+      console.error('Reddit SignUp tracking failed:', error);
+    }
+  }
+
+  // Always land in the editor; `welcome=1` lets the editor show its own
+  // onboarding / Pro prompt instead of bouncing through /onboarding.
+  return redirectAndForget(projectUrl(url.origin, project.id, true));
 }

@@ -1,5 +1,7 @@
+import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
+import { PENDING_DRAFT_COOKIE, isDraftId } from '@/lib/import/pending-draft';
 import { getAllProjects } from '@/actions/get-projects';
 import { getUserUsageStatus } from '@/actions/get-user';
 import { getUserWalkthroughStatus } from '@/actions/get-walkthrough';
@@ -13,6 +15,14 @@ export default async function Dashboard() {
 
   if (!user) {
     redirect('/auth/login');
+  }
+
+  // A draft from tools.useoctree.com is waiting (e.g. the visitor logged in
+  // via a path that dropped `next`): finish the import. The import route
+  // clears the cookie on every exit, so this cannot loop.
+  const cookieStore = await cookies();
+  if (isDraftId(cookieStore.get(PENDING_DRAFT_COOKIE)?.value)) {
+    redirect('/import');
   }
 
   const usage = await getUserUsageStatus(user.id);

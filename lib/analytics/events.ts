@@ -43,6 +43,7 @@ export const AnalyticsEvents = {
   IMPORT_COMPLETED: 'import_completed',
   AI_EDIT_SERVED: 'ai_edit_served',
   EDIT_LIMIT_HIT_SERVER: 'edit_limit_hit_server',
+  LIFECYCLE_EMAIL_SENT: 'lifecycle_email_sent',
 } as const;
 
 export type AnalyticsEvent = (typeof AnalyticsEvents)[keyof typeof AnalyticsEvents];
@@ -137,6 +138,10 @@ export interface AnalyticsEventProperties {
     sample_rate: number;
   };
   [AnalyticsEvents.EDIT_LIMIT_HIT_SERVER]: { is_pro: boolean };
+  /** One lifecycle/win-back email went out (app/api/cron/lifecycle). */
+  [AnalyticsEvents.LIFECYCLE_EMAIL_SENT]: {
+    template: 'welcome' | 'limit_hit' | 'day7' | 'winback';
+  };
 }
 
 /**

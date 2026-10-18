@@ -80,6 +80,24 @@ export type Database = {
           },
         ]
       }
+      email_preferences: {
+        Row: {
+          marketing_opt_out: boolean
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          marketing_opt_out?: boolean
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          marketing_opt_out?: boolean
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       email_suppressions: {
         Row: {
           created_at: string
@@ -180,6 +198,39 @@ export type Database = {
           prompt?: string
           status?: string
           title?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      lifecycle_emails: {
+        Row: {
+          attempts: number
+          email: string
+          error: string | null
+          id: string
+          resend_id: string | null
+          sent_at: string
+          template: string
+          user_id: string
+        }
+        Insert: {
+          attempts?: number
+          email: string
+          error?: string | null
+          id?: string
+          resend_id?: string | null
+          sent_at?: string
+          template: string
+          user_id: string
+        }
+        Update: {
+          attempts?: number
+          email?: string
+          error?: string | null
+          id?: string
+          resend_id?: string | null
+          sent_at?: string
+          template?: string
           user_id?: string
         }
         Relationships: []
@@ -426,6 +477,10 @@ export type Database = {
           new_signups: number
           signup_week: string
         }[]
+      }
+      claim_lifecycle_retry: {
+        Args: { p_email: string; p_max_attempts: number; p_template: string; p_user_id: string }
+        Returns: boolean
       }
       increment_edit_count: { Args: { p_user_id: string }; Returns: boolean }
       update_user_subscription_status: {

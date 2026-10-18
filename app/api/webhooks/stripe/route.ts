@@ -51,18 +51,22 @@ export async function POST(request: Request) {
 
     const supabase = createServiceClient();
 
-    // Stripe retries deliveries that time out or fail; process each event once.
-    const isNew = await recordStripeEvent(supabase, event);
-    if (!isNew) {
-      return NextResponse.json({ received: true, duplicate: true });
-    }
-
     switch (event.type) {
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session;
         // Reddit `Purchase` fires here, on confirmed payment, not on the
         // checkout button click (see app/onboarding/page.tsx).
+        //
+        // The conversion is the one side effect that must not run twice, so
+        // the idempotency log is consulted only here. The subscription events
+        // below are left as they were: re-processing a retry writes the same
+        // state again, and a retry after a timeout must still be able to heal
+        // user_usage.
         try {
+          const isNew = await recordStripeEvent(supabase, event);
+          if (!isNew) {
+            return NextResponse.json({ received: true, duplicate: true });
+          }
           await trackPurchaseFromCheckoutSession(session);
         } catch (error) {
           console.error('Failed to track purchase conversion:', error);

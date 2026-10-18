@@ -25,11 +25,27 @@ async function hasLiveSubscription(customerId: string): Promise<boolean> {
 }
 
 /**
+ * True when the stored customer id still points at a live Stripe customer.
+ * A customer deleted in the dashboard (or by actions/delete-account.ts) comes
+ * back as `{ deleted: true }`; an id Stripe has never seen is `resource_missing`.
+ * Any other Stripe error is rethrown so callers see it as they did before.
+ */
+async function storedCustomerExists(customerId: string): Promise<boolean> {
+  try {
+    const customer = await stripe.customers.retrieve(customerId);
+    return !customer.deleted;
+  } catch (error: any) {
+    if (error?.code === 'resource_missing') return false;
+    throw error;
+  }
+}
+
+/**
  * Finds the Stripe customer for a signed-in user.
  *
  * 1. Prefer `user_usage.stripe_customer_id` (written by the subscription
  *    webhook, so it always points at the customer that owns the newest
- *    subscription).
+ *    subscription), as long as that customer still exists in Stripe.
  * 2. Otherwise search by email. Checkout creates a new customer object per
  *    session, so one email can map to several customers; pick the newest one
  *    that has an active/trialing/past_due subscription, then the newest one
@@ -48,13 +64,14 @@ export async function resolveStripeCustomer(
     .eq('user_id', user.id)
     .maybeSingle();
 
-  if (usage?.stripe_customer_id) {
-    return { customerId: usage.stripe_customer_id, source: 'stored' };
+  const storedId: string | null = usage?.stripe_customer_id ?? null;
+  if (storedId && (await storedCustomerExists(storedId))) {
+    return { customerId: storedId, source: 'stored' };
   }
 
   if (!user.email) return null;
 
-  // Stripe returns customers newest first.
+  // Stripe returns customers newest first and never lists deleted ones.
   const customers = await stripe.customers.list({
     email: user.email,
     limit: 100,
@@ -79,7 +96,9 @@ export async function resolveStripeCustomer(
     if (!picked) picked = candidates[0];
   }
 
-  if (pickedIsLive) {
+  // Only a customer that owns a live subscription is worth remembering: a
+  // stale or wrong id must never replace one the webhook will write.
+  if (pickedIsLive && picked.id !== storedId) {
     const { error } = await supabase
       .from('user_usage')
       .update({ stripe_customer_id: picked.id })

@@ -8,30 +8,36 @@ import { trackRedditConversion } from '@/lib/reddit-capi';
  * Returns true when this is the first time the event is seen.
  *
  * Fails open: if the insert errors for any reason other than a duplicate key
- * (e.g. the table is missing), the event is treated as new so a storage
- * problem never silently drops webhooks.
+ * (e.g. the table is missing, PostgREST cannot reach the database), the event
+ * is treated as new so a storage problem never silently drops webhooks.
  */
 export async function recordStripeEvent(
   supabase: SupabaseClient<any, any, any>,
   event: Pick<Stripe.Event, 'id' | 'type'>
 ): Promise<boolean> {
-  const { error } = await supabase
-    .from('stripe_webhook_events')
-    .insert({ id: event.id, type: event.type });
+  try {
+    const { error } = await supabase
+      .from('stripe_webhook_events')
+      .insert({ id: event.id, type: event.type });
 
-  if (!error) return true;
+    if (!error) return true;
 
-  // 23505 = unique_violation: Stripe re-delivered an event we already handled.
-  if (error.code === '23505') return false;
+    // 23505 = unique_violation: Stripe re-delivered an event we already handled.
+    if (error.code === '23505') return false;
 
-  console.error('Failed to record Stripe webhook event:', error);
-  return true;
+    console.error('Failed to record Stripe webhook event:', error);
+    return true;
+  } catch (error) {
+    console.error('Failed to record Stripe webhook event:', error);
+    return true;
+  }
 }
 
 /**
  * Sends the Reddit `Purchase` conversion for a paid Checkout Session.
  * The session id is the conversion id, so Reddit also dedupes on its side.
- * Returns false when the session is not a paid one.
+ * Returns false when the session is not a paid one (`unpaid`, or
+ * `no_payment_required` for a trial that has not charged yet).
  */
 export async function trackPurchaseFromCheckoutSession(
   session: Stripe.Checkout.Session

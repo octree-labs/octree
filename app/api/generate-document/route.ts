@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { hasUnlimitedEdits } from '@/lib/paywall';
 import { createSSEHeaders } from '@/lib/octra-agent/stream-handling';
 import type { ConversationSummary } from '@/types/conversation';
 
@@ -76,6 +77,26 @@ export async function POST(request: Request) {
         { error: 'Unauthorized. Please log in.' },
         { status: 401 }
       );
+    }
+
+    // Generate is Pro-only. The client disables the form for free users; this
+    // keeps the API consistent with that (402 => open the paywall).
+    if (!hasUnlimitedEdits(user.email)) {
+      const { data: usage } = await supabase
+        .from('user_usage')
+        .select('is_pro')
+        .eq('user_id', user.id)
+        .maybeSingle<{ is_pro: boolean | null }>();
+
+      if (!usage?.is_pro) {
+        return NextResponse.json(
+          {
+            error: 'Generating documents requires Octree Pro.',
+            upgradeRequired: true,
+          },
+          { status: 402 }
+        );
+      }
     }
 
     const apiKey = process.env.ANTHROPIC_API_KEY;

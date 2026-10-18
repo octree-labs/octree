@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Check } from 'lucide-react';
 import { toast } from 'sonner';
 
 import {
@@ -14,18 +14,37 @@ import {
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { FeatureList } from '@/app/onboarding/components/feature-list';
 import { createCheckoutSession } from '@/lib/requests/subscription';
-import { createClient } from '@/lib/supabase/client';
+import { FREE_DAILY_EDIT_LIMIT, PRO_FEATURES, PRO_MONTHLY_EDIT_LIMIT, PRO_PLANS } from '@/data/constants';
+import type { ProFeature } from '@/lib/subscription/features';
+import { PaywallActions, usePaywall } from '@/stores/paywall';
 
-interface PaywallDialogProps {
-  userEmail?: string;
-}
+const COPY: Record<ProFeature, { title: string; description: string }> = {
+  'ai-edit': {
+    title: "You've used today's free AI edits",
+    description: `The free plan includes ${FREE_DAILY_EDIT_LIMIT} AI edits a day. Pro gives you ${PRO_MONTHLY_EDIT_LIMIT} a month.`,
+  },
+  export: {
+    title: 'Export is a Pro feature',
+    description: 'Upgrade to download your project as a PDF or a ZIP of all files.',
+  },
+  generate: {
+    title: 'Generate is a Pro feature',
+    description: 'Upgrade to generate complete documents from a prompt.',
+  },
+};
 
-export function PaywallDialog({ userEmail }: PaywallDialogProps) {
-  const router = useRouter();
+/**
+ * The in-product paywall. Opened from anywhere with `PaywallActions.open(feature)`
+ * (see stores/paywall.ts); mounted once per layout that has gated features.
+ */
+export function PaywallDialog() {
+  const { open, feature } = usePaywall();
   const [isMonthly, setIsMonthly] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const copy = COPY[feature ?? 'ai-edit'];
+  const plan = isMonthly ? PRO_PLANS.monthly : PRO_PLANS.weekly;
 
   const handleSubscribe = async () => {
     setIsSubmitting(true);
@@ -42,50 +61,38 @@ export function PaywallDialog({ userEmail }: PaywallDialogProps) {
     }
   };
 
-  const handleLogout = async () => {
-    const supabase = createClient();
-    await supabase.auth.signOut();
-    router.push('/auth/login');
-  };
-
   return (
-    <Dialog open={true} modal>
-      <DialogContent
-        className="max-w-md [&>button]:hidden"
-        onPointerDownOutside={(e) => e.preventDefault()}
-        onEscapeKeyDown={(e) => e.preventDefault()}
-      >
+    <Dialog open={open} onOpenChange={(next) => !next && PaywallActions.close()}>
+      <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Write better papers, faster</DialogTitle>
-          <DialogDescription>
-            Stop wrestling with LaTeX. Let AI handle the formatting.
-          </DialogDescription>
+          <DialogTitle>{copy.title}</DialogTitle>
+          <DialogDescription>{copy.description}</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-6">
           <div className="space-y-1">
             <div className="flex items-baseline gap-2">
-              <p className="text-3xl font-bold">{isMonthly ? '$2.49' : '$4.99'}</p>
+              <p className="text-3xl font-bold">
+                {isMonthly ? PRO_PLANS.monthly.weeklyEquivalent : PRO_PLANS.weekly.price}
+              </p>
               <p className="text-sm text-muted-foreground">per week</p>
               {isMonthly && (
-                <p className="text-sm text-muted-foreground line-through">$4.99</p>
+                <p className="text-sm text-muted-foreground line-through">
+                  {PRO_PLANS.weekly.price}
+                </p>
               )}
             </div>
-            {isMonthly ? (
-              <p className="text-xs text-muted-foreground">Billed monthly at $9.99/month — save 50%</p>
-            ) : (
-              <p className="text-xs text-muted-foreground">Billed weekly at $4.99/week</p>
-            )}
+            <p className="text-xs text-muted-foreground">{plan.billingNote}</p>
           </div>
 
           <div className="flex items-center gap-2">
             <Switch
-              id="monthly-switch"
+              id="paywall-monthly-switch"
               checked={isMonthly}
               onCheckedChange={setIsMonthly}
             />
             <Label
-              htmlFor="monthly-switch"
+              htmlFor="paywall-monthly-switch"
               className="cursor-pointer text-sm font-normal"
             >
               {isMonthly ? 'Monthly billing enabled' : 'Switch to monthly and save 50%'}
@@ -93,36 +100,39 @@ export function PaywallDialog({ userEmail }: PaywallDialogProps) {
           </div>
 
           <div>
-            <p className="mb-4 text-sm font-semibold">What you get with Pro</p>
-            <FeatureList />
+            <p className="mb-3 text-sm font-semibold">What you get with Pro</p>
+            <ul className="space-y-2">
+              {PRO_FEATURES.map((text) => (
+                <li key={text} className="flex gap-3 text-sm leading-5 text-muted-foreground">
+                  <Check className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>{text}</span>
+                </li>
+              ))}
+            </ul>
           </div>
 
-          <Button
-            className="w-full"
-            variant="gradient"
-            onClick={handleSubscribe}
-            disabled={isSubmitting}
-          >
-            {isSubmitting ? 'Loading...' : 'Get Octree Pro →'}
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={PaywallActions.close}
+              disabled={isSubmitting}
+            >
+              Not now
+            </Button>
+            <Button
+              className="flex-1"
+              variant="gradient"
+              onClick={handleSubscribe}
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? 'Loading...' : 'Get Octree Pro →'}
+            </Button>
+          </div>
 
           <p className="text-center text-xs text-muted-foreground">
             Cancel anytime. No questions asked.
           </p>
-
-          {userEmail && (
-            <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <p>Signed in as {userEmail}</p>
-              <Button
-                variant="link"
-                size="sm"
-                onClick={handleLogout}
-                className="h-auto p-0 text-xs"
-              >
-                Logout
-              </Button>
-            </div>
-          )}
         </div>
       </DialogContent>
     </Dialog>

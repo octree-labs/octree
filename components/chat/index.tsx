@@ -8,6 +8,7 @@ import { Loader2, X, CheckCheck } from 'lucide-react';
 import { OctreeLogo } from '@/components/icons/octree-logo';
 import { EditSuggestion } from '@/types/edit';
 import { useChatStream } from './use-chat-stream';
+import { PaywallActions } from '@/stores/paywall';
 import { useEditProposals } from './use-edit-proposals';
 import { useFileAttachments } from './use-file-attachments';
 import { ChatMessageComponent } from './chat-message';
@@ -264,6 +265,10 @@ export function Chat({
         try {
           const data = await response.json();
           errorMessage = data.error || errorMessage;
+          // Free user out of daily AI edits: the fix is upgrading, so show the paywall.
+          if (response.status === 429 && data.upgradeRequired) {
+            PaywallActions.open('ai-edit');
+          }
         } catch {
           // Use default
         }

@@ -38,6 +38,9 @@ import { useGenerate, type AttachedFile } from '@/hooks/use-generate';
 import { useAutoScroll } from '@/hooks/use-auto-scroll';
 import { GenerateOnboarding } from '@/components/generate/generate-onboarding';
 import { markGenerateWalkthroughSeen } from '@/lib/requests/walkthrough';
+import { useSubscriptionUsage } from '@/hooks/use-subscription-usage';
+import { canUseFeature } from '@/lib/subscription/features';
+import { PaywallActions } from '@/stores/paywall';
 
 const GENERATE_ONBOARDING_STORAGE_KEY = 'octree_generate_onboarding_completed';
 const SUCCESS_MESSAGE_PREFIX = 'Document generated successfully.';
@@ -164,6 +167,20 @@ export function GeneratePageContent({
     canRetry,
   } = useGenerate({ onDocumentCreated: handleDocumentCreated });
 
+  // Generate is Pro-only: free users can see the page, but submitting opens
+  // the paywall. The send button stays disabled until the plan is known.
+  const { usage: subscriptionUsage, isLoading: isPlanLoading } = useSubscriptionUsage();
+  const generateAccess = canUseFeature(subscriptionUsage, 'generate');
+
+  const submitPrompt = useCallback(() => {
+    if (isPlanLoading) return;
+    if (!generateAccess.allowed) {
+      PaywallActions.open('generate');
+      return;
+    }
+    generateDocument();
+  }, [isPlanLoading, generateAccess.allowed, generateDocument]);
+
   const scrollRef = useAutoScroll<HTMLDivElement>();
   const [isCreatingProject, setIsCreatingProject] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -224,9 +241,9 @@ export function GeneratePageContent({
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      generateDocument();
+      submitPrompt();
     }
-  }, [generateDocument]);
+  }, [submitPrompt]);
 
   const handleOpenInOctree = useCallback(async () => {
     if (!currentLatex || isCreatingProject) return;
@@ -345,7 +362,7 @@ export function GeneratePageContent({
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              generateDocument();
+              submitPrompt();
             }}
             className="mx-auto max-w-3xl"
           >
@@ -412,7 +429,7 @@ export function GeneratePageContent({
                     type="submit"
                     size="icon"
                     variant="gradient"
-                    disabled={isGenerating || !prompt.trim()}
+                    disabled={isGenerating || isPlanLoading || !prompt.trim()}
                     className="h-8 w-8 shrink-0 rounded-full"
                     data-onboarding-target="generate-send"
                   >

@@ -2,6 +2,7 @@ import type Stripe from 'stripe';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { stripe } from '@/lib/stripe';
+import { createAdminClient } from '@/lib/supabase/admin';
 
 const LIVE_STATUSES: ReadonlySet<Stripe.Subscription.Status> = new Set([
   'active',
@@ -52,6 +53,11 @@ async function storedCustomerExists(customerId: string): Promise<boolean> {
  *    overall. When the pick has a live subscription, persist it to
  *    `user_usage` so the next call is direct.
  *
+ * `supabase` is the caller's user-session client and is only read from. The
+ * persist step goes through the service-role client: `stripe_customer_id` is
+ * one of the columns the user_usage guard trigger refuses to let the
+ * `authenticated` role change.
+ *
  * Returns null when the user has no Stripe customer at all.
  */
 export async function resolveStripeCustomer(
@@ -99,7 +105,7 @@ export async function resolveStripeCustomer(
   // Only a customer that owns a live subscription is worth remembering: a
   // stale or wrong id must never replace one the webhook will write.
   if (pickedIsLive && picked.id !== storedId) {
-    const { error } = await supabase
+    const { error } = await createAdminClient()
       .from('user_usage')
       .update({ stripe_customer_id: picked.id })
       .eq('user_id', user.id);

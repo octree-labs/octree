@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { hasUnlimitedEdits } from '@/lib/paywall';
 import type { TablesInsert, TablesUpdate, Tables } from '@/database.types';
 import { FREE_DAILY_EDIT_LIMIT, PRO_MONTHLY_EDIT_LIMIT } from '@/data/constants';
@@ -12,6 +13,11 @@ type UsageSlice = {
   is_pro: boolean;
   subscription_status: string | null;
 };
+
+// Reads and the increment_edit_count RPC use the user-session client
+// (`supabase`). The row inserts, counter resets and the whitelisted-user
+// update below write billing/quota columns that the user_usage guard trigger
+// only lets the service role change, so they go through `admin`.
 
 // GET handler to check edit limits without incrementing
 export async function GET() {
@@ -31,6 +37,7 @@ export async function GET() {
     }
 
     const hasUnlimitedUser = hasUnlimitedEdits(user.email);
+    const admin = createAdminClient();
 
     // Fetch user usage data
     const usageRes = await supabase
@@ -54,7 +61,7 @@ export async function GET() {
 
       const newUsageRes = await (
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        supabase.from('user_usage') as any
+        admin.from('user_usage') as any
       )
         .insert(newUsagePayload)
         .select('edit_count, monthly_edit_count, monthly_reset_date, is_pro, subscription_status')
@@ -101,7 +108,7 @@ export async function GET() {
         // Reset daily count
         await (
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          supabase.from('user_usage') as any
+          admin.from('user_usage') as any
         )
           .update({
             edit_count: 0,
@@ -126,7 +133,7 @@ export async function GET() {
         };
         await (
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          supabase.from('user_usage') as any
+          admin.from('user_usage') as any
         )
           .update(resetPayload)
           .eq('user_id', user.id);
@@ -178,6 +185,7 @@ export async function POST() {
     }
 
     const hasUnlimitedUser = hasUnlimitedEdits(user.email);
+    const admin = createAdminClient();
 
     // First, ensure user has a usage record
     const initialRes = await supabase
@@ -203,7 +211,7 @@ export async function POST() {
 
       const newUsageRes = await (
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        supabase.from('user_usage') as any
+        admin.from('user_usage') as any
       )
         .insert(newUsagePayload)
         .select('edit_count, monthly_edit_count, daily_reset_date, monthly_reset_date, is_pro, subscription_status')
@@ -241,7 +249,7 @@ export async function POST() {
         };
         const resetRes = await (
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          supabase.from('user_usage') as any
+          admin.from('user_usage') as any
         )
           .update(resetPayload)
           .eq('user_id', user.id);
@@ -265,7 +273,7 @@ export async function POST() {
 
       const unlimitedRes = await (
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        supabase.from('user_usage') as any
+        admin.from('user_usage') as any
       )
         .update(updatePayload)
         .eq('user_id', user.id)

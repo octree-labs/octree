@@ -10,14 +10,28 @@ vi.mock('@/lib/stripe', () => ({
   },
 }));
 
+// The persist step must go through the service-role client: the user_usage
+// guard trigger rejects a stripe_customer_id change from the user session.
+const admin = vi.hoisted(() => {
+  const updateEq = vi.fn().mockResolvedValue({ error: null });
+  const update = vi.fn().mockReturnValue({ eq: updateEq });
+  const from = vi.fn().mockReturnValue({ update });
+  return { from, update, updateEq };
+});
+
+vi.mock('@/lib/supabase/admin', () => ({
+  createAdminClient: () => ({ from: admin.from }),
+}));
+
 const customersList = vi.mocked(stripe.customers.list);
 const customersRetrieve = vi.mocked(stripe.customers.retrieve);
 const subscriptionsList = vi.mocked(stripe.subscriptions.list);
 
 function makeSupabase(storedCustomerId: string | null | undefined) {
-  const update = vi.fn();
-  const updateEq = vi.fn().mockResolvedValue({ error: null });
-  update.mockReturnValue({ eq: updateEq });
+  // The user-session client is read-only here; `update` / `updateEq` are the
+  // admin client's, so the existing assertions pin the write to that client.
+  const userUpdate = vi.fn();
+  const { update, updateEq } = admin;
 
   const maybeSingle = vi.fn().mockResolvedValue({
     // undefined = no user_usage row at all
@@ -27,8 +41,8 @@ function makeSupabase(storedCustomerId: string | null | undefined) {
   const selectEq = vi.fn().mockReturnValue({ maybeSingle });
   const select = vi.fn().mockReturnValue({ eq: selectEq });
 
-  const from = vi.fn().mockReturnValue({ select, update });
-  return { client: { from } as any, update, updateEq };
+  const from = vi.fn().mockReturnValue({ select, update: userUpdate });
+  return { client: { from } as any, update, updateEq, userUpdate };
 }
 
 function subsFor(map: Record<string, string[]>) {
@@ -116,6 +130,18 @@ describe('resolveStripeCustomer', () => {
       expect(customersRetrieve).not.toHaveBeenCalled();
       expect(update).toHaveBeenCalledWith({ stripe_customer_id: 'cus_only' });
       expect(updateEq).toHaveBeenCalledWith('user_id', 'user-1');
+    });
+
+    it('persists through the service-role client, never the user session', async () => {
+      const { client, update, userUpdate } = makeSupabase(null);
+      customersList.mockResolvedValue({ data: [{ id: 'cus_only' }] } as any);
+      subsFor({ cus_only: ['active'] });
+
+      await resolveStripeCustomer(client, user);
+
+      expect(admin.from).toHaveBeenCalledWith('user_usage');
+      expect(update).toHaveBeenCalledWith({ stripe_customer_id: 'cus_only' });
+      expect(userUpdate).not.toHaveBeenCalled();
     });
 
     it('works when the user has no user_usage row yet', async () => {

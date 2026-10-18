@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 import type Stripe from 'stripe';
 import { stripe } from '@/lib/stripe';
 import { hasUnlimitedEdits } from '@/lib/paywall';
@@ -10,6 +11,10 @@ import {
   PRO_MONTHLY_EDIT_LIMIT,
 } from '@/data/constants';
 
+// Reads go through the user-session client (`supabase`); every write in this
+// route touches billing or quota columns, which the user_usage guard trigger
+// only lets the service role change, so writes go through `admin`.
+
 function getResetDate(): string {
   return new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
     .toISOString()
@@ -18,6 +23,7 @@ function getResetDate(): string {
 
 async function getOrCreateUsageData(
   supabase: any,
+  admin: any,
   userId: string,
   hasUnlimited: boolean
 ): Promise<Tables<'user_usage'> | null> {
@@ -31,7 +37,7 @@ async function getOrCreateUsageData(
 
   if (usageError.code === 'PGRST116') {
     console.log('Creating new user_usage record for user:', userId);
-    const { data, error } = await supabase
+    const { data, error } = await admin
       .from('user_usage')
       .insert({
         user_id: userId,
@@ -56,7 +62,7 @@ async function getOrCreateUsageData(
 }
 
 async function handleMonthlyReset(
-  supabase: any,
+  admin: any,
   userId: string,
   usageData: Tables<'user_usage'>
 ): Promise<Tables<'user_usage'>> {
@@ -65,7 +71,7 @@ async function handleMonthlyReset(
   const resetDate = new Date(usageData.monthly_reset_date);
   if (new Date() < resetDate) return usageData;
 
-  const { error } = await supabase
+  const { error } = await admin
     .from('user_usage')
     .update({
       monthly_edit_count: 0,
@@ -81,7 +87,7 @@ async function handleMonthlyReset(
 }
 
 async function ensureUnlimitedStatus(
-  supabase: any,
+  admin: any,
   userId: string,
   usageData: Tables<'user_usage'>
 ): Promise<Tables<'user_usage'>> {
@@ -95,7 +101,7 @@ async function ensureUnlimitedStatus(
 
   if (!needsUpdate) return usageData;
 
-  const { data, error } = await supabase
+  const { data, error } = await admin
     .from('user_usage')
     .update({
       is_pro: true,
@@ -182,13 +188,15 @@ function buildUsageResponse(
 }
 
 async function updateSubscriptionInDB(
-  supabase: any,
+  admin: any,
   userId: string,
   customerId: string,
   subscription: Stripe.Subscription
 ) {
   try {
-    await supabase.rpc('update_user_subscription_status', {
+    // EXECUTE on this function is revoked from `authenticated`; only the
+    // service role may call it.
+    const { error } = await admin.rpc('update_user_subscription_status', {
       p_user_id: userId,
       p_stripe_customer_id: customerId,
       p_stripe_subscription_id: subscription.id,
@@ -201,6 +209,9 @@ async function updateSubscriptionInDB(
       ).toISOString(),
       p_cancel_at_period_end: subscription.cancel_at_period_end,
     });
+    if (error) {
+      console.error('Error updating subscription status in database:', error);
+    }
   } catch (error) {
     console.error('Error updating subscription status in database:', error);
   }
@@ -219,8 +230,14 @@ export async function GET() {
     }
 
     const hasUnlimited = hasUnlimitedEdits(user.email);
+    const admin = createAdminClient();
 
-    let usageData = await getOrCreateUsageData(supabase, user.id, hasUnlimited);
+    let usageData = await getOrCreateUsageData(
+      supabase,
+      admin,
+      user.id,
+      hasUnlimited
+    );
     if (!usageData) {
       return NextResponse.json(
         { error: 'Failed to get usage data' },
@@ -228,10 +245,10 @@ export async function GET() {
       );
     }
 
-    usageData = await handleMonthlyReset(supabase, user.id, usageData);
+    usageData = await handleMonthlyReset(admin, user.id, usageData);
 
     if (hasUnlimited) {
-      usageData = await ensureUnlimitedStatus(supabase, user.id, usageData);
+      usageData = await ensureUnlimitedStatus(admin, user.id, usageData);
     }
 
     const customerId = await findStripeCustomerId(supabase, user);
@@ -252,7 +269,7 @@ export async function GET() {
       });
     }
 
-    await updateSubscriptionInDB(supabase, user.id, customerId, subscription);
+    await updateSubscriptionInDB(admin, user.id, customerId, subscription);
 
     return NextResponse.json({
       hasSubscription: true,

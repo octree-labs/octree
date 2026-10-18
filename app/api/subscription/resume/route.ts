@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 
 import { stripe } from '@/lib/stripe';
 import { requireOwnedSubscription, subscriptionSummary } from '@/lib/subscription-save';
-import { isSubscriptionPaused } from '@/lib/stripe-subscription';
+import { PAUSE_PAID_THROUGH_KEY, isSubscriptionPaused } from '@/lib/stripe-subscription';
 import { AnalyticsEvents } from '@/lib/analytics/events';
 import {
   captureServerEventAfterResponse,
@@ -30,6 +30,8 @@ export async function POST() {
 
     const resumed = await stripe.subscriptions.update(subscription.id, {
       pause_collection: '',
+      // Drop the paid-through marker the pause route wrote (null deletes the key).
+      metadata: { [PAUSE_PAID_THROUGH_KEY]: null },
     });
 
     captureServerEventAfterResponse(user.id, AnalyticsEvents.SUBSCRIPTION_RESUMED, {

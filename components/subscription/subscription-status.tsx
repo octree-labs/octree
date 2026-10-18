@@ -27,8 +27,12 @@ interface SubscriptionData {
     cancel_at_period_end: boolean;
     current_period_end: number;
     current_period_start: number;
+    /** `paused` once a paused subscription's paid period has ended. */
+    effective_status: string;
     /** Unix seconds; set while collection is paused. */
     paused_until: number | null;
+    /** Unix seconds; while paused, Pro stays on until then. */
+    pause_paid_through: number | null;
     has_discount: boolean;
     discount_coupon_id: string | null;
     items: Array<{
@@ -234,10 +238,17 @@ export function SubscriptionStatus() {
   }
 
   if (hasSubscription && subscription) {
-    const isPaused = subscription.paused_until != null;
+    // Paused (free plan now) vs. a pause scheduled for when the paid period ends.
+    const isPaused = subscription.effective_status === 'paused';
+    const pauseScheduled = !isPaused && subscription.paused_until != null;
     const isActive = subscription.status === 'active' && !isPaused;
     const isCancelling = subscription.cancel_at_period_end;
-    const pausedUntil = isPaused ? new Date(subscription.paused_until! * 1000) : null;
+    const pausedUntil =
+      subscription.paused_until != null ? new Date(subscription.paused_until * 1000) : null;
+    const pausePaidThrough =
+      subscription.pause_paid_through != null
+        ? new Date(subscription.pause_paid_through * 1000)
+        : null;
     const periodEnd = new Date(subscription.current_period_end * 1000);
     const periodStart = new Date(subscription.current_period_start * 1000);
     const hasUnlimitedAccess = usage.hasUnlimitedEdits;
@@ -271,11 +282,17 @@ export function SubscriptionStatus() {
             </Badge>
           </div>
 
-          {pausedUntil && (
+          {(isPaused || pauseScheduled) && (
             <div className="flex items-center justify-between gap-2 rounded-md bg-neutral-100 p-3">
               <span className="flex items-center gap-2 text-sm text-neutral-700">
                 <PauseCircle className="h-4 w-4 text-neutral-500" />
-                Paused until {pausedUntil.toLocaleDateString()} · free plan until then
+                {isPaused
+                  ? pausedUntil
+                    ? `Paused until ${pausedUntil.toLocaleDateString()} · free plan until then`
+                    : 'Paused · free plan until you resume'
+                  : `Pro until ${(pausePaidThrough ?? periodEnd).toLocaleDateString()}, then paused${
+                      pausedUntil ? ` until ${pausedUntil.toLocaleDateString()}` : ''
+                    }`}
               </span>
               <Button
                 variant="link"
@@ -385,7 +402,7 @@ export function SubscriptionStatus() {
             >
               {isManageLoading ? 'Loading...' : 'Manage Plan'}
             </Button>
-            {(isActive || isPaused) && !isCancelling && (
+            {(isActive || isPaused || pauseScheduled) && !isCancelling && (
               <Button
                 variant="outline"
                 size="sm"

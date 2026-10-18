@@ -70,7 +70,11 @@ export function CancelDialog({ open, onOpenChange }: CancelDialogProps) {
   const [busy, setBusy] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<CancelFeedback | null>(null);
   const [comment, setComment] = useState('');
-  const [result, setResult] = useState<{ until?: number | null; periodEnd?: number } | null>(null);
+  const [result, setResult] = useState<{
+    until?: number | null;
+    paidThrough?: number | null;
+    periodEnd?: number;
+  } | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -115,7 +119,10 @@ export function CancelDialog({ open, onOpenChange }: CancelDialogProps) {
   const handlePause = (months: PauseMonths) =>
     run(`pause-${months}`, async () => {
       const data = await pauseSubscription(months);
-      setResult({ until: data.subscription.paused_until });
+      setResult({
+        until: data.subscription.paused_until,
+        paidThrough: data.subscription.pause_paid_through,
+      });
       setStep('paused');
     });
 
@@ -133,9 +140,14 @@ export function CancelDialog({ open, onOpenChange }: CancelDialogProps) {
       setStep('canceled');
     });
 
-  const canPause = offers ? offers.effective_status !== 'paused' : false;
-  const canDiscount = offers ? !offers.has_discount && offers.effective_status !== 'paused' : false;
+  // A pause already set (active now or scheduled) rules both offers out: a
+  // second pause is a no-op and a discount would only land on voided invoices.
+  const alreadyPaused = offers ? offers.paused_until != null || offers.effective_status === 'paused' : false;
+  const isOnFreePlan = offers?.effective_status === 'paused';
+  const canPause = offers ? !alreadyPaused : false;
+  const canDiscount = offers ? !offers.has_discount && !alreadyPaused : false;
   const hasOffers = canPause || canDiscount;
+  const periodEndLabel = offers ? formatDate(offers.current_period_end) : '';
   const price = offers?.price;
   const priceNow = price ? formatMoney(price.unit_amount, price.currency) : '';
   const priceHalf = price && price.unit_amount != null
@@ -152,7 +164,9 @@ export function CancelDialog({ open, onOpenChange }: CancelDialogProps) {
               <DialogDescription>
                 {hasOffers
                   ? 'Two ways to keep Octree Pro without paying full price right now.'
-                  : 'Cancelling turns off renewal. You keep Pro until the end of the current period.'}
+                  : isOnFreePlan
+                    ? 'Your subscription is paused and you are on the free plan. Cancelling turns off renewal for good; your projects stay.'
+                    : 'Cancelling turns off renewal. You keep Pro until the end of the current period.'}
               </DialogDescription>
             </DialogHeader>
 
@@ -176,7 +190,9 @@ export function CancelDialog({ open, onOpenChange }: CancelDialogProps) {
                       <div className="space-y-1">
                         <p className="text-sm font-medium">Pause instead?</p>
                         <p className="text-sm text-neutral-600">
-                          Your projects stay. You are not billed while paused, and you can resume any time.
+                          {periodEndLabel
+                            ? `You keep Pro until ${periodEndLabel}, which you have already paid for. After that you are on the free plan with no charge until billing resumes. Your projects stay, and you can resume any time.`
+                            : 'You keep Pro until the end of the period you have paid for, then you are on the free plan with no charge until billing resumes. Your projects stay, and you can resume any time.'}
                         </p>
                       </div>
                     </div>
@@ -329,8 +345,8 @@ export function CancelDialog({ open, onOpenChange }: CancelDialogProps) {
               <DialogTitle>Subscription paused</DialogTitle>
               <DialogDescription>
                 {result?.until
-                  ? `Billing resumes on ${formatDate(result.until)}. Until then you are on the free plan and your projects stay where they are. Resume earlier from Settings any time.`
-                  : 'You are on the free plan until billing resumes. Your projects stay where they are.'}
+                  ? `You keep Pro until ${formatDate(result.paidThrough ?? offers?.current_period_end ?? result.until)}. From then until ${formatDate(result.until)} you are on the free plan and nothing is charged; billing and Pro resume on that date. Your projects stay where they are, and you can resume earlier from Settings any time.`
+                  : 'You keep Pro until the end of the period you have paid for, then you are on the free plan until billing resumes. Your projects stay where they are.'}
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>

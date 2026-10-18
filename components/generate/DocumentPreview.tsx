@@ -14,6 +14,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { FeatureList } from '@/app/onboarding/components/feature-list';
 import { createCheckoutSession } from '@/lib/requests/subscription';
+import { subscriptionGrantsPro } from '@/lib/subscription/features';
 import PDFViewer from '@/components/pdf-viewer';
 import { toast } from 'sonner';
 import { CompilationError } from '@/types/compilation';
@@ -22,6 +23,7 @@ import { PRO_PLANS } from '@/data/constants';
 
 interface SubscriptionData {
     hasSubscription: boolean;
+    subscription?: { effective_status?: string } | null;
     usage: {
         editCount: number;
         remainingEdits: number | null;
@@ -63,7 +65,7 @@ export function DocumentPreview({ latex, title, onOpenInOctree, isCreatingProjec
     }, []);
 
     const isPro = Boolean(
-        subscriptionData?.hasSubscription ||
+        subscriptionGrantsPro(subscriptionData) ||
         subscriptionData?.usage?.isPro ||
         subscriptionData?.usage?.hasUnlimitedEdits
     );

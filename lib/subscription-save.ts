@@ -8,6 +8,8 @@ import {
   SAVE_COUPON_ID,
   SAVE_COUPON_MONTHS,
   SAVE_COUPON_PERCENT_OFF,
+  pausePaidThrough,
+  pauseResumesAt,
 } from '@/lib/stripe-subscription';
 
 /**
@@ -104,6 +106,7 @@ export function subscriptionSummary(subscription: Stripe.Subscription) {
     status: subscription.status,
     cancel_at_period_end: subscription.cancel_at_period_end,
     current_period_end: subscription.current_period_end,
-    paused_until: subscription.pause_collection?.resumes_at ?? null,
+    paused_until: pauseResumesAt(subscription),
+    pause_paid_through: pausePaidThrough(subscription),
   };
 }

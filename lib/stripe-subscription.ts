@@ -8,11 +8,16 @@ import type { CancelFeedback } from '@/lib/analytics/events';
  * this without the `lib/stripe` singleton.
  *
  * Pausing: `pause_collection` (behavior `void`) leaves the Stripe status at
- * `active` and voids each invoice until `resumes_at`. The app treats that
- * window as the free tier: `effectiveSubscriptionStatus` reports `paused`, and
- * both writers of `user_usage` (webhook, subscription-status RPC) derive
- * `is_pro` from the effective status, so Pro switches off on pause and back on
- * when Stripe clears the pause (which fires `customer.subscription.updated`).
+ * `active`, keeps the billing cycle turning and voids each invoice until
+ * `resumes_at`. The user has already paid for the current period, so Pro
+ * stays on until that period ends (`metadata.pause_paid_through`, written by
+ * the pause route); from then until `resumes_at` the app treats the
+ * subscription as the free tier: `effectiveSubscriptionStatus` reports
+ * `paused`, and both writers of `user_usage` (webhook, subscription-status
+ * RPC) derive `is_pro` from the effective status. Stripe sends
+ * `customer.subscription.updated` when the paid period rolls over (the voided
+ * invoice) and again when it clears the pause, so the webhook sees both
+ * transitions; the subscription-status route recomputes on every load too.
  */
 
 export const SAVE_COUPON_ID = 'save50-2mo';
@@ -21,6 +26,12 @@ export const SAVE_COUPON_MONTHS = 2;
 
 export const PAUSE_MONTH_OPTIONS = [1, 2, 3] as const;
 export type PauseMonths = (typeof PAUSE_MONTH_OPTIONS)[number];
+
+/**
+ * Subscription metadata key: unix seconds until which the customer has paid
+ * (the `current_period_end` at the moment of pausing). Pro stays on until then.
+ */
+export const PAUSE_PAID_THROUGH_KEY = 'pause_paid_through';
 
 export const CANCEL_FEEDBACK_VALUES: readonly CancelFeedback[] = [
   'unused',
@@ -34,7 +45,7 @@ export const CANCEL_FEEDBACK_VALUES: readonly CancelFeedback[] = [
 export const CANCEL_COMMENT_MAX_LENGTH = 500;
 
 export type SubscriptionLike = Pick<Stripe.Subscription, 'status'> &
-  Partial<Pick<Stripe.Subscription, 'pause_collection' | 'discount' | 'discounts'>>;
+  Partial<Pick<Stripe.Subscription, 'pause_collection' | 'discount' | 'discounts' | 'metadata'>>;
 
 export function isPauseMonths(value: unknown): value is PauseMonths {
   return (PAUSE_MONTH_OPTIONS as readonly number[]).includes(value as number);
@@ -44,6 +55,7 @@ export function isCancelFeedback(value: unknown): value is CancelFeedback {
   return typeof value === 'string' && (CANCEL_FEEDBACK_VALUES as readonly string[]).includes(value);
 }
 
+/** True when collection is paused, whether or not the paid period has ended yet. */
 export function isSubscriptionPaused(subscription: SubscriptionLike): boolean {
   return Boolean(subscription.pause_collection);
 }
@@ -54,15 +66,31 @@ export function pauseResumesAt(subscription: SubscriptionLike): number | null {
 }
 
 /**
+ * Until when the paused customer keeps Pro (unix seconds), from the metadata
+ * the pause route writes. Null when not paused, or when the pause was set
+ * elsewhere (Stripe dashboard) and the free tier applies at once.
+ */
+export function pausePaidThrough(subscription: SubscriptionLike): number | null {
+  if (!isSubscriptionPaused(subscription)) return null;
+  const raw = subscription.metadata?.[PAUSE_PAID_THROUGH_KEY];
+  if (raw == null || raw === '') return null;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : null;
+}
+
+/**
  * The status `user_usage.subscription_status` / `is_pro` are derived from.
- * A paused subscription is `active` to Stripe but `paused` to the app.
+ * A paused subscription is `active` to Stripe but `paused` to the app once
+ * the period the customer already paid for has ended.
  */
 export function effectiveSubscriptionStatus(
-  subscription: SubscriptionLike
+  subscription: SubscriptionLike,
+  nowSeconds: number = Math.floor(Date.now() / 1000)
 ): Stripe.Subscription.Status | 'paused' {
   const { status } = subscription;
   if ((status === 'active' || status === 'trialing') && isSubscriptionPaused(subscription)) {
-    return 'paused';
+    const paidThrough = pausePaidThrough(subscription);
+    if (paidThrough == null || nowSeconds >= paidThrough) return 'paused';
   }
   return status;
 }
@@ -87,11 +115,26 @@ export function appliedCouponId(subscription: SubscriptionLike): string | null {
   return subscription.discount?.coupon?.id ?? null;
 }
 
-/** `resumes_at` for a pause of `months` calendar months from `now`, in unix seconds. */
-export function pauseResumeTimestamp(months: PauseMonths, now: Date = new Date()): number {
-  const resume = new Date(now.getTime());
-  resume.setUTCMonth(resume.getUTCMonth() + months);
-  return Math.floor(resume.getTime() / 1000);
+/**
+ * `resumes_at` for a pause of `months` calendar months after `from` (the end
+ * of the paid period), in unix seconds, computed in UTC. A day the target
+ * month does not have is clamped to its last day (Jan 31 + 1 month = Feb 28,
+ * or Feb 29 in a leap year) instead of spilling into the month after.
+ */
+export function pauseResumeTimestamp(months: PauseMonths, from: Date): number {
+  const year = from.getUTCFullYear();
+  const month = from.getUTCMonth() + months;
+  const lastDayOfTarget = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  const day = Math.min(from.getUTCDate(), lastDayOfTarget);
+  const resume = Date.UTC(
+    year,
+    month,
+    day,
+    from.getUTCHours(),
+    from.getUTCMinutes(),
+    from.getUTCSeconds()
+  );
+  return Math.floor(resume / 1000);
 }
 
 export function trimCancelComment(comment: unknown): string | undefined {
@@ -109,6 +152,8 @@ export interface SubscriptionOfferState {
   cancel_at_period_end: boolean;
   current_period_end: number;
   paused_until: number | null;
+  /** While paused: unix seconds until which Pro stays on; null when not paused. */
+  pause_paid_through: number | null;
   has_discount: boolean;
   /** Only the save coupon can be offered; another discount also blocks it. */
   discount_coupon_id: string | null;
@@ -128,6 +173,7 @@ export function describeSubscriptionOffers(subscription: Stripe.Subscription): S
     cancel_at_period_end: subscription.cancel_at_period_end,
     current_period_end: subscription.current_period_end,
     paused_until: pauseResumesAt(subscription),
+    pause_paid_through: pausePaidThrough(subscription),
     has_discount: subscriptionHasDiscount(subscription),
     discount_coupon_id: appliedCouponId(subscription),
     price: price

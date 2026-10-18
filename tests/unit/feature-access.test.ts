@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   canUseFeature,
+  subscriptionGrantsPro,
   toFeatureUsage,
   type FeatureUsage,
 } from '@/lib/subscription/features';
@@ -79,6 +80,19 @@ describe('toFeatureUsage', () => {
 
   it('treats an active Stripe subscription as Pro even if is_pro lags behind', () => {
     expect(toFeatureUsage({ hasSubscription: true, usage })).toMatchObject({ isPro: true });
+    expect(
+      toFeatureUsage({ hasSubscription: true, subscription: { effective_status: 'active' }, usage })
+    ).toMatchObject({ isPro: true });
+  });
+
+  it('does not treat a paused subscription as Pro: the server gates on is_pro = false meanwhile', () => {
+    expect(
+      toFeatureUsage({ hasSubscription: true, subscription: { effective_status: 'paused' }, usage })
+    ).toMatchObject({ isPro: false });
+    expect(
+      subscriptionGrantsPro({ hasSubscription: true, subscription: { effective_status: 'paused' } })
+    ).toBe(false);
+    expect(subscriptionGrantsPro({ hasSubscription: false, subscription: null })).toBe(false);
   });
 
   it('maps a free user at the daily limit', () => {

@@ -255,6 +255,37 @@ describe('POST /api/webhooks/stripe', () => {
       expect(mocks.usageUpsert).not.toHaveBeenCalled();
     });
 
+    it('keeps Pro for a pause taken mid-period until the paid period ends, then drops to the free tier', async () => {
+      vi.useFakeTimers();
+      try {
+        const paused = {
+          pause_collection: { behavior: 'void', resumes_at: 1_710_000_000 },
+          metadata: { user_id: 'user-1', pause_paid_through: '1702592000' },
+        };
+
+        // The pause route just ran: the customer paid through 1_702_592_000.
+        vi.setSystemTime(new Date(1_702_000_000 * 1000));
+        mocks.constructEvent.mockReturnValue(subscriptionEvent('customer.subscription.updated', paused));
+        await POST(makeRequest());
+        expect(mocks.usageUpdate.mock.calls[0][0]).toMatchObject({ is_pro: true, subscription_status: 'active' });
+
+        // The paid period rolled over (Stripe voided the invoice and sent another update).
+        vi.setSystemTime(new Date(1_702_592_000 * 1000));
+        mocks.usageUpdate.mockClear();
+        mocks.constructEvent.mockReturnValue(
+          subscriptionEvent('customer.subscription.updated', {
+            ...paused,
+            current_period_start: 1_702_592_000,
+            current_period_end: 1_705_184_000,
+          })
+        );
+        await POST(makeRequest());
+        expect(mocks.usageUpdate.mock.calls[0][0]).toMatchObject({ is_pro: false, subscription_status: 'paused' });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('restores Pro when Stripe clears the pause (resumes_at reached or the Resume button)', async () => {
       mocks.constructEvent.mockReturnValue(
         subscriptionEvent('customer.subscription.updated', { pause_collection: null })

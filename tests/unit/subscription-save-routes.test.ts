@@ -171,6 +171,7 @@ describe('GET /api/subscription/offers', () => {
         cancel_at_period_end: false,
         current_period_end: 1_702_592_000,
         paused_until: null,
+        pause_paid_through: null,
         has_discount: false,
         discount_coupon_id: null,
         price: { unit_amount: 999, currency: 'usd', interval: 'month' },
@@ -198,31 +199,40 @@ describe('POST /api/subscription/pause', () => {
     expect(res.status).toBe(400);
   });
 
-  it('pauses with behavior void until N months out, turns renewal back on, and captures both events', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-10-18T12:00:00Z'));
-    try {
-      signedInWith(subscription({ cancel_at_period_end: true }));
+  it('pauses with behavior void for N months after the paid period, keeps Pro until then, turns renewal back on, and captures both events', async () => {
+    // The paid period runs to 1_702_592_000 = 2023-12-14T22:13:20Z. The pause
+    // is counted from there (not from today), so the customer keeps the Pro
+    // time they already paid for, exactly as cancelling would.
+    signedInWith(subscription({ cancel_at_period_end: true }));
 
-      const res = await pause(post({ months: 2 }));
+    const res = await pause(post({ months: 2 }));
 
-      expect(res.status).toBe(200);
-      const expectedResume = Math.floor(Date.UTC(2026, 11, 18, 12) / 1000);
-      expect(mocks.subscriptionsUpdate).toHaveBeenCalledWith('sub_1', {
-        pause_collection: { behavior: 'void', resumes_at: expectedResume },
-        cancel_at_period_end: false,
-      });
-      const body = await res.json();
-      expect(body).toMatchObject({ success: true, alreadyPaused: false });
-      expect(body.subscription.paused_until).toBe(expectedResume);
-      expect(mocks.captureEvent).toHaveBeenCalledWith('user-1', 'cancel_offer_accepted', { offer: 'pause' });
-      expect(mocks.captureEvent).toHaveBeenCalledWith('user-1', 'subscription_paused', {
-        months: 2,
-        resumes_at: expectedResume,
-      });
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(res.status).toBe(200);
+    const expectedResume = Math.floor(Date.UTC(2024, 1, 14, 22, 13, 20) / 1000);
+    expect(mocks.subscriptionsUpdate).toHaveBeenCalledWith('sub_1', {
+      pause_collection: { behavior: 'void', resumes_at: expectedResume },
+      cancel_at_period_end: false,
+      metadata: { pause_paid_through: '1702592000' },
+    });
+    const body = await res.json();
+    expect(body).toMatchObject({ success: true, alreadyPaused: false });
+    expect(body.subscription.paused_until).toBe(expectedResume);
+    expect(body.subscription.pause_paid_through).toBe(1_702_592_000);
+    expect(mocks.captureEvent).toHaveBeenCalledWith('user-1', 'cancel_offer_accepted', { offer: 'pause' });
+    expect(mocks.captureEvent).toHaveBeenCalledWith('user-1', 'subscription_paused', {
+      months: 2,
+      resumes_at: expectedResume,
+    });
+  });
+
+  it('never resets the paid-through marker the webhook relies on to something earlier than the period end', async () => {
+    signedInWith(subscription({ current_period_end: 4_102_444_800 /* 2100-01-01 */ }));
+
+    await pause(post({ months: 1 }));
+
+    const params = mocks.subscriptionsUpdate.mock.calls[0][1];
+    expect(params.metadata.pause_paid_through).toBe('4102444800');
+    expect(params.pause_collection.resumes_at).toBe(Math.floor(Date.UTC(2100, 1, 1) / 1000));
   });
 
   it('is idempotent: an already paused subscription is returned without another update', async () => {
@@ -259,7 +269,10 @@ describe('POST /api/subscription/resume', () => {
     const res = await resume();
 
     expect(res.status).toBe(200);
-    expect(mocks.subscriptionsUpdate).toHaveBeenCalledWith('sub_1', { pause_collection: '' });
+    expect(mocks.subscriptionsUpdate).toHaveBeenCalledWith('sub_1', {
+      pause_collection: '',
+      metadata: { pause_paid_through: null },
+    });
     await expect(res.json()).resolves.toMatchObject({
       success: true,
       alreadyActive: false,

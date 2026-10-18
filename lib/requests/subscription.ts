@@ -84,6 +84,8 @@ export interface SubscriptionActionResult {
     cancel_at_period_end: boolean;
     current_period_end: number;
     paused_until: number | null;
+    /** While paused: unix seconds until which Pro stays on. */
+    pause_paid_through: number | null;
   };
 }
 

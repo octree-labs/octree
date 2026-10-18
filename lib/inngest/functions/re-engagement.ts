@@ -37,9 +37,12 @@ export const reEngagementEmailFunction = inngest.createFunction(
         .eq('user_id', event.data.userId)
         .maybeSingle();
 
+      // `paused` is a customer who chose a pause from the cancel flow and has
+      // a resume date, not a lapsed one; no win-back email either.
       if (
         usage?.subscription_status === 'active' ||
-        usage?.subscription_status === 'trialing'
+        usage?.subscription_status === 'trialing' ||
+        usage?.subscription_status === 'paused'
       ) {
         return false;
       }

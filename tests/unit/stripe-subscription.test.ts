@@ -1,11 +1,13 @@
 import { describe, it, expect } from 'vitest';
 
 import {
+  PAUSE_PAID_THROUGH_KEY,
   appliedCouponId,
   describeSubscriptionOffers,
   effectiveSubscriptionStatus,
   isCancelFeedback,
   isPauseMonths,
+  pausePaidThrough,
   pauseResumeTimestamp,
   subscriptionHasDiscount,
   trimCancelComment,
@@ -20,6 +22,36 @@ describe('effectiveSubscriptionStatus', () => {
     expect(
       effectiveSubscriptionStatus({ status: 'trialing', pause_collection: { behavior: 'void', resumes_at: null } } as any)
     ).toBe('paused');
+  });
+
+  it('keeps Pro until the paid-through date the pause route recorded, then pauses', () => {
+    const paused = {
+      status: 'active',
+      pause_collection: { behavior: 'void', resumes_at: 2_000_000 },
+      metadata: { user_id: 'user-1', [PAUSE_PAID_THROUGH_KEY]: '1500000' },
+    } as any;
+    expect(pausePaidThrough(paused)).toBe(1_500_000);
+    expect(effectiveSubscriptionStatus(paused, 1_499_999)).toBe('active');
+    expect(effectiveSubscriptionStatus(paused, 1_500_000)).toBe('paused');
+    expect(effectiveSubscriptionStatus(paused, 1_900_000)).toBe('paused');
+  });
+
+  it('ignores the paid-through marker once the pause is gone, and a malformed one while it is set', () => {
+    const resumed = {
+      status: 'active',
+      pause_collection: null,
+      metadata: { [PAUSE_PAID_THROUGH_KEY]: '1500000' },
+    } as any;
+    expect(pausePaidThrough(resumed)).toBeNull();
+    expect(effectiveSubscriptionStatus(resumed, 1)).toBe('active');
+
+    const garbage = {
+      status: 'active',
+      pause_collection: { behavior: 'void', resumes_at: null },
+      metadata: { [PAUSE_PAID_THROUGH_KEY]: 'soon' },
+    } as any;
+    expect(pausePaidThrough(garbage)).toBeNull();
+    expect(effectiveSubscriptionStatus(garbage, 1)).toBe('paused');
   });
 
   it('passes every other status through, paused or not', () => {
@@ -46,10 +78,24 @@ describe('subscriptionHasDiscount / appliedCouponId', () => {
 });
 
 describe('pauseResumeTimestamp', () => {
-  it('adds whole calendar months in UTC and returns unix seconds', () => {
-    const now = new Date('2026-10-18T12:00:00Z');
-    expect(pauseResumeTimestamp(1, now)).toBe(Math.floor(Date.UTC(2026, 10, 18, 12) / 1000));
-    expect(pauseResumeTimestamp(3, now)).toBe(Math.floor(Date.UTC(2027, 0, 18, 12) / 1000));
+  it('adds whole calendar months in UTC to the paid-through date and returns unix seconds', () => {
+    const from = new Date('2026-10-18T12:34:56Z');
+    expect(pauseResumeTimestamp(1, from)).toBe(Math.floor(Date.UTC(2026, 10, 18, 12, 34, 56) / 1000));
+    expect(pauseResumeTimestamp(3, from)).toBe(Math.floor(Date.UTC(2027, 0, 18, 12, 34, 56) / 1000));
+  });
+
+  it('clamps to the last day of a shorter target month instead of rolling over', () => {
+    const jan31 = new Date('2026-01-31T09:00:00Z');
+    expect(pauseResumeTimestamp(1, jan31)).toBe(Math.floor(Date.UTC(2026, 1, 28, 9) / 1000));
+    expect(pauseResumeTimestamp(3, jan31)).toBe(Math.floor(Date.UTC(2026, 3, 30, 9) / 1000));
+    // Leap year.
+    expect(pauseResumeTimestamp(1, new Date('2028-01-31T09:00:00Z'))).toBe(
+      Math.floor(Date.UTC(2028, 1, 29, 9) / 1000)
+    );
+    // Crossing the year boundary from a 31-day month into a 30-day one.
+    expect(pauseResumeTimestamp(2, new Date('2026-12-31T00:00:00Z'))).toBe(
+      Math.floor(Date.UTC(2027, 1, 28) / 1000)
+    );
   });
 });
 
@@ -95,6 +141,7 @@ describe('describeSubscriptionOffers', () => {
       cancel_at_period_end: false,
       current_period_end: 1_702_592_000,
       paused_until: 1_705_000_000,
+      pause_paid_through: null,
       has_discount: false,
       discount_coupon_id: null,
       price: { unit_amount: 999, currency: 'usd', interval: 'month' },

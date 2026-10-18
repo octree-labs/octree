@@ -180,6 +180,14 @@ function buildUsageResponse(
     ? Math.max(0, PRO_MONTHLY_EDIT_LIMIT - monthlyEditCount)
     : Math.max(0, FREE_DAILY_EDIT_LIMIT - editCount);
 
+  // Purchased credits (never expire) keep the editor open once the
+  // allowance is spent, so the limit flags the client gates on only trip
+  // when the credits are gone too.
+  const editCredits = usageData?.edit_credits ?? 0;
+  const allowanceSpent = isActive
+    ? monthlyEditCount >= PRO_MONTHLY_EDIT_LIMIT
+    : editCount >= FREE_DAILY_EDIT_LIMIT;
+
   return {
     editCount,
     monthlyEditCount,
@@ -189,16 +197,13 @@ function buildUsageResponse(
       : isActive
         ? baseRemainingEdits
         : 0,
+    editCredits,
     isPro: isActive || hasUnlimited || (!isPaused && Boolean(usageData?.is_pro)),
-    limitReached: hasUnlimited
-      ? false
-      : isActive
-        ? monthlyEditCount >= PRO_MONTHLY_EDIT_LIMIT
-        : editCount >= FREE_DAILY_EDIT_LIMIT,
+    limitReached: hasUnlimited ? false : allowanceSpent && editCredits <= 0,
     monthlyLimitReached: hasUnlimited
       ? false
       : isActive
-        ? monthlyEditCount >= PRO_MONTHLY_EDIT_LIMIT
+        ? allowanceSpent && editCredits <= 0
         : false,
     monthlyResetDate: usageData?.monthly_reset_date || null,
     hasUnlimitedEdits: hasUnlimited,
@@ -327,6 +332,7 @@ export async function GET() {
             unit_amount: item.price.unit_amount,
             currency: item.price.currency,
             recurring: item.price.recurring,
+            lookup_key: item.price.lookup_key ?? null,
           },
         })),
       },

@@ -6,6 +6,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 
 import {
   describeCheckoutSessionPlan,
+  grantCreditsFromCheckoutSession,
   recordStripeEvent,
   subscriptionLifecycleEvents,
   trackPurchaseFromCheckoutSession,
@@ -57,6 +58,33 @@ export async function POST(request: Request) {
     switch (event.type) {
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session;
+
+        // A paid credit pack (`mode: 'payment'`, `metadata.credits`). The
+        // grant runs BEFORE the event log below: its own ledger (unique on
+        // the session id, written in the same transaction as the balance) is
+        // the idempotency guard, and a database failure must reach Stripe
+        // (500) so the delivery is retried. If the event id were logged
+        // first, that retry would be dropped as a duplicate and the buyer
+        // left without their credits.
+        if (session.mode === 'payment') {
+          const grant = await grantCreditsFromCheckoutSession(supabase, session);
+          if (grant.granted) {
+            captureServerEventAfterResponse(grant.userId, AnalyticsEvents.CREDITS_PURCHASED, {
+              credits: grant.credits,
+              amount: typeof session.amount_total === 'number' ? session.amount_total / 100 : null,
+              currency: session.currency ? session.currency.toUpperCase() : null,
+            });
+          }
+          try {
+            if (await recordStripeEvent(supabase, event)) {
+              await trackPurchaseFromCheckoutSession(session);
+            }
+          } catch (error) {
+            console.error('Failed to track purchase conversion:', error);
+          }
+          break;
+        }
+
         // Reddit `Purchase` fires here, on confirmed payment, not on the
         // checkout button click (see app/onboarding/page.tsx).
         //

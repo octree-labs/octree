@@ -279,8 +279,9 @@ export function Chat({
               source: 'chat',
             });
           }
-          if (response.status === 429 && data.upgradeRequired) {
-            PaywallActions.open('ai-edit');
+          if (response.status === 429 && data.limitReached) {
+            // Free: upgrade or buy credits. Pro at the monthly cap: credits only.
+            PaywallActions.open('ai-edit', data.upgradeRequired ? 'daily_limit' : 'monthly_limit');
           }
         } catch {
           // Use default

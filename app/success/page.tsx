@@ -48,8 +48,17 @@ export default async function Success({ searchParams }: SuccessPageProps) {
           <CardContent className="space-y-6">
             <div className="rounded-lg bg-neutral-50 p-4 text-center border">
               <p className="text-left text-sm text-neutral-600">
-                Your subscription is now active. You can start using all{' '}
-                <b>Pro</b> features immediately.
+                {session.mode === 'payment' ? (
+                  <>
+                    <b>{session.metadata?.credits ?? '100'} AI edits</b> have been added to your
+                    account. They never expire and are used once your plan&apos;s edits run out.
+                  </>
+                ) : (
+                  <>
+                    Your subscription is now active. You can start using all{' '}
+                    <b>Pro</b> features immediately.
+                  </>
+                )}
               </p>
             </div>
 

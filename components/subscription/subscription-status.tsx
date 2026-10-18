@@ -11,12 +11,12 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { CreditCard, AlertCircle, CheckCircle, PauseCircle, Zap } from 'lucide-react';
-import { PRO_MONTHLY_EDIT_LIMIT } from '@/data/constants';
+import { CREDIT_PACKS, FREE_DAILY_EDIT_LIMIT, PRO_MONTHLY_EDIT_LIMIT } from '@/data/constants';
 import { CancelDialog } from '@/components/subscription/cancel-dialog';
-import { Switch } from '@/components/ui/switch';
-import { Label } from '@/components/ui/label';
+import { PlanPicker, type PickerPlan } from '@/components/subscription/plan-picker';
 import { FeatureList } from '@/app/onboarding/components/feature-list';
 import { createCheckoutSession, resumeSubscription } from '@/lib/requests/subscription';
+import { describePlanPeriod } from '@/lib/stripe-subscription';
 import { toast } from 'sonner';
 
 interface SubscriptionData {
@@ -43,7 +43,9 @@ interface SubscriptionData {
         currency: string;
         recurring: {
           interval: string;
-        };
+          interval_count?: number | null;
+        } | null;
+        lookup_key?: string | null;
       };
     }>;
   } | null;
@@ -52,6 +54,8 @@ interface SubscriptionData {
     monthlyEditCount: number;
     remainingEdits: number | null;
     remainingMonthlyEdits: number | null;
+    /** Purchased AI edits left; never expire. */
+    editCredits?: number;
     isPro: boolean;
     limitReached: boolean;
     monthlyLimitReached: boolean;
@@ -68,7 +72,8 @@ export function SubscriptionStatus() {
   const [isManageLoading, setIsManageLoading] = useState(false);
   const [isResumeLoading, setIsResumeLoading] = useState(false);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
-  const [isMonthly, setIsMonthly] = useState(true);
+  const [plan, setPlan] = useState<PickerPlan>('monthly');
+  const [isCreditsLoading, setIsCreditsLoading] = useState(false);
 
   useEffect(() => {
     fetchSubscriptionStatus();
@@ -94,7 +99,7 @@ export function SubscriptionStatus() {
 
     try {
       const checkoutUrl = await createCheckoutSession({
-        annual: isMonthly,
+        plan,
         withTrial: false,
         source: 'settings',
       });
@@ -105,6 +110,38 @@ export function SubscriptionStatus() {
       setIsCheckoutLoading(false);
     }
   };
+
+  const handleBuyCredits = async () => {
+    setIsCreditsLoading(true);
+    try {
+      const checkoutUrl = await createCheckoutSession({ plan: 'credits_100', source: 'settings' });
+      window.location.href = checkoutUrl;
+    } catch (error) {
+      console.error('Error creating credits checkout session:', error);
+      toast.error('Failed to start checkout. Please try again.');
+      setIsCreditsLoading(false);
+    }
+  };
+
+  const creditsRow = (credits: number) => (
+    <div className="flex items-center justify-between gap-2">
+      <span className="text-sm font-medium text-neutral-700">Purchased edits</span>
+      <div className="flex items-center gap-2">
+        <span className="text-sm text-neutral-500">
+          {credits} {credits === 1 ? 'credit' : 'credits'} left
+        </span>
+        <Button
+          variant="link"
+          size="sm"
+          className="h-auto p-0"
+          onClick={handleBuyCredits}
+          disabled={isCreditsLoading}
+        >
+          {isCreditsLoading ? 'Loading...' : `Buy ${CREDIT_PACKS.credits_100.credits} for ${CREDIT_PACKS.credits_100.price}`}
+        </Button>
+      </div>
+    </div>
+  );
 
   const handleManageSubscription = async () => {
     setIsManageLoading(true);
@@ -256,7 +293,8 @@ export function SubscriptionStatus() {
     const price = subscription.items[0]?.price;
     const amount = price ? (price.unit_amount / 100).toFixed(2) : '0.00';
     const currency = price?.currency?.toUpperCase() || 'USD';
-    const interval = price?.recurring?.interval || 'month';
+    const planPeriod = describePlanPeriod(price?.recurring, periodEnd, isCancelling);
+    const editCredits = usage.editCredits ?? 0;
 
     return (
       <Card>
@@ -321,7 +359,7 @@ export function SubscriptionStatus() {
                 Current Plan
               </label>
               <p className="text-sm text-neutral-500">
-                {amount} {currency}/{interval}
+                {amount} {currency} · {planPeriod}
               </p>
             </div>
             <div>
@@ -344,7 +382,7 @@ export function SubscriptionStatus() {
                 {hasUnlimitedAccess
                   ? 'Unlimited edits enabled'
                   : isActive
-                    ? `${usage.monthlyEditCount}/50 monthly edits`
+                    ? `${usage.monthlyEditCount}/${PRO_MONTHLY_EDIT_LIMIT} monthly edits`
                     : `${usage.editCount} edits`}
               </span>
               {hasUnlimitedAccess ? (
@@ -382,7 +420,7 @@ export function SubscriptionStatus() {
                 <div className="h-2 w-full rounded-full bg-blue-200">
                   <div
                     className="h-2 rounded-full bg-blue-500 transition-all duration-300"
-                    style={{ width: `${(usage.monthlyEditCount / 50) * 100}%` }}
+                    style={{ width: `${Math.min(100, (usage.monthlyEditCount / PRO_MONTHLY_EDIT_LIMIT) * 100)}%` }}
                   />
                 </div>
                 {usage.monthlyResetDate && (
@@ -393,6 +431,8 @@ export function SubscriptionStatus() {
                 )}
               </div>
             ))}
+
+          {!hasUnlimitedAccess && creditsRow(editCredits)}
 
           <div className="flex gap-2">
             <Button
@@ -440,50 +480,30 @@ export function SubscriptionStatus() {
               Your Usage
             </span>
             <Badge variant={usage.limitReached ? 'destructive' : 'secondary'}>
-              {usage.editCount}/5 edits used
+              {usage.editCount}/{FREE_DAILY_EDIT_LIMIT} edits used
             </Badge>
           </div>
           <div className="h-2 w-full rounded-full bg-neutral-200">
             <div
               className="h-2 rounded-full bg-amber-500 transition-all duration-300"
-              style={{ width: `${(usage.editCount / 5) * 100}%` }}
+              style={{ width: `${Math.min(100, (usage.editCount / FREE_DAILY_EDIT_LIMIT) * 100)}%` }}
             />
           </div>
           <p className="mt-2 text-xs text-neutral-500">
             {usage.remainingEdits && usage.remainingEdits > 0
-              ? `${usage.remainingEdits} edits remaining`
-              : 'No edits remaining'}
+              ? `${usage.remainingEdits} free edits remaining today`
+              : 'No free edits remaining today'}
+            {(usage.editCredits ?? 0) > 0 && ` · ${usage.editCredits} purchased credits left`}
           </p>
         </div>
 
-        {/* Billing Toggle */}
-        <div className="flex items-center gap-2">
-          <Switch
-            id="monthly-switch"
-            checked={isMonthly}
-            onCheckedChange={setIsMonthly}
-          />
-          <Label
-            htmlFor="monthly-switch"
-            className="cursor-pointer text-sm font-normal"
-          >
-            Save 50% with monthly billing
-          </Label>
-        </div>
-
-        {/* Pricing */}
-        <div className="space-y-1">
-          <div className="flex items-baseline gap-2">
-            <p className="text-3xl font-bold">{isMonthly ? '$2.49' : '$4.99'}</p>
-            <p className="text-sm text-muted-foreground">per week</p>
-          </div>
-          {isMonthly && (
-            <p className="text-xs text-muted-foreground">Billed monthly at $9.99/month</p>
-          )}
-          {!isMonthly && (
-            <p className="text-xs text-muted-foreground">Billed weekly</p>
-          )}
-        </div>
+        {/* Plans */}
+        <PlanPicker
+          plan={plan}
+          onPlanChange={setPlan}
+          source="settings"
+          disabled={isCheckoutLoading}
+        />
 
         {/* Features */}
         <div>

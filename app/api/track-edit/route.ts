@@ -4,10 +4,12 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { hasUnlimitedEdits } from '@/lib/paywall';
 import type { TablesInsert, TablesUpdate, Tables } from '@/database.types';
 import { FREE_DAILY_EDIT_LIMIT, PRO_MONTHLY_EDIT_LIMIT } from '@/data/constants';
+import { decideAllowance } from '@/lib/usage/allowance';
 
 type UsageSlice = {
   edit_count: number;
   monthly_edit_count: number;
+  edit_credits: number;
   daily_reset_date: string | null;
   monthly_reset_date: string | null;
   is_pro: boolean;
@@ -42,7 +44,7 @@ export async function GET() {
     // Fetch user usage data
     const usageRes = await supabase
       .from('user_usage' as const)
-      .select('edit_count, monthly_edit_count, daily_reset_date, monthly_reset_date, is_pro, subscription_status')
+      .select('edit_count, monthly_edit_count, edit_credits, daily_reset_date, monthly_reset_date, is_pro, subscription_status')
       .eq('user_id', user.id)
       .single();
     const usageData = usageRes.data as UsageSlice | null;
@@ -64,7 +66,7 @@ export async function GET() {
         admin.from('user_usage') as any
       )
         .insert(newUsagePayload)
-        .select('edit_count, monthly_edit_count, monthly_reset_date, is_pro, subscription_status')
+        .select('edit_count, monthly_edit_count, edit_credits, monthly_reset_date, is_pro, subscription_status')
         .single();
       const newUsageData = newUsageRes.data as UsageSlice | null;
       const createError = newUsageRes.error;
@@ -83,6 +85,7 @@ export async function GET() {
         monthlyEditCount: 0,
         limit: hasUnlimitedUser ? null : FREE_DAILY_EDIT_LIMIT,
         monthlyLimit: hasUnlimitedUser ? null : PRO_MONTHLY_EDIT_LIMIT,
+        editCredits: newUsageData?.edit_credits ?? 0,
         isPro: hasUnlimitedUser,
         subscriptionStatus: hasUnlimitedUser ? 'unlimited' : 'inactive',
         monthlyResetDate: newUsageData?.monthly_reset_date ?? null,
@@ -144,8 +147,15 @@ export async function GET() {
 
     const editCount = usageData?.edit_count ?? 0;
     const monthlyEditCount = usageData?.monthly_edit_count ?? 0;
+    const editCredits = usageData?.edit_credits ?? 0;
     const isPro = usageData?.is_pro || hasUnlimitedUser;
-    const canEdit = hasUnlimitedUser || (isPro ? monthlyEditCount < PRO_MONTHLY_EDIT_LIMIT : editCount < FREE_DAILY_EDIT_LIMIT);
+    // Purchased credits keep editing possible once the allowance is spent.
+    const canEdit =
+      hasUnlimitedUser ||
+      decideAllowance(
+        { edit_count: editCount, monthly_edit_count: monthlyEditCount, edit_credits: editCredits },
+        isPro
+      ) !== 'blocked';
 
     return NextResponse.json({
       canEdit,
@@ -153,6 +163,7 @@ export async function GET() {
       monthlyEditCount,
       limit: hasUnlimitedUser || isPro ? null : FREE_DAILY_EDIT_LIMIT,
       monthlyLimit: isPro ? PRO_MONTHLY_EDIT_LIMIT : null,
+      editCredits,
       isPro,
       subscriptionStatus: usageData?.subscription_status ?? (hasUnlimitedUser ? 'unlimited' : 'inactive'),
       monthlyResetDate: usageData?.monthly_reset_date ?? null,
@@ -190,7 +201,7 @@ export async function POST() {
     // First, ensure user has a usage record
     const initialRes = await supabase
       .from('user_usage' as const)
-      .select('edit_count, monthly_edit_count, daily_reset_date, monthly_reset_date, is_pro, subscription_status')
+      .select('edit_count, monthly_edit_count, edit_credits, daily_reset_date, monthly_reset_date, is_pro, subscription_status')
       .eq('user_id', user.id)
       .single();
     let usageData = initialRes.data as UsageSlice | null;
@@ -214,7 +225,7 @@ export async function POST() {
         admin.from('user_usage') as any
       )
         .insert(newUsagePayload)
-        .select('edit_count, monthly_edit_count, daily_reset_date, monthly_reset_date, is_pro, subscription_status')
+        .select('edit_count, monthly_edit_count, edit_credits, daily_reset_date, monthly_reset_date, is_pro, subscription_status')
         .single();
       const newUsageData = newUsageRes.data as UsageSlice | null;
       const createError = newUsageRes.error;
@@ -277,7 +288,7 @@ export async function POST() {
       )
         .update(updatePayload)
         .eq('user_id', user.id)
-        .select('edit_count, monthly_edit_count, monthly_reset_date, is_pro, subscription_status')
+        .select('edit_count, monthly_edit_count, edit_credits, monthly_reset_date, is_pro, subscription_status')
         .single();
 
       if (unlimitedRes.error) {
@@ -316,7 +327,7 @@ export async function POST() {
     // Call the database function to increment edit count and check limits
     const rpcArgs = { p_user_id: user.id } as const;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase.rpc('increment_edit_count', rpcArgs as any));
+    const { data: incremented, error } = await (supabase.rpc('increment_edit_count', rpcArgs as any));
 
     if (error) {
       console.error('Error incrementing edit count:', error);
@@ -326,10 +337,23 @@ export async function POST() {
       );
     }
 
+    // Allowance spent: a purchased credit covers the edit, if any are left
+    // (lib/usage/allowance.ts). Credits are never touched while the daily or
+    // monthly allowance has room, so the RPC above always runs first.
+    let data = incremented as boolean;
+    if (!data) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const credit = await (supabase.rpc('consume_edit_credit', rpcArgs as any));
+      if (credit.error) {
+        console.error('Error consuming edit credit:', credit.error);
+      }
+      data = credit.data === true;
+    }
+
     // Get updated usage info
     const updatedRes = await supabase
       .from('user_usage' as const)
-      .select('edit_count, monthly_edit_count, daily_reset_date, monthly_reset_date, is_pro, subscription_status')
+      .select('edit_count, monthly_edit_count, edit_credits, daily_reset_date, monthly_reset_date, is_pro, subscription_status')
       .eq('user_id', user.id)
       .single();
     // Cast via unknown to satisfy TS when nullable responses occur
@@ -346,10 +370,14 @@ export async function POST() {
       remainingMonthlyEdits,
       editCount: updatedUsageData.edit_count,
       monthlyEditCount: updatedUsageData.monthly_edit_count,
+      editCredits: updatedUsageData.edit_credits ?? 0,
       isPro: updatedUsageData.is_pro,
       subscriptionStatus: updatedUsageData.subscription_status,
       limitReached: !canEdit,
-      monthlyLimitReached: updatedUsageData.is_pro && updatedUsageData.monthly_edit_count >= PRO_MONTHLY_EDIT_LIMIT,
+      monthlyLimitReached:
+        updatedUsageData.is_pro &&
+        updatedUsageData.monthly_edit_count >= PRO_MONTHLY_EDIT_LIMIT &&
+        (updatedUsageData.edit_credits ?? 0) <= 0,
       monthlyResetDate: updatedUsageData.monthly_reset_date,
       hasUnlimitedEdits: false
     });

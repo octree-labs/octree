@@ -23,7 +23,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
 
 import { ProgressDots } from './components/progress-dots';
 import { FeatureList } from './components/feature-list';
@@ -35,6 +34,7 @@ import {
 } from './constants';
 import { OctreeLogo, OctreeWordmark } from '@/components/icons/octree-logo';
 import { FREE_DAILY_EDIT_LIMIT } from '@/data/constants';
+import { PlanPicker, type PickerPlan } from '@/components/subscription/plan-picker';
 import { createCheckoutSession } from '@/lib/requests/subscription';
 import { getUserUsageStatus, upsertUserUsage } from '@/lib/requests/user';
 import { completeFreeOnboarding } from '@/lib/requests/onboarding';
@@ -47,7 +47,7 @@ export default function OnboardingPage() {
   const [useCase, setUseCase] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [userEmail, setUserEmail] = useState<string>('');
-  const [isMonthly, setIsMonthly] = useState(true);
+  const [plan, setPlan] = useState<PickerPlan>('monthly');
   const router = useRouter();
 
   useEffect(() => {
@@ -130,7 +130,7 @@ export default function OnboardingPage() {
       setIsSubmitting(true);
       try {
         const checkoutUrl = await createCheckoutSession({
-          annual: isMonthly,
+          plan,
           withTrial: false,
           source: 'onboarding',
         });
@@ -267,40 +267,13 @@ export default function OnboardingPage() {
               </p>
             </div>
             <div className="relative rounded-lg border border-border bg-blue-50/50 p-4 space-y-4 mt-4">
-              {isMonthly && (
-                <div className="absolute -top-3 left-4">
-                  <span className="rounded-full bg-primary px-2.5 py-0.5 text-xs font-medium text-primary-foreground">Popular</span>
-                </div>
-              )}
-
-              <div className="space-y-1">
-                <div className="flex items-baseline gap-2">
-                  <p className="text-3xl font-bold">{isMonthly ? '$2.49' : '$4.99'}</p>
-                  <p className="text-sm text-muted-foreground">per week</p>
-                  {isMonthly && (
-                    <p className="text-sm text-muted-foreground line-through">$4.99</p>
-                  )}
-                </div>
-                {isMonthly ? (
-                  <p className="text-xs text-muted-foreground">Billed monthly at $9.99/month — save 50%</p>
-                ) : (
-                  <p className="text-xs text-muted-foreground">Billed weekly at $4.99/week</p>
-                )}
-              </div>
-
-              <div className="flex items-center gap-2">
-                <Switch
-                  id="monthly-switch"
-                  checked={isMonthly}
-                  onCheckedChange={setIsMonthly}
-                />
-                <Label
-                  htmlFor="monthly-switch"
-                  className="cursor-pointer text-sm font-normal"
-                >
-                  {isMonthly ? 'Monthly billing enabled' : 'Switch to monthly and save 50%'}
-                </Label>
-              </div>
+              <PlanPicker
+                plan={plan}
+                onPlanChange={setPlan}
+                source="onboarding"
+                hideCredits
+                disabled={isSubmitting}
+              />
 
               <div>
                 <p className="mb-4 text-sm font-semibold">What you get with Pro</p>

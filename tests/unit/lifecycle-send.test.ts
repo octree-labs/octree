@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 
 import { sendLifecycleBatch, sendLifecycleEmail, unsubscribeHeaders, type LifecycleSendDeps } from '@/lib/lifecycle/send';
 import { SCHEDULED_LIFECYCLE_TEMPLATES, renderLifecycleTemplate } from '@/lib/email/lifecycle';
+import { withEmailUtm } from '@/lib/email/lifecycle/layout';
 
 function deps(overrides: Partial<LifecycleSendDeps> = {}) {
   const sent: Array<{ to: string; subject: string; headers: Record<string, string> }> = [];
@@ -145,7 +146,63 @@ describe('lifecycle templates', () => {
       expect(html).toContain(`https://tools.example.com/templates/${slug}`);
       expect(text).toContain(`https://tools.example.com/templates/${slug}`);
     }
-    expect(html).toContain('href="https://app.example.com/"');
+    expect(html).toContain('href="https://app.example.com/?utm_source=lifecycle&amp;utm_medium=email&amp;utm_campaign=welcome"');
+  });
+
+  it('pro_inactive is short, un-salesy, and names the three two-minute things', () => {
+    const { subject, text, html } = renderLifecycleTemplate('pro_inactive', input);
+    expect(subject).toBe('Your Octree Pro plan is waiting');
+    expect(text).toContain('.tex');
+    expect(text).toContain('Fix with AI');
+    expect(text).toContain('Export');
+    expect(html).toContain('href="https://app.example.com/?utm_source=lifecycle&amp;utm_medium=email&amp;utm_campaign=pro_inactive"');
+    for (const salesy of ['$', 'Upgrade', 'last chance', 'expires', 'hurry']) {
+      expect(text).not.toContain(salesy);
+    }
+    expect(text.split(/\n\n/).length).toBeLessThanOrEqual(9);
+  });
+
+  describe('campaign tagging (withEmailUtm)', () => {
+    it.each(SCHEDULED_LIFECYCLE_TEMPLATES)('%s tags every Octree link in both bodies and leaves the unsubscribe link alone', (template) => {
+      const { html, text } = renderLifecycleTemplate(template, input);
+      const hrefs = Array.from(html.matchAll(/href="([^"]+)"/g), (m) => m[1].replace(/&amp;/g, '&'));
+      expect(hrefs.length).toBeGreaterThanOrEqual(2);
+      for (const href of hrefs) {
+        if (href === input.unsubscribeUrl) continue;
+        expect(href).toContain(`utm_campaign=${template}`);
+        expect(href).toContain('utm_source=lifecycle');
+        expect(href).toContain('utm_medium=email');
+      }
+      expect(hrefs).toContain(input.unsubscribeUrl);
+      expect(html).not.toContain(`${input.unsubscribeUrl}&utm`);
+      // The text version links the same places.
+      const textUrls = Array.from(text.matchAll(/https?:\/\/[^\s)]+/g), (m) => m[0]);
+      for (const url of textUrls) {
+        if (url === input.unsubscribeUrl) continue;
+        expect(url).toContain(`utm_campaign=${template}`);
+      }
+    });
+
+    it('appends to an existing query, keeps a fragment and never overwrites a utm already there', () => {
+      expect(withEmailUtm('https://app.example.com/?upgrade=1', 'limit_hit')).toBe(
+        'https://app.example.com/?upgrade=1&utm_source=lifecycle&utm_medium=email&utm_campaign=limit_hit'
+      );
+      expect(withEmailUtm('https://app.example.com/docs#top', 'day7')).toBe(
+        'https://app.example.com/docs?utm_source=lifecycle&utm_medium=email&utm_campaign=day7#top'
+      );
+      expect(withEmailUtm('https://app.example.com/?utm_campaign=custom', 'day7')).toBe(
+        'https://app.example.com/?utm_campaign=custom&utm_source=lifecycle&utm_medium=email'
+      );
+    });
+
+    it('leaves Stripe-hosted pages and non-URLs as they are', () => {
+      expect(withEmailUtm('https://checkout.stripe.com/c/pay/cs_1#fid', 'checkout_recovery')).toBe(
+        'https://checkout.stripe.com/c/pay/cs_1#fid'
+      );
+      expect(withEmailUtm('https://invoice.stripe.com/i/in_1?s=ap', 'payment_failed')).toBe('https://invoice.stripe.com/i/in_1?s=ap');
+      expect(withEmailUtm('mailto:basil@example.com', 'welcome')).toBe('mailto:basil@example.com');
+      expect(withEmailUtm('not a url', 'welcome')).toBe('not a url');
+    });
   });
 
   it('limit_hit and winback deep-link to the paywall', () => {

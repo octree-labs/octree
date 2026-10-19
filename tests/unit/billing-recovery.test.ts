@@ -210,8 +210,9 @@ describe('billing recovery templates', () => {
     expect(subject).toBe("Your Octree Pro payment didn't go through");
     expect(text).toContain('$9.99');
     expect(text).toContain('October 21');
+    // Stripe-hosted pages are linked as issued; Octree links carry the campaign tag.
     expect(html).toContain('href="https://invoice.stripe.com/i/in_1"');
-    expect(html).toContain('href="https://app.example.com/settings"');
+    expect(html).toContain('href="https://app.example.com/settings?utm_source=lifecycle&amp;utm_medium=email&amp;utm_campaign=payment_failed"');
     expect(text).not.toContain('Unsubscribe');
     expect(html).not.toContain('Unsubscribe');
     expect(html.match(/border-radius:8px/g)).toHaveLength(1);
@@ -220,7 +221,7 @@ describe('billing recovery templates', () => {
   it('payment_failed falls back to the portal and says so when no retry is scheduled', () => {
     const { html, text } = paymentFailedReminderEmail({ ...failed, hostedInvoiceUrl: null, nextPaymentAttempt: null });
     expect(text).toContain('no further automatic retry');
-    expect(html).toContain('href="https://app.example.com/settings"');
+    expect(html).toContain('href="https://app.example.com/settings?utm_source=lifecycle&amp;utm_medium=email&amp;utm_campaign=payment_failed_reminder"');
     expect(html).not.toContain('invoice.stripe.com');
   });
 

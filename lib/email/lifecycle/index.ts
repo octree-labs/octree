@@ -7,7 +7,7 @@ export type { LifecycleEmailContent } from './layout';
  * The scheduled templates: picked by the daily cron from the user's state,
  * at most once per user, rendered from the app URLs alone.
  */
-export const SCHEDULED_LIFECYCLE_TEMPLATES = ['welcome', 'limit_hit', 'day7', 'winback'] as const;
+export const SCHEDULED_LIFECYCLE_TEMPLATES = ['welcome', 'limit_hit', 'day7', 'winback', 'pro_inactive'] as const;
 export type ScheduledLifecycleTemplate = (typeof SCHEDULED_LIFECYCLE_TEMPLATES)[number];
 
 /**
@@ -54,6 +54,7 @@ const PRO_LINE = `Pro is ${PRO_PLANS.monthly.price}/month: ${PRO_MONTHLY_EDIT_LI
 export function welcomeEmail(input: LifecycleTemplateInput): LifecycleEmailContent {
   const templates = `${input.toolsUrl}/templates`;
   return renderLifecycleEmail({
+    template: 'welcome',
     subject: 'Start with a template',
     preheader: 'Three LaTeX templates that open straight in Octree.',
     paragraphs: [
@@ -74,6 +75,7 @@ export function welcomeEmail(input: LifecycleTemplateInput): LifecycleEmailConte
 
 export function limitHitEmail(input: LifecycleTemplateInput): LifecycleEmailContent {
   return renderLifecycleEmail({
+    template: 'limit_hit',
     subject: "You've used your free AI edits",
     preheader: `Pro: ${PRO_MONTHLY_EDIT_LIMIT} AI edits a month, export, Generate. ${PRO_PLANS.monthly.price}/month.`,
     paragraphs: [
@@ -88,6 +90,7 @@ export function limitHitEmail(input: LifecycleTemplateInput): LifecycleEmailCont
 
 export function day7Email(input: LifecycleTemplateInput): LifecycleEmailContent {
   return renderLifecycleEmail({
+    template: 'day7',
     subject: 'One Octree tip: jump from PDF to source',
     preheader: 'Double-click the PDF to land on the exact line of LaTeX.',
     paragraphs: [
@@ -102,6 +105,7 @@ export function day7Email(input: LifecycleTemplateInput): LifecycleEmailContent 
 
 export function winbackEmail(input: LifecycleTemplateInput): LifecycleEmailContent {
   return renderLifecycleEmail({
+    template: 'winback',
     subject: "What's changed in Octree since you left",
     preheader: 'Free editor access, faster compiles, new templates and converters.',
     paragraphs: [
@@ -120,11 +124,33 @@ export function winbackEmail(input: LifecycleTemplateInput): LifecycleEmailConte
   });
 }
 
+/**
+ * To a paying subscriber who has not touched Octree for a week. No pitch
+ * (they already pay): three things that take two minutes each, one button.
+ */
+export function proInactiveEmail(input: LifecycleTemplateInput): LifecycleEmailContent {
+  return renderLifecycleEmail({
+    template: 'pro_inactive',
+    subject: 'Your Octree Pro plan is waiting',
+    preheader: 'Three two-minute things you can do with it today.',
+    paragraphs: [
+      p("Basil here. You're on Octree Pro and haven't opened it in about a week. That's fine; documents come in waves. If you have a spare two minutes, any of these pays for itself:"),
+      p('Import an existing .tex file or a ZIP (an Overleaf export works as-is): New Project on the dashboard, upload it, and it compiles right away.'),
+      p('Fix a compile error with the AI: open a project whose build fails and press "Fix with AI" on the error. It edits the line; you accept or reject.'),
+      p('Export a finished PDF: the Export button in the editor gives you the PDF, or the full source as a ZIP.'),
+      p("If none of that is useful right now, nothing to do. Reply if there's something you expected Octree to do and it doesn't; that is the most useful email I get."),
+    ],
+    cta: { label: 'Open Octree', href: `${input.appUrl}/` },
+    unsubscribeUrl: input.unsubscribeUrl,
+  });
+}
+
 export const LIFECYCLE_EMAILS: Record<ScheduledLifecycleTemplate, (input: LifecycleTemplateInput) => LifecycleEmailContent> = {
   welcome: welcomeEmail,
   limit_hit: limitHitEmail,
   day7: day7Email,
   winback: winbackEmail,
+  pro_inactive: proInactiveEmail,
 };
 
 /**
@@ -201,6 +227,7 @@ function paymentFailedBody(input: PaymentFailedEmailInput, reminder: boolean) {
 export function paymentFailedEmail(input: PaymentFailedEmailInput): LifecycleEmailContent {
   const { amount, paragraphs } = paymentFailedBody(input, false);
   return renderLifecycleEmail({
+    template: 'payment_failed',
     subject: "Your Octree Pro payment didn't go through",
     preheader: `The ${amount} payment failed. Update your card to keep Pro.`,
     paragraphs,
@@ -212,6 +239,7 @@ export function paymentFailedEmail(input: PaymentFailedEmailInput): LifecycleEma
 export function paymentFailedReminderEmail(input: PaymentFailedEmailInput): LifecycleEmailContent {
   const { amount, paragraphs } = paymentFailedBody(input, true);
   return renderLifecycleEmail({
+    template: 'payment_failed_reminder',
     subject: 'Reminder: Octree Pro payment still failing',
     preheader: `The ${amount} payment is still open. Update your card to keep Pro.`,
     paragraphs,
@@ -253,6 +281,7 @@ function cartLabel(input: Pick<CheckoutRecoveryEmailInput, 'plan' | 'amountCents
 export function checkoutRecoveryEmail(input: CheckoutRecoveryEmailInput): LifecycleEmailContent {
   const cart = cartLabel(input);
   return renderLifecycleEmail({
+    template: 'checkout_recovery',
     subject: 'Your Octree checkout is still open',
     preheader: `Pick up where you left off: ${cart}.`,
     paragraphs: [
@@ -277,6 +306,7 @@ export function checkoutRecoveryOfferEmail(input: CheckoutRecoveryEmailInput): L
         p('Free stays free: 5 AI edits a day, unlimited compiles. Pro is for when you reach for the AI a lot.'),
       ];
   return renderLifecycleEmail({
+    template: 'checkout_recovery_offer',
     subject: input.promoCode ? 'Half price for two months of Octree Pro' : 'Still thinking about Octree Pro?',
     preheader: input.promoCode
       ? `Code ${input.promoCode}: 50% off your first two months.`

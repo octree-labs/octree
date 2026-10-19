@@ -43,7 +43,7 @@ import { markGenerateWalkthroughSeen } from '@/lib/requests/walkthrough';
 import { useSubscriptionUsage } from '@/hooks/use-subscription-usage';
 import { canUseFeature } from '@/lib/subscription/features';
 import { PaywallActions } from '@/stores/paywall';
-import { AnalyticsEvents } from '@/lib/analytics/events';
+import { AnalyticsEvents, generateEntryFromParam, type GenerateEntry } from '@/lib/analytics/events';
 import { track } from '@/lib/analytics/track';
 
 const GENERATE_ONBOARDING_STORAGE_KEY = 'octree_generate_onboarding_completed';
@@ -197,6 +197,14 @@ export function GeneratePageContent({
     return null;
   }, [subscriptionUsage]);
 
+  // `/generate?from=onboarding|dashboard` says which card sent the visitor;
+  // read once on mount so a later in-page navigation does not lose it.
+  const entryRef = useRef<GenerateEntry>('direct');
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    entryRef.current = generateEntryFromParam(new URLSearchParams(window.location.search).get('from'));
+  }, []);
+
   // Back from the $2.99 Checkout (`/generate?purchased=1`). The webhook that
   // grants the credit can land a moment after the redirect, so re-read the
   // allowance now and once more shortly after.
@@ -219,6 +227,7 @@ export function GeneratePageContent({
       track(AnalyticsEvents.GENERATE_SUBMITTED, {
         attachment_count: attachedFiles.length,
         is_continuation: Boolean(currentDocument),
+        entry: entryRef.current,
       });
       generateDocument();
       return;

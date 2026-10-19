@@ -26,9 +26,18 @@ export function isSignUpAlreadyTracked(user: OnboardingUser): boolean {
  * already did) so free acquisition stays measurable. The flag is written
  * first; tracking never blocks or fails it.
  */
-export async function completeFreeOnboarding(user: OnboardingUser): Promise<void> {
+export async function completeFreeOnboarding(
+  user: OnboardingUser,
+  details: { referralSource?: string | null } = {}
+): Promise<void> {
   await upsertUserUsage(user.id, { onboarding_completed: true });
-  track(AnalyticsEvents.ONBOARDING_COMPLETED, { plan: 'free' });
+  // The answer is also a person property via identify, but person
+  // properties are a snapshot; carrying it on the event lets the
+  // acquisition breakdown be read for any date range.
+  track(AnalyticsEvents.ONBOARDING_COMPLETED, {
+    plan: 'free',
+    ...(details.referralSource ? { referral_source: details.referralSource } : {}),
+  });
   if (!isSignUpAlreadyTracked(user)) {
     trackRedditEvent('SignUp', user.email ?? undefined);
   }

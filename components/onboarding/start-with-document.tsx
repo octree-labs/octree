@@ -327,7 +327,7 @@ export function StartWithDocument({ context, onSkip, targets, className }: Start
         <span data-onboarding-target={targets?.generate}>
           Nothing to bring?{' '}
           <Link
-            href="/generate"
+            href={`/generate?from=${context}`}
             onClick={() => select('generate')}
             className="font-medium text-primary underline-offset-4 hover:underline"
           >

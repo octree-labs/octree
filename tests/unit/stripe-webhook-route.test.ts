@@ -99,6 +99,7 @@ vi.mock('@supabase/supabase-js', () => ({
 vi.mock('@/lib/email/client', () => ({
   resend: { emails: { send: mocks.resendSend } },
   FROM_ADDRESS: 'Octree <test@example.com>',
+  REPLY_TO_ADDRESS: undefined,
 }));
 
 vi.mock('@/lib/posthog-server', () => ({

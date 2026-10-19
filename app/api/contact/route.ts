@@ -1,7 +1,17 @@
 import { NextResponse } from 'next/server';
-import { Resend } from 'resend';
+import { resend, FROM_ADDRESS } from '@/lib/email/client';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+const CONTACT_INBOX =
+  process.env.CONTACT_INBOX || process.env.OPS_ALERT_EMAIL || 'basil@useoctree.com';
+
+function escapeHtml(value: unknown): string {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 export async function POST(request: Request) {
   try {
@@ -17,19 +27,22 @@ export async function POST(request: Request) {
     }
 
     // send email via resend
+    // Sent from the verified domain; delivered to the owner's inbox (the
+    // old useoctree.online mailbox had no receiving record). Form fields are
+    // visitor input, so they are escaped before going into the HTML body.
     const { data, error } = await resend.emails.send({
-      from: 'basil@useoctree.online',
-      to: 'basil@useoctree.online',
+      from: FROM_ADDRESS,
+      to: CONTACT_INBOX,
       replyTo: email,
       subject: `Contact Form: ${subject}`,
       html: `
         <h2>New Contact Form Submission</h2>
-        <p><strong>Name:</strong> ${name}</p>
-        <p><strong>Email:</strong> ${email}</p>
-        <p><strong>Subject:</strong> ${subject}</p>
+        <p><strong>Name:</strong> ${escapeHtml(name)}</p>
+        <p><strong>Email:</strong> ${escapeHtml(email)}</p>
+        <p><strong>Subject:</strong> ${escapeHtml(subject)}</p>
         <hr />
         <p><strong>Message:</strong></p>
-        <p>${message.replace(/\n/g, '<br>')}</p>
+        <p>${escapeHtml(message).replace(/\n/g, '<br>')}</p>
       `,
     });
 

@@ -39,6 +39,24 @@ export const PASTE_PROJECT_TITLE = 'Pasted document';
 export const BLANK_PROJECT_TITLE = 'My first project';
 export const MAX_PROJECT_TITLE_LENGTH = 120;
 
+/**
+ * Largest single `.tex` (uploaded or pasted) that becomes `main.tex` through
+ * the `createProjectFromLatex` server action. Server actions reject bodies
+ * over `serverActions.bodySizeLimit` (next.config.ts) with an opaque error,
+ * so the screen checks this first and points larger documents at the ZIP
+ * path, which streams through /api/import-project instead.
+ */
+export const MAX_LATEX_BYTES = 1024 * 1024;
+
+/** UTF-8 size of a document, the number the server-action body limit sees. */
+export function latexByteSize(content: string): number {
+  return new TextEncoder().encode(content).length;
+}
+
+export function isLatexTooLarge(content: string): boolean {
+  return latexByteSize(content) > MAX_LATEX_BYTES;
+}
+
 export interface LatexProjectPayload {
   title: string;
   content: string;
@@ -91,17 +109,26 @@ export function titleFromFileName(fileName: string): string {
   return (stem || PASTE_PROJECT_TITLE).slice(0, MAX_PROJECT_TITLE_LENGTH);
 }
 
+const FRAGMENT_PREAMBLE = [
+  '\\documentclass{article}',
+  '\\usepackage[utf8]{inputenc}',
+  '\\usepackage{amsmath,amssymb}',
+  '\\usepackage{graphicx}',
+];
+
 /**
  * Wraps a pasted fragment (no `\documentclass`) in a minimal article preamble
- * so it compiles on the first try. A full document is returned unchanged.
+ * so it compiles on the first try. A full document is returned unchanged. A
+ * body that already has `\begin{document}` but no class line only gets the
+ * preamble, never a second `document` environment.
  */
 export function ensureDocument(content: string): string {
   if (/\\documentclass/.test(content)) return content;
+  if (/\\begin\{document\}/.test(content)) {
+    return [...FRAGMENT_PREAMBLE, '', content.trim(), ''].join('\n');
+  }
   return [
-    '\\documentclass{article}',
-    '\\usepackage[utf8]{inputenc}',
-    '\\usepackage{amsmath,amssymb}',
-    '\\usepackage{graphicx}',
+    ...FRAGMENT_PREAMBLE,
     '',
     '\\begin{document}',
     '',

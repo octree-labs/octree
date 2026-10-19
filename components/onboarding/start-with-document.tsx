@@ -16,9 +16,11 @@ import { track } from '@/lib/analytics/track';
 import { SAMPLE_ARTICLE_TEX, SAMPLE_ARTICLE_TITLE } from '@/lib/onboarding/sample-article';
 import {
   BLANK_PROJECT_TITLE,
+  MAX_LATEX_BYTES,
   START_OPTIONS,
   type StartChoice,
   type StartOption,
+  isLatexTooLarge,
   projectPayloadFromPaste,
   projectPayloadFromTexUpload,
   projectSourceForOption,
@@ -28,6 +30,9 @@ import { importProject } from '@/lib/requests/project';
 import { cn } from '@/lib/utils';
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+const MAX_LATEX_MB = Math.round(MAX_LATEX_BYTES / (1024 * 1024));
+const TEX_TOO_LARGE = `That .tex file is over ${MAX_LATEX_MB} MB. Zip it and upload the ZIP instead.`;
+const PASTE_TOO_LARGE = `That is over ${MAX_LATEX_MB} MB of LaTeX. Save it as a .tex, zip it and upload the ZIP instead.`;
 
 const OPTION_COPY: Record<
   StartOption,
@@ -126,9 +131,17 @@ export function StartWithDocument({ context, onSkip, targets, className }: Start
         return;
       }
       if (kind === 'tex') {
+        if (file.size > MAX_LATEX_BYTES) {
+          toast.error(TEX_TOO_LARGE);
+          return;
+        }
         const payload = projectPayloadFromTexUpload(file.name, await file.text());
         if (!payload) {
           toast.error('That .tex file is empty');
+          return;
+        }
+        if (isLatexTooLarge(payload.content)) {
+          toast.error(TEX_TOO_LARGE);
           return;
         }
         await createFromLatex('upload', payload.title, payload.content);
@@ -171,12 +184,14 @@ export function StartWithDocument({ context, onSkip, targets, className }: Start
 
   const { getRootProps, getInputProps, isDragActive, open: openFilePicker } = useDropzone({
     onDrop,
+    // Browsers report .tex with one of these MIME types or none at all;
+    // react-dropzone also matches on the extensions, so no text/plain, which
+    // would let the picker offer every .txt.
     accept: {
       'application/zip': ['.zip'],
       'application/x-zip-compressed': ['.zip'],
       'application/x-tex': ['.tex'],
       'text/x-tex': ['.tex'],
-      'text/plain': ['.tex'],
     },
     maxSize: MAX_UPLOAD_BYTES,
     multiple: false,
@@ -217,6 +232,10 @@ export function StartWithDocument({ context, onSkip, targets, className }: Start
     const payload = projectPayloadFromPaste(pasted);
     if (!payload) {
       toast.error('Paste some LaTeX first');
+      return;
+    }
+    if (isLatexTooLarge(payload.content)) {
+      toast.error(PASTE_TOO_LARGE);
       return;
     }
     void createFromLatex('paste', payload.title, payload.content);

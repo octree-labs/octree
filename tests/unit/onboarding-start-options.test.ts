@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
 
 import {
+  MAX_LATEX_BYTES,
   START_OPTIONS,
   ensureDocument,
+  isLatexTooLarge,
   isStartOption,
   latexTitle,
   projectPayloadFromPaste,
@@ -86,11 +88,29 @@ describe('ensureDocument', () => {
     expect(ensureDocument(doc)).toBe(doc);
   });
 
+  it('adds only a preamble when the body already has \\begin{document}', () => {
+    const body = '\\begin{document}\nHello\n\\end{document}';
+    const wrapped = ensureDocument(body);
+    expect(wrapped.startsWith('\\documentclass{article}')).toBe(true);
+    expect(wrapped.match(/\\begin\{document\}/g)).toHaveLength(1);
+    expect(wrapped.match(/\\end\{document\}/g)).toHaveLength(1);
+    expect(wrapped.trimEnd().endsWith('\\end{document}')).toBe(true);
+  });
+
   it('wraps a fragment in an article preamble with amsmath', () => {
     const wrapped = ensureDocument('  \\section{Intro}\nSome $x^2$ text.\n');
     expect(wrapped.startsWith('\\documentclass{article}')).toBe(true);
     expect(wrapped).toContain('\\usepackage{amsmath,amssymb}');
     expect(wrapped).toContain('\\begin{document}\n\n\\section{Intro}\nSome $x^2$ text.\n\n\\end{document}');
+  });
+});
+
+describe('isLatexTooLarge', () => {
+  it('measures UTF-8 bytes against the server-action limit', () => {
+    expect(isLatexTooLarge('x'.repeat(MAX_LATEX_BYTES))).toBe(false);
+    expect(isLatexTooLarge('x'.repeat(MAX_LATEX_BYTES + 1))).toBe(true);
+    // Two bytes per character: half as many characters already exceed it.
+    expect(isLatexTooLarge('é'.repeat(MAX_LATEX_BYTES / 2 + 1))).toBe(true);
   });
 });
 

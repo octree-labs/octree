@@ -222,6 +222,22 @@ describe('pro_inactive', () => {
     expect(eligibleSince(pro({ lastActivityAt: undefined }), 'pro_inactive', NOW)).toBeNull();
   });
 
+  it('is not sent in the first week of a billing period: someone who just paid is not "inactive"', () => {
+    // Idle as a free user for ten days, then bought Pro this morning: the
+    // purchase itself writes nothing to projects or generated_documents.
+    expect(eligibleSince(pro({ currentPeriodStart: ago(HOUR) }), 'pro_inactive', NOW)).toBeNull();
+    expect(eligibleSince(pro({ currentPeriodStart: ago(6 * DAY + 23 * HOUR) }), 'pro_inactive', NOW)).toBeNull();
+    // A renewal is a fresh period too; a week after it the rule applies again.
+    expect(eligibleSince(pro({ currentPeriodStart: ago(7 * DAY) }), 'pro_inactive', NOW)).not.toBeNull();
+    expect(eligibleSince(pro({ currentPeriodStart: ago(20 * DAY) }), 'pro_inactive', NOW)).not.toBeNull();
+    // A row from before the period columns existed (null) does not block.
+    expect(eligibleSince(pro({ currentPeriodStart: null }), 'pro_inactive', NOW)).not.toBeNull();
+    // Nor is the quiet week dated before the period started.
+    expect(eligibleSince(pro({ currentPeriodStart: ago(8 * DAY), lastActivityAt: ago(30 * DAY) }), 'pro_inactive', NOW)).toBe(
+      Date.parse(ago(8 * DAY)) + 7 * DAY
+    );
+  });
+
   it('is not sent to anyone who is not entitled to Pro (same rule as the app)', () => {
     expect(eligibleSince(pro({ isPro: false, subscriptionStatus: 'canceled' }), 'pro_inactive', NOW)).toBeNull();
     // A bare is_pro flag grants nothing.

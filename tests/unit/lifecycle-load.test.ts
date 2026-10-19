@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import {
   attachStripeLapses,
   isRetryable,
+  loadLifecycleRows,
   MAX_SEND_ATTEMPTS,
   MAX_STRIPE_PAGES,
   subscriptionEndedAt,
@@ -132,5 +133,90 @@ describe('attachStripeLapses', () => {
     const result = await attachStripeLapses({ subscriptions: { list } } as any, rows(users));
     expect(result).toEqual({ candidates: 1, stripe_requests: MAX_STRIPE_PAGES, truncated: true });
     expect(users[0].subscriptionEndedAt).toBeNull();
+  });
+});
+
+describe('loadLifecycleRows', () => {
+  /**
+   * A Supabase stand-in: `from(table)` answers with the table's rows on
+   * `.range()` whatever the chain before it, and the admin API lists the
+   * given auth users. Enough to see what the loader derives per user.
+   */
+  function fakeDb(tables: Record<string, Array<Record<string, unknown>>>, authUsers: Array<{ id: string; email: string; created_at: string }>) {
+    const from = vi.fn((table: string) => {
+      const rows = tables[table];
+      const chain: any = {};
+      for (const method of ['select', 'eq', 'order']) chain[method] = () => chain;
+      chain.range = async (fromIndex: number, toIndex: number) => {
+        if (!rows) return { data: null, error: { message: `relation "${table}" does not exist`, code: '42P01' } };
+        return { data: rows.slice(fromIndex, toIndex + 1), error: null };
+      };
+      return chain;
+    });
+    return {
+      from,
+      auth: { admin: { listUsers: async () => ({ data: { users: authUsers }, error: null }) } },
+    } as any;
+  }
+
+  it('dates a Pro user\'s activity from user_usage.updated_at too, since the Pro edit counter never moves daily_reset_date', async () => {
+    const db = fakeDb(
+      {
+        user_usage: [
+          {
+            user_id: 'pro',
+            edit_count: 0,
+            daily_reset_date: '2026-01-01',
+            is_pro: true,
+            subscription_status: 'active',
+            stripe_customer_id: 'cus_1',
+            stripe_subscription_id: 'sub_1',
+            current_period_start: '2026-10-01T00:00:00+00:00',
+            current_period_end: '2026-11-01T00:00:00+00:00',
+            updated_at: '2026-10-17T09:00:00+00:00',
+            role: null,
+          },
+        ],
+        projects: [{ user_id: 'pro', created_at: '2026-09-01T00:00:00+00:00', updated_at: '2026-09-20T00:00:00+00:00' }],
+        generated_documents: [{ user_id: 'pro', created_at: '2026-10-05T00:00:00+00:00' }],
+        email_suppressions: [],
+        email_preferences: [],
+        lifecycle_emails: [],
+      },
+      [{ id: 'pro', email: 'pro@example.com', created_at: '2026-08-01T00:00:00Z' }]
+    );
+    const rows = await loadLifecycleRows(db);
+    expect(rows.missingTables).toEqual([]);
+    expect(rows.users).toHaveLength(1);
+    expect(rows.users[0]).toMatchObject({
+      userId: 'pro',
+      stripeSubscriptionId: 'sub_1',
+      currentPeriodStart: '2026-10-01T00:00:00+00:00',
+      currentPeriodEnd: '2026-11-01T00:00:00+00:00',
+      lastActivityAt: '2026-10-17T09:00:00+00:00',
+    });
+  });
+
+  it('takes the latest of project saves, generations and the usage row, and null when there is none', async () => {
+    const db = fakeDb(
+      {
+        user_usage: [
+          { user_id: 'a', edit_count: 0, daily_reset_date: '2026-10-02', is_pro: false, subscription_status: 'inactive', stripe_customer_id: null, stripe_subscription_id: null, current_period_start: null, current_period_end: null, updated_at: '2026-10-02T00:00:00+00:00', role: null },
+        ],
+        projects: [{ user_id: 'a', created_at: '2026-10-01T00:00:00+00:00', updated_at: '2026-10-09T12:00:00+00:00' }],
+        generated_documents: [{ user_id: 'a', created_at: '2026-10-04T00:00:00+00:00' }],
+        email_suppressions: [],
+        email_preferences: [],
+        lifecycle_emails: [],
+      },
+      [
+        { id: 'a', email: 'a@example.com', created_at: '2026-08-01T00:00:00Z' },
+        { id: 'b', email: 'b@example.com', created_at: '2026-08-01T00:00:00Z' },
+      ]
+    );
+    const rows = await loadLifecycleRows(db);
+    expect(rows.users.find((u) => u.userId === 'a')?.lastActivityAt).toBe('2026-10-09T12:00:00+00:00');
+    expect(rows.users.find((u) => u.userId === 'b')?.lastActivityAt).toBeNull();
+    expect(rows.users.find((u) => u.userId === 'b')?.currentPeriodStart).toBeNull();
   });
 });

@@ -13,7 +13,8 @@
  *              is the day the counter started, set by increment_edit_count.
  *   day7       7..14d after sign-up, has a project
  *   winback    has a Stripe customer, subscription ended >= 7d ago
- *   pro_inactive  entitled to Pro (lib/subscription/entitlement.ts) and no
+ *   pro_inactive  entitled to Pro (lib/subscription/entitlement.ts), at
+ *              least 7 days into the current billing period, and no
  *              activity for 7 days (no project saved, no document generated,
  *              no AI edit counted). The only template for subscribers; at
  *              most one per calendar month (ledger ref = `YYYY-MM`).
@@ -43,6 +44,12 @@ export interface LifecycleUserRow {
   /** user_usage.stripe_subscription_id / current_period_end: the entitlement rule reads them. */
   stripeSubscriptionId?: string | null;
   currentPeriodEnd?: string | null;
+  /**
+   * user_usage.current_period_start: written by the Stripe webhook when the
+   * subscription starts and on every renewal. Null for rows from before the
+   * period columns existed.
+   */
+  currentPeriodStart?: string | null;
   /** `unlimited` and other staff roles never get upsell email. */
   role: string | null;
   /** Earliest projects.created_at for the user, null when they have none. */
@@ -53,9 +60,12 @@ export interface LifecycleUserRow {
    */
   subscriptionEndedAt: string | null;
   /**
-   * The latest of: any projects.updated_at, any generated_documents.created_at,
-   * user_usage.daily_reset_date (moves whenever an edit is counted). Null
-   * when none is known. Loaded for the pro_inactive rule.
+   * The latest of: any projects.updated_at (bumped on every file save), any
+   * generated_documents.created_at, user_usage.updated_at (bumped by
+   * increment_edit_count and consume_generation on every counted edit or
+   * generation, for Pro and free alike) and user_usage.daily_reset_date
+   * (free users only). Null when none is known. Loaded for the pro_inactive
+   * rule.
    */
   lastActivityAt?: string | null;
 }
@@ -196,9 +206,16 @@ export function eligibleSince(user: LifecycleUserRow, template: ScheduledLifecyc
   if (template === 'pro_inactive') {
     // `unlimited` is a manual grant (staff, partners), not a plan to come back to.
     if (user.subscriptionStatus === 'unlimited' || !isEntitledToPro(user, now)) return null;
+    const { minIdleMs } = LIFECYCLE_RULES.pro_inactive;
+    // Someone who paid (or renewed) this week is not inactive, whatever the
+    // activity tables say: a free user idle for ten days who buys Pro today
+    // writes nothing to projects or generated_documents by buying. The quiet
+    // week therefore starts no earlier than the period did.
+    const periodStart = ms(user.currentPeriodStart ?? null);
+    if (periodStart !== null && nowMs - periodStart < minIdleMs) return null;
     const lastActive = ms(user.lastActivityAt ?? null);
-    if (lastActive === null || nowMs - lastActive < LIFECYCLE_RULES.pro_inactive.minIdleMs) return null;
-    return lastActive + LIFECYCLE_RULES.pro_inactive.minIdleMs;
+    if (lastActive === null || nowMs - lastActive < minIdleMs) return null;
+    return Math.max(lastActive, periodStart ?? 0) + minIdleMs;
   }
 
   if (hasSubscription(user)) return null;

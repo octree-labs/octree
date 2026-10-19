@@ -15,9 +15,12 @@
  *   3. Stripe's effective status for the user's subscription is `active` or
  *      `trialing` (`paused` is not: PR #398), or
  *   4. when Stripe was not consulted: the row says `active`/`trialing`, it
- *      names a Stripe subscription, and `current_period_end` is still ahead.
- *      This is the window between Checkout and the first webhook, and the
- *      cheap path for callers that do not talk to Stripe on every request.
+ *      names a Stripe subscription, and `current_period_end` has not passed
+ *      (a null period end is unknown, not ended: several live subscribers'
+ *      rows predate the period columns, and the first status read after a
+ *      Stripe answer fills them in). This is the window between Checkout
+ *      and the first webhook, the cheap path for callers that do not talk
+ *      to Stripe on every request, and the fallback while Stripe is down.
  *
  * Once Stripe HAS answered for the row's subscription (3), its answer wins
  * over the row (4): a `canceled` subscription with a row still saying
@@ -66,10 +69,11 @@ export type ProEntitlement =
   | { isPro: true; source: ProSource }
   | { isPro: false; reason: ProDenial };
 
-function periodEndInFuture(value: string | null | undefined, now: Date): boolean {
+/** True once `current_period_end` is a known date in the past; null is unknown. */
+function periodEnded(value: string | null | undefined, now: Date): boolean {
   if (!value) return false;
   const ms = Date.parse(value);
-  return Number.isFinite(ms) && ms > now.getTime();
+  return Number.isFinite(ms) && ms <= now.getTime();
 }
 
 export function proEntitlement({
@@ -90,7 +94,7 @@ export function proEntitlement({
   if (!row) return { isPro: false, reason: 'no_row' };
   if (!isProStatus(row.subscription_status ?? '')) return { isPro: false, reason: 'row_not_active' };
   if (!row.stripe_subscription_id) return { isPro: false, reason: 'no_subscription_id' };
-  if (!periodEndInFuture(row.current_period_end, now)) return { isPro: false, reason: 'period_ended' };
+  if (periodEnded(row.current_period_end, now)) return { isPro: false, reason: 'period_ended' };
   return { isPro: true, source: 'row' };
 }
 
@@ -111,6 +115,16 @@ export type RevokingStripeStatus = (typeof REVOKING_STRIPE_STATUSES)[number];
 
 export function isRevokingStripeStatus(status: StripeStatusReport): status is RevokingStripeStatus {
   return (REVOKING_STRIPE_STATUSES as readonly string[]).includes(status ?? '');
+}
+
+/**
+ * The `subscription_status` a revoke writes: Stripe's own status, as the
+ * webhook would have written for the same subscription, and `canceled` for
+ * a subscription Stripe no longer has. Neither is in `isProStatus`, so the
+ * RPC derives `is_pro = false`.
+ */
+export function revokedRowStatus(status: RevokingStripeStatus): 'canceled' | 'incomplete_expired' {
+  return status === 'missing' ? 'canceled' : status;
 }
 
 /**
@@ -138,6 +152,12 @@ export interface EntitlementResponseFields {
   currentPeriodEnd?: string | null;
   /** Whether `user_usage.stripe_subscription_id` is set. */
   hasStripeSubscription?: boolean;
+  /**
+   * Stripe's effective status for the stored subscription when the route
+   * asked about it (no live subscription was found but the row claimed
+   * Pro); `missing` for a 404, null when Stripe was not asked or failed.
+   */
+  stripeStatus?: string | null;
 }
 
 export interface EntitlementResponseLike {
@@ -151,9 +171,10 @@ export interface EntitlementResponseLike {
  * The entitlement rule applied to the JSON of GET /api/subscription-status.
  * `subscription.effective_status` is Stripe's answer when the route found a
  * live subscription (`hasSubscription` alone, from an older response without
- * the field, means `active`); without one the row fields decide, exactly as
- * on the server. A response from before the row fields existed falls back
- * to the `isPro` the server computed, which is now the same rule.
+ * the field, means `active`), `usage.stripeStatus` its answer about the
+ * stored subscription otherwise; without either the row fields decide,
+ * exactly as on the server. A response from before the row fields existed
+ * falls back to the `isPro` the server computed, which is now the same rule.
  */
 export function entitlementFromStatusResponse(
   data: EntitlementResponseLike | null | undefined,
@@ -162,7 +183,9 @@ export function entitlementFromStatusResponse(
   if (!data?.usage) return { isPro: false, reason: 'no_row' };
   const { usage } = data;
   const stripeStatus =
-    data.subscription?.effective_status ?? (data.hasSubscription ? 'active' : null);
+    data.subscription?.effective_status ??
+    usage.stripeStatus ??
+    (data.hasSubscription ? 'active' : null);
   const hasRowFields = 'subscriptionStatus' in usage;
   if (!hasRowFields && stripeStatus == null) {
     return usage.isPro

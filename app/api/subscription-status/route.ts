@@ -12,7 +12,9 @@ import { hasUnlimitedEdits } from '@/lib/paywall';
 import {
   isRevokingStripeStatus,
   proEntitlement,
+  revokedRowStatus,
   rowClaimsPro,
+  type RevokingStripeStatus,
   type StripeStatusReport,
 } from '@/lib/subscription/entitlement';
 import { resolveStripeCustomer } from '@/lib/stripe-customer';
@@ -238,6 +240,7 @@ function buildUsageResponse(
     subscriptionStatus: usageData?.subscription_status ?? null,
     currentPeriodEnd: usageData?.current_period_end ?? null,
     hasStripeSubscription: Boolean(usageData?.stripe_subscription_id),
+    stripeStatus: storedStripeStatus ?? null,
     limitReached: hasUnlimited ? false : allowanceSpent && editCredits <= 0,
     monthlyLimitReached: hasUnlimited
       ? false
@@ -326,20 +329,24 @@ async function lookupStoredSubscription(
 
 /**
  * Self-heal: the row says Pro, Stripe says the subscription is gone. Writes
- * `is_pro = false, subscription_status = 'inactive'` through the same
- * service-role RPC every other subscription write uses (the RPC derives
- * is_pro from the status), keeping the subscription id as a record of what
- * the user had. Returns the row as it now stands; on failure the stale row
- * is returned unchanged, but the response is already computed from Stripe's
- * answer, so the user does not get Pro either way.
+ * `is_pro = false` and Stripe's status (`canceled` / `incomplete_expired`,
+ * and `canceled` for a 404: what the webhook would have written for the
+ * same event) through the same service-role RPC every other subscription
+ * write uses (the RPC derives is_pro from the status), keeping the
+ * subscription id as a record of what the user had. Returns the row as it
+ * now stands; on failure the stale row is returned unchanged, but the
+ * response is already computed from Stripe's answer, so the user does not
+ * get Pro either way.
  */
 async function revokeStaleEntitlement(
   admin: any,
   userId: string,
   usageData: Tables<'user_usage'>,
   customerId: string | null,
+  stripeStatus: RevokingStripeStatus,
   stripeSubscription: Stripe.Subscription | null
 ): Promise<Tables<'user_usage'>> {
+  const status = revokedRowStatus(stripeStatus);
   const periodStart = stripeSubscription?.current_period_start
     ? new Date(stripeSubscription.current_period_start * 1000).toISOString()
     : usageData.current_period_start;
@@ -352,7 +359,7 @@ async function revokeStaleEntitlement(
       p_user_id: userId,
       p_stripe_customer_id: usageData.stripe_customer_id ?? customerId,
       p_stripe_subscription_id: usageData.stripe_subscription_id,
-      p_subscription_status: 'inactive',
+      p_subscription_status: status,
       p_current_period_start: periodStart,
       p_current_period_end: periodEnd,
       p_cancel_at_period_end:
@@ -370,7 +377,7 @@ async function revokeStaleEntitlement(
   return {
     ...usageData,
     is_pro: false,
-    subscription_status: 'inactive',
+    subscription_status: status,
     current_period_start: periodStart,
     current_period_end: periodEnd,
   };
@@ -429,6 +436,7 @@ export async function GET() {
             user.id,
             usageData,
             customerId,
+            storedStatus,
             stored.subscription
           );
           captureServerEventAfterResponse(user.id, AnalyticsEvents.PRO_ENTITLEMENT_REVOKED, {

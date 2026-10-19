@@ -59,6 +59,7 @@ vi.mock('@/lib/stripe-customer', () => ({
 }));
 
 import { GET } from '@/app/api/subscription-status/route';
+import { entitlementFromStatusResponse } from '@/lib/subscription/entitlement';
 
 const user = { id: 'user-1', email: 'pro@example.com' };
 const periodStart = 1_760_000_000;
@@ -226,7 +227,9 @@ describe('GET /api/subscription-status: stale is_pro rows', () => {
     expect(mocks.subscriptionsRetrieve).toHaveBeenCalledWith('sub_1');
     expect(body.hasSubscription).toBe(false);
     expect(body.usage.isPro).toBe(false);
-    expect(body.usage.subscriptionStatus).toBe('inactive');
+    expect(body.usage.stripeStatus).toBe('canceled');
+    // What the webhook's customer.subscription.deleted would have written.
+    expect(body.usage.subscriptionStatus).toBe('canceled');
     expect(mocks.adminRpc).toHaveBeenCalledTimes(1);
     expect(mocks.adminRpc).toHaveBeenCalledWith(
       'update_user_subscription_status',
@@ -234,7 +237,8 @@ describe('GET /api/subscription-status: stale is_pro rows', () => {
         p_user_id: 'user-1',
         p_stripe_customer_id: 'cus_1',
         p_stripe_subscription_id: 'sub_1',
-        p_subscription_status: 'inactive',
+        p_subscription_status: 'canceled',
+        p_current_period_end: new Date(canceledPeriodEnd * 1000).toISOString(),
       })
     );
     expect(mocks.captureServerEventAfterResponse).toHaveBeenCalledWith(
@@ -253,9 +257,10 @@ describe('GET /api/subscription-status: stale is_pro rows', () => {
     const body = await res.json();
 
     expect(body.usage.isPro).toBe(false);
+    expect(body.usage.stripeStatus).toBe('missing');
     expect(mocks.adminRpc).toHaveBeenCalledWith(
       'update_user_subscription_status',
-      expect.objectContaining({ p_subscription_status: 'inactive' })
+      expect.objectContaining({ p_subscription_status: 'canceled' })
     );
     expect(mocks.captureServerEventAfterResponse).toHaveBeenCalledWith(
       'user-1',
@@ -281,8 +286,25 @@ describe('GET /api/subscription-status: stale is_pro rows', () => {
     const body = await res.json();
 
     expect(body.usage.isPro).toBe(true);
+    expect(body.usage.proSource).toBe('stripe');
+    // The client re-derives from these fields; it must reach the same answer.
+    expect(body.usage.stripeStatus).toBe('active');
+    expect(entitlementFromStatusResponse(body).isPro).toBe(true);
     expect(mocks.adminRpc).not.toHaveBeenCalled();
     expect(mocks.captureServerEventAfterResponse).not.toHaveBeenCalled();
+  });
+
+  it('writes incomplete_expired as the webhook would', async () => {
+    mocks.subscriptionsRetrieve.mockResolvedValue(stripeSubscription({ status: 'incomplete_expired' }));
+
+    const res = await GET();
+    const body = await res.json();
+
+    expect(body.usage.isPro).toBe(false);
+    expect(mocks.adminRpc).toHaveBeenCalledWith(
+      'update_user_subscription_status',
+      expect.objectContaining({ p_subscription_status: 'incomplete_expired' })
+    );
   });
 
   it('does not rewrite the row for a status the webhook owns (past_due), and does not grant Pro', async () => {
@@ -302,6 +324,66 @@ describe('GET /api/subscription-status: stale is_pro rows', () => {
     const body = await res.json();
 
     expect(body.usage.isPro).toBe(false);
+    expect(body.usage.stripeStatus).toBeNull();
+    expect(mocks.adminRpc).not.toHaveBeenCalled();
+    expect(mocks.captureServerEventAfterResponse).not.toHaveBeenCalled();
+  });
+
+  it('keeps Pro for an active row with a subscription id but no period end when Stripe is unreachable (never revokes)', async () => {
+    // Several live subscribers' rows predate the period columns. A Stripe
+    // outage must not read as "period ended" for them.
+    mocks.resolveStripeCustomer.mockRejectedValue(new Error('network'));
+    mocks.userSingle.mockResolvedValue({
+      data: usageRow({ current_period_start: null, current_period_end: null }),
+      error: null,
+    });
+    mocks.subscriptionsRetrieve.mockRejectedValue(new Error('network'));
+
+    const res = await GET();
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.usage.isPro).toBe(true);
+    expect(body.usage.proSource).toBe('row');
+    expect(entitlementFromStatusResponse(body).isPro).toBe(true);
+    expect(mocks.adminRpc).not.toHaveBeenCalled();
+    expect(mocks.captureServerEventAfterResponse).not.toHaveBeenCalled();
+  });
+
+  it('does not revoke on a Stripe error that is not a 404 (401/403/5xx)', async () => {
+    for (const statusCode of [401, 403, 500, 503]) {
+      vi.clearAllMocks();
+      mocks.getUser.mockResolvedValue({ data: { user }, error: null });
+      mocks.resolveStripeCustomer.mockResolvedValue({ customerId: 'cus_1' });
+      mocks.subscriptionsList.mockResolvedValue({ data: [] });
+      // Row inside its paid period: the row rule keeps Pro while Stripe is unavailable.
+      const futureEnd = Math.floor(Date.now() / 1000) + 10 * 24 * 60 * 60;
+      mocks.userSingle.mockResolvedValue({
+        data: usageRow({ current_period_end: new Date(futureEnd * 1000).toISOString() }),
+        error: null,
+      });
+      mocks.subscriptionsRetrieve.mockRejectedValue(Object.assign(new Error('stripe'), { statusCode }));
+
+      const res = await GET();
+      const body = await res.json();
+
+      expect(body.usage.isPro).toBe(true);
+      expect(mocks.adminRpc).not.toHaveBeenCalled();
+      expect(mocks.captureServerEventAfterResponse).not.toHaveBeenCalled();
+    }
+  });
+
+  it('does not ask Stripe again once the row has been rewritten (no flapping)', async () => {
+    mocks.userSingle.mockResolvedValue({
+      data: usageRow({ is_pro: false, subscription_status: 'canceled' }),
+      error: null,
+    });
+
+    const res = await GET();
+    const body = await res.json();
+
+    expect(body.usage.isPro).toBe(false);
+    expect(mocks.subscriptionsRetrieve).not.toHaveBeenCalled();
     expect(mocks.adminRpc).not.toHaveBeenCalled();
   });
 
@@ -359,7 +441,7 @@ describe('GET /api/subscription-status: stale is_pro rows', () => {
     expect(body.usage.isPro).toBe(false);
     expect(mocks.adminRpc).toHaveBeenCalledWith(
       'update_user_subscription_status',
-      expect.objectContaining({ p_subscription_status: 'inactive', p_stripe_customer_id: 'cus_1' })
+      expect.objectContaining({ p_subscription_status: 'canceled', p_stripe_customer_id: 'cus_1' })
     );
   });
 });

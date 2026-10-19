@@ -4,6 +4,7 @@ import {
   isRevokingStripeStatus,
   proEntitlement,
   reconcileDecision,
+  revokedRowStatus,
   rowClaimsPro,
   type EntitlementRow,
 } from '@/lib/subscription/entitlement';
@@ -76,7 +77,25 @@ describe('proEntitlement', () => {
       isPro: false,
       reason: 'period_ended',
     });
-    expect(proEntitlement({ row: row({ current_period_end: null }), hasUnlimited: false, now }).isPro).toBe(false);
+    expect(proEntitlement({ row: row({ current_period_end: 'not a date' }), hasUnlimited: false, now }).isPro).toBe(true);
+  });
+
+  it('treats a missing period end as unknown, not ended (live rows that predate the period columns)', () => {
+    expect(proEntitlement({ row: row({ current_period_end: null }), hasUnlimited: false, now })).toEqual({
+      isPro: true,
+      source: 'row',
+    });
+    // Stripe's answer still wins over the row.
+    expect(
+      proEntitlement({ row: row({ current_period_end: null }), stripeStatus: 'canceled', hasUnlimited: false, now }).isPro
+    ).toBe(false);
+    // ...and a row without a subscription id or an active status still gets nothing.
+    expect(
+      proEntitlement({ row: row({ current_period_end: null, stripe_subscription_id: null }), hasUnlimited: false, now }).isPro
+    ).toBe(false);
+    expect(
+      proEntitlement({ row: row({ current_period_end: null, subscription_status: 'canceled' }), hasUnlimited: false, now }).isPro
+    ).toBe(false);
   });
 
   it('denies a row with no subscription id, even with is_pro = true and an active status', () => {
@@ -123,6 +142,19 @@ describe('isRevokingStripeStatus', () => {
   });
 });
 
+describe('revokedRowStatus', () => {
+  it('writes what the webhook would have written: Stripe’s status, canceled for a 404', () => {
+    expect(revokedRowStatus('canceled')).toBe('canceled');
+    expect(revokedRowStatus('incomplete_expired')).toBe('incomplete_expired');
+    expect(revokedRowStatus('missing')).toBe('canceled');
+    // Neither grants Pro on the next read.
+    for (const status of ['canceled', 'incomplete_expired']) {
+      expect(proEntitlement({ row: row({ is_pro: false, subscription_status: status }), hasUnlimited: false, now }).isPro).toBe(false);
+      expect(rowClaimsPro(row({ is_pro: false, subscription_status: status }), false)).toBe(false);
+    }
+  });
+});
+
 describe('entitlementFromStatusResponse (client side, same rule)', () => {
   const usage = {
     isPro: true,
@@ -143,6 +175,30 @@ describe('entitlementFromStatusResponse (client side, same rule)', () => {
 
   it('treats hasSubscription without effective_status (older response) as active', () => {
     expect(entitlementFromStatusResponse({ hasSubscription: true, usage: { ...usage, isPro: false } }, now).isPro).toBe(true);
+  });
+
+  it('uses the server’s answer about the stored subscription when no live one was found', () => {
+    // Stored subscription still active (the customer the route resolved does not own it).
+    expect(
+      entitlementFromStatusResponse(
+        { hasSubscription: false, subscription: null, usage: { ...usage, currentPeriodEnd: past, stripeStatus: 'active' } },
+        now
+      )
+    ).toEqual({ isPro: true, source: 'stripe' });
+    // Stored subscription canceled: the row's future period end does not help.
+    expect(
+      entitlementFromStatusResponse(
+        { hasSubscription: false, subscription: null, usage: { ...usage, stripeStatus: 'canceled' } },
+        now
+      )
+    ).toEqual({ isPro: false, reason: 'stripe_not_active' });
+    // Not asked / failed: the row rule.
+    expect(
+      entitlementFromStatusResponse(
+        { hasSubscription: false, subscription: null, usage: { ...usage, stripeStatus: null } },
+        now
+      )
+    ).toEqual({ isPro: true, source: 'row' });
   });
 
   it('applies the row rule when no live subscription was found', () => {

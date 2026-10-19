@@ -14,8 +14,10 @@
  *
  * Dry run by default; nothing is written. `--apply` performs the `revoke`
  * rows only, through the service-role RPC `update_user_subscription_status`
- * (status `inactive`, so the RPC derives `is_pro = false`), the same path
- * GET /api/subscription-status uses to self-heal. No raw column writes.
+ * (Stripe's status, `canceled` for a 404, so the RPC derives
+ * `is_pro = false`), the same path GET /api/subscription-status uses to
+ * self-heal. No raw column writes. A Stripe error other than a 404 aborts
+ * the run before anything is written.
  *
  *   npm run reconcile:pro               # dry run: table + summary
  *   npm run reconcile:pro -- --apply    # revoke the stale rows
@@ -38,7 +40,9 @@ import { createClient } from '@supabase/supabase-js';
 import { hasUnlimitedEdits } from '@/lib/paywall';
 import { effectiveSubscriptionStatus } from '@/lib/stripe-subscription';
 import {
+  isRevokingStripeStatus,
   reconcileDecision,
+  revokedRowStatus,
   type ReconcileAction,
   type StripeStatusReport,
 } from '@/lib/subscription/entitlement';
@@ -213,6 +217,12 @@ async function main() {
   console.log(`\nRevoking ${revokes.length} row(s) through update_user_subscription_status...`);
   let failed = 0;
   for (const r of revokes) {
+    if (!isRevokingStripeStatus(r.stripeStatus)) {
+      // reconcileDecision only proposes `revoke` for these; belt and braces.
+      failed += 1;
+      console.log(`  ${r.row.user_id}  ...${r.subSuffix}  SKIPPED: Stripe status ${r.stripeStatus ?? 'unknown'} is not revoking`);
+      continue;
+    }
     const sub = r.stripeSubscription;
     const periodStart = sub?.current_period_start
       ? new Date(sub.current_period_start * 1000).toISOString()
@@ -227,7 +237,7 @@ async function main() {
       p_user_id: r.row.user_id,
       p_stripe_customer_id: customerId,
       p_stripe_subscription_id: r.row.stripe_subscription_id,
-      p_subscription_status: 'inactive',
+      p_subscription_status: revokedRowStatus(r.stripeStatus),
       p_current_period_start: periodStart,
       p_current_period_end: periodEnd,
       p_cancel_at_period_end: sub?.cancel_at_period_end ?? r.row.cancel_at_period_end ?? false,

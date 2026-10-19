@@ -116,6 +116,8 @@ export interface SubscriptionStatusResponse {
     subscriptionStatus?: string | null;
     currentPeriodEnd?: string | null;
     hasStripeSubscription?: boolean;
+    /** Stripe's answer about the stored subscription when no live one was found (lib/subscription/entitlement.ts). */
+    stripeStatus?: string | null;
   } & Record<string, unknown>;
 }
 

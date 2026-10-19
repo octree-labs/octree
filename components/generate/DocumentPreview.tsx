@@ -30,6 +30,7 @@ interface SubscriptionData {
         subscriptionStatus?: string | null;
         currentPeriodEnd?: string | null;
         hasStripeSubscription?: boolean;
+        stripeStatus?: string | null;
     };
 }
 

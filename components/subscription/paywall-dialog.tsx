@@ -58,8 +58,13 @@ const GENERATE_QUOTA_COPY = {
  * (see stores/paywall.ts); mounted once per layout that has gated features.
  *
  * With `offers` including `single` (only Generate does this, with reason
- * `generate_quota`) it shows two buttons: the monthly Pro subscription and
- * the one-off $2.99 generation credit.
+ * `generate_quota`) it shows two offers. The one-off $2.99 generation credit
+ * comes first and carries the primary button: this paywall opens the moment a
+ * new account spends its single free generation. On the first day of PostHog
+ * data (18 Oct 2026), with Pro on top, all four such users dismissed it at
+ * least once (eight dismissals) and only one came back to start a monthly
+ * checkout. A $2.99 "finish this document" is the smaller ask; Pro stays one
+ * tap below it.
  */
 export function PaywallDialog() {
   const { open, feature, reason, offers } = usePaywall();
@@ -103,6 +108,24 @@ export function PaywallDialog() {
           <div className="space-y-4">
             <div className="rounded-lg border p-4">
               <div className="flex items-baseline justify-between gap-2">
+                <p className="font-semibold">Just this document</p>
+                <p className="text-sm text-muted-foreground">{GENERATE_SINGLE_PRICE.price} once</p>
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">One more generation, no subscription.</p>
+              <Button
+                className="mt-3 w-full"
+                variant="gradient"
+                onClick={() => startCheckout('single', { plan: 'generate_single', source: 'paywall' })}
+                disabled={isSubmitting !== null}
+              >
+                {isSubmitting === 'single'
+                  ? 'Loading...'
+                  : `Generate this one — ${GENERATE_SINGLE_PRICE.price}`}
+              </Button>
+            </div>
+
+            <div className="rounded-lg border p-4">
+              <div className="flex items-baseline justify-between gap-2">
                 <p className="font-semibold">Octree Pro</p>
                 <p className="text-sm text-muted-foreground">{PRO_PLANS.monthly.price}/mo</p>
               </div>
@@ -111,7 +134,7 @@ export function PaywallDialog() {
               </p>
               <Button
                 className="mt-3 w-full"
-                variant="gradient"
+                variant="outline"
                 // The monthly plan it displays, whatever the picker state is.
                 onClick={() => startCheckout('pro', { plan: 'monthly', withTrial: false, source: 'paywall' })}
                 disabled={isSubmitting !== null}
@@ -121,24 +144,6 @@ export function PaywallDialog() {
               <p className="mt-2 text-center text-xs text-muted-foreground">
                 {PRO_PLANS.monthly.billingNote}
               </p>
-            </div>
-
-            <div className="rounded-lg border p-4">
-              <div className="flex items-baseline justify-between gap-2">
-                <p className="font-semibold">Just this document</p>
-                <p className="text-sm text-muted-foreground">{GENERATE_SINGLE_PRICE.price} once</p>
-              </div>
-              <p className="mt-1 text-sm text-muted-foreground">One more generation, no subscription.</p>
-              <Button
-                className="mt-3 w-full"
-                variant="outline"
-                onClick={() => startCheckout('single', { plan: 'generate_single', source: 'paywall' })}
-                disabled={isSubmitting !== null}
-              >
-                {isSubmitting === 'single'
-                  ? 'Loading...'
-                  : `Generate this one — ${GENERATE_SINGLE_PRICE.price}`}
-              </Button>
             </div>
 
             <Button

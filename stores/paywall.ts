@@ -43,8 +43,10 @@ export const PaywallActions = {
     if (!wasOpen) track(AnalyticsEvents.PAYWALL_SHOWN, { feature, reason, offers });
   },
   close() {
-    const { open, feature } = usePaywallStore.getState();
+    const { open, feature, reason } = usePaywallStore.getState();
     usePaywallStore.setState({ open: false });
-    if (open && feature) track(AnalyticsEvents.PAYWALL_DISMISSED, { feature });
+    // `reason` lets a dismissal be read against the paywall that showed it
+    // (generate_quota vs daily_limit vs pro_feature) without a per-user join.
+    if (open && feature) track(AnalyticsEvents.PAYWALL_DISMISSED, { feature, reason: reason ?? undefined });
   },
 };

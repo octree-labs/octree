@@ -130,6 +130,43 @@ describe('DocumentPreview checkout plan', () => {
     expect(mockedCreateCheckoutSession.mock.calls[0][0]).toEqual({ plan: 'credits_100', source: 'paywall' });
   });
 
+  it('leads the generate-quota paywall with the $2.99 one-off, Pro second, and sends the right plan for each', async () => {
+    PaywallActions.open('generate', 'generate_quota', ['pro', 'single']);
+    render(<PaywallDialog />);
+
+    expect(screen.getByText(/used your free generation/i)).toBeInTheDocument();
+
+    const buttons = screen.getAllByRole('button').map((b) => b.textContent ?? '');
+    const single = buttons.findIndex((t) => /generate this one — \$2\.99/i.test(t));
+    const pro = buttons.findIndex((t) => /go pro — \$9\.99\/mo/i.test(t));
+    const notNow = buttons.findIndex((t) => /not now/i.test(t));
+    expect(single).toBeGreaterThanOrEqual(0);
+    expect(single).toBeLessThan(pro);
+    expect(pro).toBeLessThan(notNow);
+    expect(screen.getByText(/billed monthly at \$9\.99/i)).toBeInTheDocument();
+    expect(screen.queryByRole('radio')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /generate this one/i }));
+    await waitFor(() => expect(mockedCreateCheckoutSession).toHaveBeenCalledTimes(1));
+    expect(mockedCreateCheckoutSession.mock.calls[0][0]).toEqual({ plan: 'generate_single', source: 'paywall' });
+
+    // While the one-off checkout is pending, only its button shows Loading and all three are disabled.
+    expect(screen.getByRole('button', { name: /loading/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /go pro/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /not now/i })).toBeDisabled();
+  });
+
+  it('starts a monthly Pro checkout from the second card of the generate-quota paywall', async () => {
+    PaywallActions.open('generate', 'generate_quota', ['pro', 'single']);
+    render(<PaywallDialog />);
+
+    fireEvent.click(screen.getByRole('button', { name: /go pro — \$9\.99\/mo/i }));
+    await waitFor(() => expect(mockedCreateCheckoutSession).toHaveBeenCalledTimes(1));
+    expect(mockedCreateCheckoutSession.mock.calls[0][0]).toEqual({ plan: 'monthly', withTrial: false, source: 'paywall' });
+    expect(screen.getByRole('button', { name: /loading/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /generate this one/i })).toBeDisabled();
+  });
+
   it('shows only the credit pack to a Pro user who is out of monthly edits', async () => {
     PaywallActions.open('ai-edit', 'monthly_limit');
     render(<PaywallDialog />);

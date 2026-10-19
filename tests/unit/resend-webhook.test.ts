@@ -88,6 +88,31 @@ describe('verifySvixSignature', () => {
   });
 });
 
+describe('verifySvixSignature robustness', () => {
+  const body = '{"type":"email.opened"}';
+
+  it('never throws on junk in the signature header, and still finds the good entry among it', () => {
+    const good = sign('m', NOW, body);
+    const junk = ['v1,!!!not-base64!!!', 'v1a,AAAA', 'v1', 'v1,', ',', '', 'v1,QQ=='];
+    for (const entry of junk) {
+      expect(verifySvixSignature({ secret: SECRET, id: 'm', timestamp: String(NOW), signature: entry, body, nowSeconds: NOW })).toBe(false);
+    }
+    const header = `${junk.join(' ')}  ${good}   ${junk[0]}`;
+    expect(verifySvixSignature({ secret: SECRET, id: 'm', timestamp: String(NOW), signature: header, body, nowSeconds: NOW })).toBe(true);
+  });
+
+  it('signs the exact raw bytes: a re-serialised body with the same JSON is a different message', () => {
+    const pretty = JSON.stringify(JSON.parse(body), null, 2);
+    const signature = sign('m', NOW, body);
+    expect(verifySvixSignature({ secret: SECRET, id: 'm', timestamp: String(NOW), signature, body: pretty, nowSeconds: NOW })).toBe(false);
+  });
+
+  it('accepts a secret without the whsec_ prefix the same way the Svix SDK does', () => {
+    const signature = sign('m', NOW, body);
+    expect(verifySvixSignature({ secret: KEY.toString('base64'), id: 'm', timestamp: String(NOW), signature, body, nowSeconds: NOW })).toBe(true);
+  });
+});
+
 describe('parseResendWebhook', () => {
   it('reads opens and clicks with the message id and the link', () => {
     expect(parseResendWebhook(JSON.stringify({ type: 'email.opened', data: { email_id: 'em_1' } }))).toEqual({

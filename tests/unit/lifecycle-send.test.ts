@@ -31,6 +31,7 @@ function deps(overrides: Partial<LifecycleSendDeps> = {}) {
       async markFailed({ userId, template, error }) {
         failed.push(`${userId}:${template}:${error}`);
       },
+      async markSkipped() {},
     },
     capture,
     appUrl: 'https://app.example.com',

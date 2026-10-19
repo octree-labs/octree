@@ -25,7 +25,31 @@
 alter table public.lifecycle_emails add column if not exists ref text not null default '';
 alter table public.lifecycle_emails add column if not exists payload jsonb;
 
-alter table public.lifecycle_emails drop constraint if exists lifecycle_emails_user_id_template_key;
+-- Drop the old (user_id, template) unique key whatever it is called: the
+-- inline `unique (user_id, template)` in 20261018130000 named it
+-- lifecycle_emails_user_id_template_key, but a key with the same columns
+-- under another name would otherwise survive and reject the second
+-- payment_failed row for a user (a new invoice) with 23505.
+do $$
+declare
+  old_key record;
+begin
+  for old_key in
+    select c.conname
+      from pg_constraint c
+     where c.conrelid = 'public.lifecycle_emails'::regclass
+       and c.contype = 'u'
+       and (select array_agg(k order by k) from unnest(c.conkey) as k) = (
+         select array_agg(a.attnum order by a.attnum)
+           from pg_attribute a
+          where a.attrelid = c.conrelid
+            and a.attname in ('user_id', 'template')
+       )
+  loop
+    execute format('alter table public.lifecycle_emails drop constraint %I', old_key.conname);
+  end loop;
+end
+$$;
 
 do $$
 begin

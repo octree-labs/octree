@@ -261,6 +261,8 @@ describe('billing recovery templates', () => {
 function fakeDeps(options: { ledgerUnavailable?: boolean; mayEmail?: boolean } = {}) {
   const claimed = new Set<string>();
   const sent: Array<{ to: string; subject: string; html: string }> = [];
+  /** Keys closed by markSkipped: `${userId}:${template}:${ref}` with the reason. */
+  const skipped: Array<{ key: string; reason: string }> = [];
   const capture = vi.fn();
   const deps: LifecycleSendDeps = {
     mayEmail: async () => options.mayEmail ?? true,
@@ -281,13 +283,19 @@ function fakeDeps(options: { ledgerUnavailable?: boolean; mayEmail?: boolean } =
       },
       async markSent() {},
       async markFailed() {},
+      async markSkipped({ userId, template, ref, reason }) {
+        const key = `${userId}:${template}:${ref}`;
+        if (claimed.has(key)) return;
+        claimed.add(key);
+        skipped.push({ key, reason });
+      },
     },
     capture,
     appUrl: 'https://app.example.com',
     toolsUrl: 'https://tools.example.com',
     unsubscribeUrl: (userId) => `https://app.example.com/api/email/unsubscribe?token=${userId}`,
   };
-  return { deps, claimed, sent, capture };
+  return { deps, claimed, sent, skipped, capture };
 }
 
 function fakeSupabase(options: {
@@ -295,24 +303,41 @@ function fakeSupabase(options: {
   usage?: { is_pro: boolean; subscription_status: string | null; stripe_customer_id?: string | null } | null;
   ledgerRows?: Array<Record<string, unknown>>;
   ledgerError?: { code: string; message: string } | null;
+  /** Rows the checkout-recovery cooldown query finds (delivered recovery emails in the window). */
+  recentRecoveryRows?: Array<Record<string, unknown>>;
 }) {
+  /**
+   * The two lifecycle_emails reads: the follow-up loader
+   * (select.in.order.limit) and the recovery cooldown
+   * (select.eq.in.not.gte.limit). A chain that filtered on user_id is the
+   * cooldown one.
+   */
+  function ledgerQuery() {
+    let byUser = false;
+    const chain: any = {
+      select: () => chain,
+      eq: (column: string) => {
+        if (column === 'user_id') byUser = true;
+        return chain;
+      },
+      in: () => chain,
+      not: () => chain,
+      gte: () => chain,
+      order: () => chain,
+      limit: async () =>
+        byUser
+          ? { data: options.recentRecoveryRows ?? [], error: null }
+          : { data: options.ledgerError ? null : options.ledgerRows ?? [], error: options.ledgerError ?? null },
+    };
+    return chain;
+  }
   return {
     auth: { admin: { getUserById: async () => ({ data: { user: options.email === null ? null : { email: options.email ?? 'A@Example.com' } }, error: null }) } },
     from: (table: string) => {
       if (table === 'user_usage') {
         return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: options.usage ?? null, error: null }) }) }) };
       }
-      if (table === 'lifecycle_emails') {
-        return {
-          select: () => ({
-            in: () => ({
-              order: () => ({
-                limit: async () => ({ data: options.ledgerError ? null : options.ledgerRows ?? [], error: options.ledgerError ?? null }),
-              }),
-            }),
-          }),
-        };
-      }
+      if (table === 'lifecycle_emails') return ledgerQuery();
       throw new Error(`unexpected table ${table}`);
     },
   } as any;
@@ -425,6 +450,29 @@ describe('sendCheckoutRecoveryEmail', () => {
     ).toMatchObject({ sent: false, reason: 'already subscribed' });
     expect(live.subscriptions.list).toHaveBeenCalledWith({ customer: 'cus_1', status: 'all', limit: 10 });
     expect(sent).toHaveLength(0);
+  });
+
+  it('sends at most one recovery sequence per user per cooldown, however many sessions expire', async () => {
+    const { deps, sent, claimed } = fakeDeps();
+    // A delivered checkout_recovery (for another session) inside the window.
+    const supabase = fakeSupabase({
+      usage: { is_pro: false, subscription_status: 'inactive' },
+      recentRecoveryRows: [{ id: 'row_1' }],
+    });
+
+    const result = await sendCheckoutRecoveryEmail({ stripe, supabase, deps, session: { ...session, id: 'cs_2' } });
+
+    expect(result).toMatchObject({ sent: false, ref: 'cs_2', reason: 'recovery email sent recently' });
+    expect(sent).toHaveLength(0);
+    // No ledger row either, so no offer follows the second session.
+    expect(claimed.size).toBe(0);
+  });
+
+  it('counts only delivered recovery emails inside the window for the cooldown', async () => {
+    const { deps, sent } = fakeDeps();
+    const supabase = fakeSupabase({ usage: { is_pro: false, subscription_status: 'inactive' }, recentRecoveryRows: [] });
+    expect(await sendCheckoutRecoveryEmail({ stripe, supabase, deps, session })).toMatchObject({ sent: true });
+    expect(sent).toHaveLength(1);
   });
 });
 
@@ -541,8 +589,8 @@ describe('runBillingFollowUps', () => {
     expect(onSent).toHaveBeenCalledTimes(2);
   });
 
-  it('skips the reminder once the subscription recovered, and the offer once the user subscribed', async () => {
-    const { deps, sent } = fakeDeps();
+  it('skips the reminder once the subscription recovered, and the offer once the user subscribed, closing both in the ledger', async () => {
+    const { deps, sent, skipped } = fakeDeps();
     const summary = await runBillingFollowUps({
       stripe: stripeWith('active'),
       supabase: fakeSupabase({ ledgerRows, usage: { is_pro: true, subscription_status: 'active' } }),
@@ -555,10 +603,17 @@ describe('runBillingFollowUps', () => {
       failures: [],
     });
     expect(sent).toHaveLength(0);
+    // A skip is final: the key is closed so tomorrow's run neither re-reads
+    // Stripe for it nor lets it take a slot from a newer follow-up.
+    expect(skipped).toEqual([
+      // Oldest-eligible first: the offer (48h) is due before the reminder (5d).
+      { key: 'u2:checkout_recovery_offer:cs_1', reason: 'subscribed since' },
+      { key: 'u1:payment_failed_reminder:in_1', reason: 'subscription is active' },
+    ]);
   });
 
   it('skips the reminder when the invoice is no longer open', async () => {
-    const { deps, sent } = fakeDeps();
+    const { deps, sent, skipped } = fakeDeps();
     const summary = await runBillingFollowUps({
       stripe: stripeWith('past_due', 'paid'),
       supabase: fakeSupabase({ ledgerRows: [ledgerRows[0]] }),
@@ -567,6 +622,31 @@ describe('runBillingFollowUps', () => {
     });
     expect(summary.payment_failed_reminder).toEqual({ due: 1, sent: 0, skipped: 1 });
     expect(sent).toHaveLength(0);
+    expect(skipped).toEqual([{ key: 'u1:payment_failed_reminder:in_1', reason: 'invoice is paid' }]);
+  });
+
+  it('a closed skip is never selected again: the follow-up selection sees the row', () => {
+    const closed: BillingLedgerRow = {
+      userId: 'u1',
+      email: 'a@example.com',
+      template: 'payment_failed_reminder',
+      ref: 'in_1',
+      payload: null,
+      sentAt: new Date(t0 + 6 * 24 * 3600 * 1000).toISOString(),
+      resendId: null,
+      error: 'skipped: subscription is active',
+    };
+    const first: BillingLedgerRow = {
+      userId: 'u1',
+      email: 'a@example.com',
+      template: 'payment_failed',
+      ref: 'in_1',
+      payload: { subscription_id: 'sub_1' },
+      sentAt: new Date(t0).toISOString(),
+      resendId: 'msg_1',
+      error: null,
+    };
+    expect(selectBillingFollowUps([first, closed], now)).toEqual([]);
   });
 
   it('reports the ledger as unavailable before the migration', async () => {

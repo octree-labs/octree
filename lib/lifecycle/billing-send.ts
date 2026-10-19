@@ -23,6 +23,7 @@ import {
 } from '@/lib/email/lifecycle';
 import { SAVE_COUPON_ID, SAVE_COUPON_MONTHS, SAVE_COUPON_PERCENT_OFF } from '@/lib/stripe-subscription';
 import {
+  CHECKOUT_RECOVERY_COOLDOWN_MS,
   COMEBACK_PROMO_CODE,
   DELINQUENT_STRIPE_STATUSES,
   LIVE_STRIPE_STATUSES,
@@ -185,6 +186,28 @@ export interface CheckoutRecoverySendInput {
   supabase: Db;
   deps: LifecycleSendDeps;
   session: Parameters<typeof describeAbandonedCheckout>[0];
+  /** Defaults to now; injected for the cooldown tests. */
+  now?: Date;
+}
+
+/**
+ * Whether a checkout-recovery email (first or offer) was delivered to the
+ * user within CHECKOUT_RECOVERY_COOLDOWN_MS. Reads only columns the ledger
+ * had before the billing migration, so a pending migration cannot make
+ * this throw.
+ */
+export async function recentlyEmailedCheckoutRecovery(supabase: Db, userId: string, now: Date): Promise<boolean> {
+  const since = new Date(now.getTime() - CHECKOUT_RECOVERY_COOLDOWN_MS).toISOString();
+  const { data, error } = await supabase
+    .from('lifecycle_emails')
+    .select('id')
+    .eq('user_id', userId)
+    .in('template', ['checkout_recovery', 'checkout_recovery_offer'])
+    .not('resend_id', 'is', null)
+    .gte('sent_at', since)
+    .limit(1);
+  if (error) throw new Error(error.message);
+  return (data ?? []).length > 0;
 }
 
 /**
@@ -202,6 +225,14 @@ export async function sendCheckoutRecoveryEmail(
 
   if (await userHasLiveSubscription(input.supabase, input.stripe, checkout.userId, checkout.customerId)) {
     return { sent: false, template, ref: checkout.sessionId, reason: 'already subscribed', checkout };
+  }
+  // Every click on an upgrade button is a new session, and every one of
+  // them expires: without this, five looks at the paywall in a week would be
+  // five recovery emails (and five offers two days after each). One
+  // recovery sequence per user per cooldown; the later sessions get no
+  // ledger row, so no offer follows them either.
+  if (await recentlyEmailedCheckoutRecovery(input.supabase, checkout.userId, input.now ?? new Date())) {
+    return { sent: false, template, ref: checkout.sessionId, reason: 'recovery email sent recently', checkout };
   }
 
   const email = await lookupUserEmail(input.supabase, checkout.userId);
@@ -365,10 +396,12 @@ const DEFAULT_FOLLOW_UP_CAP = 50;
 
 /**
  * Sends the reminders that are due (see `selectBillingFollowUps`), after a
- * fresh look at Stripe / user_usage for each one. A skipped follow-up gets
- * no ledger row and is looked at again on the next run until its first
- * email's subject is settled (the subscription recovered or ended, the user
- * subscribed, the recovery URL expired).
+ * fresh look at Stripe / user_usage for each one. Every `skip:` outcome is
+ * final (the subscription recovered or ended, the invoice settled, the user
+ * subscribed), so it is closed in the ledger (`markSkipped`) and never
+ * selected again. Without that the oldest skips would be re-read from
+ * Stripe every day and, past the cap, starve every newer follow-up: the
+ * due list is oldest-first and `cap` long.
  */
 export async function runBillingFollowUps(input: BillingFollowUpInput): Promise<BillingFollowUpSummary> {
   const summary: BillingFollowUpSummary = {
@@ -400,7 +433,16 @@ export async function runBillingFollowUps(input: BillingFollowUpInput): Promise<
         summary[item.template].sent += 1;
       } else {
         summary[item.template].skipped += 1;
-        if (!result.reason.startsWith('skip:')) {
+        if (result.reason.startsWith('skip:')) {
+          await input.deps.ledger.markSkipped({
+            userId: item.userId,
+            email: item.email,
+            template: item.template,
+            ref: item.ref,
+            reason: result.reason.slice('skip:'.length).trim(),
+            payload: item.payload,
+          });
+        } else {
           summary.failures.push({ userId: item.userId, template: item.template, ref: item.ref, reason: result.reason });
         }
       }

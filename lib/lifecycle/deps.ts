@@ -8,7 +8,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import type { Database, Json } from '@/database.types';
-import { resend, FROM_ADDRESS } from '@/lib/email/client';
 import { getAppUrl, userUnsubscribeUrl } from '@/lib/email/unsubscribe';
 import type { LifecycleTemplate } from '@/lib/email/lifecycle';
 import { isMissingLedgerSchema, MAX_SEND_ATTEMPTS } from './load';
@@ -29,6 +28,12 @@ export interface LifecycleDepsOptions {
 export function createLifecycleMailer(): LifecycleMailer {
   return {
     async send(input) {
+      // Loaded on the first send, not when this module is imported: the
+      // Resend constructor throws without RESEND_API_KEY, and the Stripe
+      // webhook route imports this file. A missing key must cost one
+      // skipped email (caught and logged by the caller), never the
+      // webhook's module load.
+      const { resend, FROM_ADDRESS } = await import('@/lib/email/client');
       const { data, error } = await resend.emails.send({
         from: FROM_ADDRESS,
         to: input.to,
@@ -92,6 +97,23 @@ export function createLifecycleLedger(supabase: Db): LifecycleLedger {
         .eq('template', template)
         .eq('ref', ref);
       if (error) throw new Error(error.message);
+    },
+    async markSkipped({ userId, email, template, ref, reason, payload }) {
+      // Closed on arrival: no resend_id, the reason in `error`, and attempts
+      // at the cap, so isRetryable (lib/lifecycle/load.ts) and
+      // claim_lifecycle_retry both leave it alone.
+      const { error } = await supabase.from('lifecycle_emails').insert({
+        user_id: userId,
+        email,
+        template,
+        ref,
+        payload: (payload ?? null) as Json,
+        error: `skipped: ${reason}`.slice(0, 500),
+        attempts: MAX_SEND_ATTEMPTS,
+      });
+      if (!error || error.code === '23505') return;
+      if (isMissingLedgerSchema(error)) throw new LifecycleLedgerUnavailableError(error.message);
+      throw new Error(error.message);
     },
   };
 }

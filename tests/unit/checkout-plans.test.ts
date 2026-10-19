@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 
 import {
+  CHECKOUT_SESSION_MAX_TTL_SECONDS,
   CHECKOUT_SESSION_MIN_TTL_SECONDS,
   CHECKOUT_SESSION_TTL_SECONDS,
   WEEKLY_PLAN_RETIRED_MESSAGE,
@@ -96,13 +97,15 @@ describe('buildCheckoutSessionParams', () => {
     const now = 1_760_000_000;
 
     it.each(['monthly', 'annual', 'semester', 'credits_100', 'generate_single'] as const)(
-      '%s expires 24h after creation, within Stripe bounds, with recovery enabled',
+      '%s expires just under 24h after creation, within Stripe bounds, with recovery enabled',
       (plan) => {
         const params = buildCheckoutSessionParams({ ...base, plan, nowSeconds: now });
 
         expect(params.expires_at).toBe(now + CHECKOUT_SESSION_TTL_SECONDS);
         expect(params.expires_at! - now).toBeGreaterThanOrEqual(CHECKOUT_SESSION_MIN_TTL_SECONDS);
-        expect(params.expires_at! - now).toBeLessThanOrEqual(24 * 60 * 60);
+        // Strictly under Stripe's 24h ceiling: an exact 24h is rejected as soon
+        // as this server's clock runs ahead of Stripe's.
+        expect(params.expires_at! - now).toBeLessThanOrEqual(CHECKOUT_SESSION_MAX_TTL_SECONDS - 60);
         expect(params.after_expiration).toEqual({ recovery: { enabled: true, allow_promotion_codes: true } });
         // The webhook keys the recovery email on these.
         expect(params.metadata).toMatchObject({ user_id: 'user-1', plan });

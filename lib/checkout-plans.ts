@@ -106,13 +106,17 @@ export interface CheckoutSessionInput {
 }
 
 /**
- * How long a Checkout Session stays open. Stripe allows 30 minutes to 24
- * hours; the maximum gives the visitor the whole day, and the recovery
- * email (`checkout.session.expired` with `after_expiration.recovery`) goes
- * out the moment it lapses.
+ * How long a Checkout Session stays open. Stripe rejects an `expires_at`
+ * outside 30 minutes .. 24 hours *as measured by Stripe's clock at
+ * creation*, so exactly 24h fails the whole checkout whenever this server's
+ * clock runs even a second ahead of Stripe's. Five minutes under the
+ * maximum keeps the visitor the whole day and the request valid under any
+ * realistic skew; the recovery email (`checkout.session.expired` with
+ * `after_expiration.recovery`) goes out the moment it lapses.
  */
-export const CHECKOUT_SESSION_TTL_SECONDS = 24 * 60 * 60;
+export const CHECKOUT_SESSION_TTL_SECONDS = 24 * 60 * 60 - 5 * 60;
 export const CHECKOUT_SESSION_MIN_TTL_SECONDS = 30 * 60;
+export const CHECKOUT_SESSION_MAX_TTL_SECONDS = 24 * 60 * 60;
 
 /**
  * The Checkout Session parameters for a plan. Subscription plans carry the

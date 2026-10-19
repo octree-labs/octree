@@ -36,11 +36,17 @@ const mocks = vi.hoisted(() => {
   const invoiceRetrieve = vi.fn();
   const subscriptionsList = vi.fn().mockResolvedValue({ data: [] });
   const resendSend = vi.fn().mockResolvedValue({ data: { id: 'msg_1' }, error: null });
+  // The checkout-recovery cooldown read (delivered recovery emails to the
+  // user in the last week): none by default.
+  const ledgerRecentLimit = vi.fn().mockResolvedValue({ data: [], error: null });
+  const ledgerSelect = vi.fn().mockReturnValue({
+    eq: () => ({ in: () => ({ not: () => ({ gte: () => ({ limit: ledgerRecentLimit }) }) }) }),
+  });
 
   const from = vi.fn((table: string) => {
     if (table === 'stripe_webhook_events') return { insert: eventsInsert };
     if (table === 'user_usage') return { update: usageUpdate, upsert: usageUpsert, select: usageSelect };
-    if (table === 'lifecycle_emails') return { insert: ledgerInsert, update: ledgerUpdate };
+    if (table === 'lifecycle_emails') return { insert: ledgerInsert, update: ledgerUpdate, select: ledgerSelect };
     if (table === 'email_suppressions') {
       return { select: () => ({ eq: () => ({ maybeSingle: suppressionMaybeSingle }) }) };
     }
@@ -69,6 +75,7 @@ const mocks = vi.hoisted(() => {
     invoiceRetrieve,
     subscriptionsList,
     resendSend,
+    ledgerRecentLimit,
   };
 });
 
@@ -907,6 +914,7 @@ describe('billing recovery: checkout.session.expired', () => {
     mocks.getUserById.mockResolvedValue({ data: { user: { email: 'Pro@Example.com' } }, error: null });
     mocks.subscriptionsList.mockResolvedValue({ data: [] });
     mocks.resendSend.mockResolvedValue({ data: { id: 'msg_2' }, error: null });
+    mocks.ledgerRecentLimit.mockResolvedValue({ data: [], error: null });
     vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.spyOn(console, 'log').mockImplementation(() => {});
   });
@@ -988,6 +996,18 @@ describe('billing recovery: checkout.session.expired', () => {
 
     expect(res.status).toBe(200);
     expect(mocks.subscriptionsList).toHaveBeenCalledWith({ customer: 'cus_1', status: 'all', limit: 10 });
+    expect(mocks.resendSend).not.toHaveBeenCalled();
+  });
+
+  it('sends nothing for a second abandoned session inside the per-user cooldown', async () => {
+    mocks.constructEvent.mockReturnValue(expiredSessionEvent({ id: 'cs_expired_2' }));
+    mocks.ledgerRecentLimit.mockResolvedValue({ data: [{ id: 'row_1' }], error: null });
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(200);
+    expect(mocks.captureServerEvent).toHaveBeenCalledWith('user-1', 'checkout_abandoned', expect.anything());
+    expect(mocks.ledgerInsert).not.toHaveBeenCalled();
     expect(mocks.resendSend).not.toHaveBeenCalled();
   });
 

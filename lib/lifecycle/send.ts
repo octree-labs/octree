@@ -48,6 +48,14 @@ export interface LifecycleLedger {
   markSent(row: LifecycleLedgerKey & { resendId: string }): Promise<void>;
   /** Stores the Resend error on the claimed row; the row stays claimed. */
   markFailed(row: LifecycleLedgerKey & { error: string }): Promise<void>;
+  /**
+   * Records that the (user, template, ref) email will never go out: a
+   * follow-up whose subject is settled (the subscription recovered or
+   * ended, the user subscribed). The row is closed with no attempts left,
+   * so neither the retry claim nor the follow-up selection ever looks at
+   * the key again. A no-op when the key already exists.
+   */
+  markSkipped(row: LifecycleLedgerKey & { email: string; reason: string; payload?: Record<string, unknown> }): Promise<void>;
 }
 
 export interface LifecycleSendDeps {

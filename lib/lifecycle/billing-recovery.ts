@@ -34,6 +34,11 @@ const DAY_MS = 24 * HOUR_MS;
 
 export const PAYMENT_FAILED_REMINDER_DELAY_MS = 5 * DAY_MS;
 export const CHECKOUT_OFFER_DELAY_MS = 48 * HOUR_MS;
+/**
+ * At most one checkout-recovery sequence (first email + offer) per user in
+ * this window, however many sessions they open and abandon in it.
+ */
+export const CHECKOUT_RECOVERY_COOLDOWN_MS = 7 * DAY_MS;
 
 /** The promotion code created for the save coupon when none exists yet. */
 export const COMEBACK_PROMO_CODE = 'COMEBACK50';

@@ -5,6 +5,7 @@ const { upsertUserUsage } = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/requests/user', () => ({ upsertUserUsage }));
+vi.mock('@/lib/analytics/track', () => ({ track: vi.fn() }));
 
 import { completeFreeOnboarding, isSignUpAlreadyTracked } from '@/lib/requests/onboarding';
 
@@ -62,6 +63,21 @@ describe('completeFreeOnboarding', () => {
 
     expect(upsertUserUsage).toHaveBeenCalledTimes(1);
     expect(upsertUserUsage).toHaveBeenCalledWith('user_1', { onboarding_completed: true });
+  });
+
+  it('reports the referral answer on the completion event, and omits it when absent', async () => {
+    const { track } = await import('@/lib/analytics/track');
+    const spy = vi.mocked(track);
+    spy.mockClear();
+
+    await completeFreeOnboarding(oauthUser, { referralSource: 'search' });
+    expect(spy).toHaveBeenLastCalledWith('onboarding_completed', {
+      plan: 'free',
+      referral_source: 'search',
+    });
+
+    await completeFreeOnboarding(oauthUser, { referralSource: '' });
+    expect(spy).toHaveBeenLastCalledWith('onboarding_completed', { plan: 'free' });
   });
 
   it('fires the Reddit SignUp pixel and mirrors it to the CAPI route for OAuth sign-ups', async () => {

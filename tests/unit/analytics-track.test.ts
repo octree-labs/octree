@@ -150,3 +150,15 @@ describe('track wrappers', () => {
     randomSpy.mockRestore();
   });
 });
+
+describe('generateEntryFromParam', () => {
+  it('accepts only the two cards that link to /generate and defaults to direct', async () => {
+    const { generateEntryFromParam } = await import('@/lib/analytics/events');
+    expect(generateEntryFromParam('onboarding')).toBe('onboarding');
+    expect(generateEntryFromParam('dashboard')).toBe('dashboard');
+    expect(generateEntryFromParam('sidebar')).toBe('direct');
+    expect(generateEntryFromParam('')).toBe('direct');
+    expect(generateEntryFromParam(null)).toBe('direct');
+    expect(generateEntryFromParam(undefined)).toBe('direct');
+  });
+});

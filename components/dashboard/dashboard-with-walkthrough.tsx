@@ -98,7 +98,7 @@ export function DashboardWithWalkthrough({
       if (walkthroughOpen) {
         e.preventDefault();
         flushSync(() => setWalkthroughOpen(false));
-        router.push('/generate');
+        router.push('/generate?from=dashboard');
       }
     },
     [walkthroughOpen, router]
@@ -167,7 +167,7 @@ export function DashboardWithWalkthrough({
             <div className="mb-8 grid gap-3 sm:grid-cols-2 lg:max-w-3xl">
               <div data-onboarding-target="dashboard-generate-button">
                 <ActionCard
-                  href="/generate"
+                  href="/generate?from=dashboard"
                   onClick={handleGenerateClick}
                   icon={<Sparkles className="h-4 w-4 shrink-0 text-primary" />}
                   title="Generate with AI"

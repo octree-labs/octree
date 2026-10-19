@@ -90,6 +90,12 @@ export type ProjectSource = 'upload' | 'paste' | 'sample' | 'blank' | 'generate'
  */
 export type StartOptionChoice = 'upload' | 'paste' | 'sample' | 'blank' | 'generate' | 'later';
 export type StartOptionContext = 'onboarding' | 'dashboard';
+/** `?from=` on /generate; anything else (deep link, sidebar, bookmark) is `direct`. */
+export type GenerateEntry = StartOptionContext | 'direct';
+const GENERATE_ENTRIES: ReadonlySet<string> = new Set(['onboarding', 'dashboard']);
+export function generateEntryFromParam(value: string | null | undefined): GenerateEntry {
+  return value && GENERATE_ENTRIES.has(value) ? (value as GenerateEntry) : 'direct';
+}
 export type CancelOffer = 'pause' | 'discount';
 /** Stripe's `cancellation_details.feedback` enum. */
 export type CancelFeedback =
@@ -115,7 +121,11 @@ export type ImportPreviewCta = 'google' | 'email' | 'login';
 
 export interface AnalyticsEventProperties {
   [AnalyticsEvents.SIGNUP_COMPLETED]: { provider: SignupProvider };
-  [AnalyticsEvents.ONBOARDING_COMPLETED]: { plan: OnboardingPlan };
+  [AnalyticsEvents.ONBOARDING_COMPLETED]: {
+    plan: OnboardingPlan;
+    /** The "how did you find Octree" answer from the onboarding form (free plan only). */
+    referral_source?: string;
+  };
   [AnalyticsEvents.ONBOARDING_START_OPTION_SELECTED]: {
     option: StartOptionChoice;
     /** `onboarding`: the final onboarding step; `dashboard`: the empty dashboard. */
@@ -130,6 +140,9 @@ export interface AnalyticsEventProperties {
   [AnalyticsEvents.GENERATE_SUBMITTED]: {
     attachment_count: number;
     is_continuation: boolean;
+    /** Where the visit to /generate started; ties a submission back to the
+     * `onboarding_start_option_selected` or dashboard card that sent it. */
+    entry: GenerateEntry;
   };
   [AnalyticsEvents.COMPILE_COMPLETED]: {
     success: boolean;

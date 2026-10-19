@@ -183,7 +183,7 @@ export default function OnboardingPage() {
         return;
       }
 
-      await completeFreeOnboarding(user);
+      await completeFreeOnboarding(user, { referralSource });
       setIsSubmitting(false);
       setCurrentStep(START_STEP);
     } catch (error) {

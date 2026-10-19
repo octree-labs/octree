@@ -16,9 +16,9 @@ build: ## Build the binary
 	go build -o $(BINARY_NAME) .
 	@echo "Build complete: $(BINARY_NAME)"
 
-run: ## Run the service locally
+run: ## Run the service locally (auth off; local dev only)
 	@echo "Starting service on port $(PORT)..."
-	PORT=$(PORT) go run .
+	PORT=$(PORT) COMPILE_AUTH_DISABLED=$${COMPILE_AUTH_DISABLED:-true} go run .
 
 test: ## Run tests
 	go test -v ./...

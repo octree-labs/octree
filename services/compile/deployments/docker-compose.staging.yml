@@ -17,6 +17,10 @@ services:
       - PORT=3001
       - HISTORY_DIR=/app/logs
       - GIN_MODE=release
+      # Staging has no JWT secret wired in, so auth is explicitly disabled to
+      # keep it reachable. To authenticate staging, drop this line and add an
+      # env_file (or SUPABASE_JWT_SECRET) as docker-compose.prod.yml does.
+      - COMPILE_AUTH_DISABLED=true
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3001/health"]

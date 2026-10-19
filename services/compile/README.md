@@ -201,10 +201,13 @@ Environment variables (optional):
 export PORT=3001
 
 # Auth: HS256 tokens signed with this secret, role authenticated|service_role
-# (the anon key is rejected). Unset = auth off, local dev only.
+# (the anon key is rejected). Required: without it the service refuses to
+# start, unless COMPILE_AUTH_DISABLED=true (local dev only).
 export SUPABASE_JWT_SECRET=...
 # Optional: pin user tokens to one project (https://<ref>.supabase.co/auth/v1)
 export SUPABASE_JWT_ISSUER=...
+# Local dev escape hatch: run without a secret (auth off). Never in production.
+export COMPILE_AUTH_DISABLED=true
 
 # Compilation timeout per request in seconds (default 600)
 export COMPILATION_TIMEOUT_SECONDS=600

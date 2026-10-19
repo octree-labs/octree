@@ -146,7 +146,7 @@ export interface AnalyticsEventProperties {
   [AnalyticsEvents.IMPORT_PREVIEW_SHOWN]: {
     source: string;
     ok: boolean;
-    reason?: 'compile_failed' | 'unavailable' | 'too_large' | 'not_found';
+    reason?: 'compile_failed' | 'unavailable' | 'too_large' | 'unsupported' | 'not_found';
   };
   /** A sign-up / log-in control on that landing was clicked. */
   [AnalyticsEvents.IMPORT_PREVIEW_SIGNUP_CLICKED]: {

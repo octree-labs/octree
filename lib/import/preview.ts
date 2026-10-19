@@ -31,6 +31,7 @@ export type PreviewFailure =
   | 'consumed'
   | 'expired'
   | 'too_large'
+  | 'unsupported'
   | 'compile_failed'
   | 'unavailable';
 
@@ -147,6 +148,29 @@ export function wrapForPreview(latex: string): string {
   lines.push(...hoistedSetup);
 
   return `${lines.join('\n')}\n\n\\begin{document}\n\n${body}\n\n\\end{document}\n`;
+}
+
+// ---------------------------------------------------------------------------
+// Documents the guest route never compiles
+// ---------------------------------------------------------------------------
+
+/**
+ * The compile service turns on `-shell-escape` for most real documents
+ * (services/compile/internal/helpers.go `requiresShellEscape` matches any
+ * `\usepackage[`), so a document can run commands and read files on the
+ * compile host. In the editor that sits behind a signed-in user; this route
+ * has no user, so drafts that reach for those primitives are not previewed
+ * at all (the editor still opens them after sign-up). Matched on the raw
+ * source, with or without a backslash, so `\csname write18\endcsname` is
+ * caught too. This is defence in depth, not a sandbox: the service-side fix
+ * is to compile previews without shell escape.
+ */
+const PREVIEW_UNSUPPORTED_RE =
+  /write18|ShellEscape|DelayedShellEscape|directlua|latelua|luaexec|luacode|luadirect|\\openin\b|\\openout\b|\\input\s*\{?\s*\||\\include\s*\{?\s*\||\\usepackage(?:\[[^\]]*\])?\{[^}]*\b(?:minted|pythontex|gnuplottex|asymptote|shellesc|luacode)\b|\\begin\{(?:minted|pycode|python|pyblock|pyconsole|gnuplot|asy)\b|\\inputminted\b|\\py[cs]?\{/;
+
+/** True when the draft uses something the guest preview refuses to compile. */
+export function isUnsupportedForPreview(latex: string): boolean {
+  return PREVIEW_UNSUPPORTED_RE.test(latex);
 }
 
 // ---------------------------------------------------------------------------
@@ -446,6 +470,9 @@ async function renderImportPreviewUncached(draftId: string, deps: RenderPreviewD
 
   if (draft.content.length > PREVIEW_MAX_CONTENT_CHARS) {
     return { ok: false, reason: 'too_large' };
+  }
+  if (isUnsupportedForPreview(draft.content)) {
+    return { ok: false, reason: 'unsupported' };
   }
 
   const compileServiceUrl = env.COMPILE_SERVICE_URL;

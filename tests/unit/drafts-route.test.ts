@@ -22,10 +22,12 @@ import { POST, OPTIONS } from '@/app/api/drafts/route';
 
 const DRAFT_ID = '11111111-2222-4333-8444-555555555555';
 
-function formPost(fields: Record<string, string>) {
+let ipCounter = 0;
+
+function formPost(fields: Record<string, string>, ip = `203.0.113.${++ipCounter}`) {
   return new Request('https://app.useoctree.com/api/drafts', {
     method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-forwarded-for': ip },
     body: new URLSearchParams(fields).toString(),
   }) as any;
 }
@@ -80,5 +82,29 @@ describe('POST /api/drafts', () => {
     expect(res.status).toBe(400);
     expect(res.headers.get('set-cookie')).toBeNull();
     expect(mocks.insert).not.toHaveBeenCalled();
+  });
+
+  it('rejects drafts over 200k characters with 413 and stores nothing', async () => {
+    const res = await POST(formPost({ content: 'x'.repeat(200_001) }));
+
+    expect(res.status).toBe(413);
+    expect(res.headers.get('access-control-allow-origin')).toBe('https://tools.useoctree.com');
+    expect(mocks.insert).not.toHaveBeenCalled();
+  });
+
+  it('limits one IP to 20 drafts a minute', async () => {
+    const ip = '198.51.100.9';
+    for (let i = 0; i < 20; i++) {
+      expect((await POST(formPost({ content: 'x' }, ip))).status).toBe(303);
+    }
+
+    const limited = await POST(formPost({ content: 'x' }, ip));
+
+    expect(limited.status).toBe(429);
+    expect(Number(limited.headers.get('retry-after'))).toBeGreaterThan(0);
+    expect(limited.headers.get('access-control-allow-origin')).toBe('https://tools.useoctree.com');
+    expect(mocks.insert).toHaveBeenCalledTimes(20);
+    // Another IP is unaffected.
+    expect((await POST(formPost({ content: 'x' }, '198.51.100.10'))).status).toBe(303);
   });
 });

@@ -95,6 +95,16 @@ describe('GET /api/import/preview/[draftId]', () => {
     });
   });
 
+  it('returns 422 for drafts the guest route refuses to compile', async () => {
+    mocks.renderImportPreview.mockResolvedValue({ ok: false, reason: 'unsupported' });
+
+    const res = await get(DRAFT_ID);
+
+    expect(res.status).toBe(422);
+    expect(res.headers.get('cache-control')).toBe('private, max-age=3600');
+    expect(await res.json()).toEqual({ error: 'Draft cannot be previewed', reason: 'unsupported' });
+  });
+
   it('returns 503 with Retry-After when the compile service is unavailable or the helper throws', async () => {
     mocks.renderImportPreview.mockResolvedValue({ ok: false, reason: 'unavailable' });
     const res = await get(DRAFT_ID);

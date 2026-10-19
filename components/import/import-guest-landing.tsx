@@ -17,7 +17,11 @@ const ImportPreviewPage = dynamic(() => import('@/components/import/import-previ
 type PreviewStatus =
   | { state: 'loading' }
   | { state: 'ok'; pdf: Blob }
-  | { state: 'failed'; reason: 'compile_failed' | 'unavailable' | 'too_large' | 'not_found'; lines: string[] };
+  | {
+      state: 'failed';
+      reason: 'compile_failed' | 'unavailable' | 'too_large' | 'unsupported' | 'not_found';
+      lines: string[];
+    };
 
 interface ImportGuestLandingProps {
   draftId: string;
@@ -47,7 +51,9 @@ async function fetchPreview(draftId: string, signal: AbortSignal): Promise<Previ
   let lines: string[] = [];
   try {
     const body = (await res.json()) as { reason?: string; lines?: unknown };
-    if (body.reason === 'compile_failed' || body.reason === 'too_large') reason = body.reason;
+    if (body.reason === 'compile_failed' || body.reason === 'too_large' || body.reason === 'unsupported') {
+      reason = body.reason;
+    }
     if (Array.isArray(body.lines)) lines = body.lines.map(String).slice(0, 3);
   } catch {
     // Non-JSON error body: keep 'unavailable'.
@@ -176,7 +182,9 @@ export function ImportGuestLanding({
                   ? 'This document has a LaTeX error. Your source is saved; sign up to open it and fix it with AI.'
                   : status.reason === 'too_large'
                     ? 'This document is too large to preview here. Your source is saved; sign up to open it.'
-                    : 'Your LaTeX is saved; sign up to open it.'}
+                    : status.reason === 'unsupported'
+                      ? 'This document uses packages the preview cannot run. Your source is saved; sign up to open it.'
+                      : 'Your LaTeX is saved; sign up to open it.'}
               </p>
               {status.lines.length > 0 ? (
                 <pre className="mt-3 overflow-auto rounded bg-background p-3 font-mono text-xs leading-relaxed text-destructive">

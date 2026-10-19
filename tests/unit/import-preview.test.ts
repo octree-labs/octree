@@ -7,6 +7,7 @@ import {
   compileErrorSummary,
   compileForPreview,
   compileServiceToken,
+  isUnsupportedForPreview,
   loadPreviewDraft,
   mintCompileServiceToken,
   renderImportPreview,
@@ -118,6 +119,39 @@ describe('wrapForPreview', () => {
     expect(out).toContain('\\usepackage{pgfplots}');
     expect(out).toContain('\\pgfplotsset{compat=1.18}');
     expect(out).not.toContain('\\usepackage{tikz}');
+  });
+});
+
+describe('isUnsupportedForPreview', () => {
+  it('refuses shell escape, Lua and file primitives, however they are spelled', () => {
+    const refused = [
+      '\\immediate\\write18{id}',
+      '\\csname write18\\endcsname{id}',
+      '\\ShellEscape{id}',
+      '\\directlua{os.execute("id")}',
+      '\\input{|"id"}',
+      '\\input |id',
+      '\\openin\\f=/etc/hostname',
+      '\\usepackage{minted}',
+      '\\usepackage[cache=false]{minted}',
+      '\\usepackage{pythontex}',
+      '\\begin{pycode}',
+      '\\py{1+1}',
+      '\\begin{asy}',
+      '\\inputminted{python}{x.py}',
+    ];
+    for (const latex of refused) expect(isUnsupportedForPreview(latex), latex).toBe(true);
+  });
+
+  it('allows ordinary documents, including ones with package options', () => {
+    const allowed = [
+      '\\documentclass[11pt]{article}\\usepackage[utf8]{inputenc}\\begin{document}Hi\\end{document}',
+      '\\begin{tikzpicture}\\draw (0,0) -- (1,1);\\end{tikzpicture}',
+      '\\usepackage{booktabs}\\begin{tabular}{l}\\toprule a\\\\\\bottomrule\\end{tabular}',
+      '\\input{chapter1}',
+      '\\usepackage{graphicx}\\includegraphics{fig.png}',
+    ];
+    for (const latex of allowed) expect(isUnsupportedForPreview(latex), latex).toBe(false);
   });
 });
 
@@ -346,6 +380,19 @@ describe('renderImportPreview', () => {
       await renderImportPreview(DRAFT_ID, { admin: client, fetchImpl, env: { SUPABASE_SERVICE_ROLE_KEY: 'eyJ.k' }, now: NOW })
     ).toEqual({ ok: false, reason: 'unavailable' });
     expect(fetchImpl.calls).toHaveLength(0);
+  });
+
+  it('never compiles a draft that uses shell escape, and does not cache the refusal', async () => {
+    const { client, mocks: adminMocks } = fakeAdmin({
+      draft: draftRow({ content: '\\documentclass{article}\\begin{document}\\immediate\\write18{id}\\end{document}' }),
+    });
+    const fetchImpl = fakeCompile(pdfResponse);
+
+    const result = await renderImportPreview(DRAFT_ID, { admin: client, fetchImpl, env: ENV, now: NOW });
+
+    expect(result).toEqual({ ok: false, reason: 'unsupported' });
+    expect(fetchImpl.calls).toHaveLength(0);
+    expect(adminMocks.upload).not.toHaveBeenCalled();
   });
 
   it('wraps a fragment before sending it to the compile service', async () => {

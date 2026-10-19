@@ -4,9 +4,27 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { importPath, setPendingDraftCookie } from '@/lib/import/pending-draft';
+import { clientIp, createRateLimiter } from '@/lib/import/rate-limit';
 import { captureServerExceptionAfterResponse } from '@/lib/posthog-server';
 
 const allowedOrigin = process.env.ALLOWED_TOOLS_ORIGIN || 'https://tools.useoctree.com';
+
+/**
+ * Drafts are anonymous rows and each one can be compiled once by the guest
+ * preview route (app/api/import/preview), so a flood of drafts is a flood of
+ * compiles. A visitor posts one draft per click; 20/min per IP is generous.
+ * Per process (see lib/import/rate-limit.ts), like the preview limiter.
+ */
+const DRAFT_RATE_LIMIT = { limit: 20, windowMs: 60_000 };
+/** Largest draft stored (chars). The biggest tools/www templates are well under 100 KB. */
+const DRAFT_MAX_CONTENT_CHARS = 200_000;
+
+const globalForLimiter = globalThis as unknown as {
+  __octreeDraftsLimiter__?: ReturnType<typeof createRateLimiter>;
+};
+const limiter =
+  globalForLimiter.__octreeDraftsLimiter__ ??
+  (globalForLimiter.__octreeDraftsLimiter__ = createRateLimiter(DRAFT_RATE_LIMIT));
 
 function withCors(response: NextResponse) {
   response.headers.set('Access-Control-Allow-Origin', allowedOrigin);
@@ -35,6 +53,16 @@ export async function HEAD(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const decision = limiter.check(clientIp(request.headers));
+    if (!decision.allowed) {
+      return withCors(
+        NextResponse.json(
+          { error: 'Too many requests' },
+          { status: 429, headers: { 'Retry-After': String(decision.retryAfterSeconds) } }
+        )
+      );
+    }
+
     const contentType = request.headers.get('content-type') || '';
 
     let content = '';
@@ -56,6 +84,9 @@ export async function POST(request: NextRequest) {
 
     if (!content) {
       return withCors(NextResponse.json({ error: 'Missing content' }, { status: 400 }));
+    }
+    if (typeof content !== 'string' || content.length > DRAFT_MAX_CONTENT_CHARS) {
+      return withCors(NextResponse.json({ error: 'Draft too large' }, { status: 413 }));
     }
 
     const supabase = await createClient();

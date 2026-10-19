@@ -54,6 +54,11 @@ function failureResponse(result: Extract<PreviewResult, { ok: false }>) {
       return json({ error: 'Draft too large to preview', reason: 'too_large' }, 422, {
         'Cache-Control': 'private, max-age=3600',
       });
+    case 'unsupported':
+      // Uses shell escape / Lua / file primitives the guest route never compiles.
+      return json({ error: 'Draft cannot be previewed', reason: 'unsupported' }, 422, {
+        'Cache-Control': 'private, max-age=3600',
+      });
     case 'compile_failed':
       return json(
         { error: 'Compile failed', reason: 'compile_failed', lines: result.errorLines ?? [] },

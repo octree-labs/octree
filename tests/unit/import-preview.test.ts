@@ -198,6 +198,7 @@ describe('compileServiceToken', () => {
     const claims = JSON.parse(Buffer.from(payload, 'base64url').toString());
     expect(claims.iss).toBe('octree-app');
     expect(claims.sub).toBe('import-preview');
+    expect(claims.role).toBe('service_role');
     expect(claims.exp - claims.iat).toBe(120);
     expect(claims.iat).toBe(Math.floor(NOW / 1000));
     const expected = createHmac('sha256', 'shh').update(`${header}.${payload}`).digest('base64url');

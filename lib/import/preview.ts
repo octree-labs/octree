@@ -191,7 +191,7 @@ export function mintCompileServiceToken(secret: string, now = Date.now(), ttlSec
   const iat = Math.floor(now / 1000);
   const header = base64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
   const payload = base64url(
-    JSON.stringify({ iss: 'octree-app', sub: 'import-preview', iat, exp: iat + ttlSeconds })
+    JSON.stringify({ iss: 'octree-app', sub: 'import-preview', role: 'service_role', iat, exp: iat + ttlSeconds })
   );
   const signature = createHmac('sha256', secret).update(`${header}.${payload}`).digest('base64url');
   return `${header}.${payload}.${signature}`;

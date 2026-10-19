@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import {
   eligibleSince,
   isWinbackPrecandidate,
+  monthRef,
   selectLifecycleCandidates,
   type LifecycleUserRow,
 } from '@/lib/lifecycle/select';
@@ -83,7 +84,11 @@ describe('staff and subscription exclusions (every template)', () => {
     ['status unlimited', { subscriptionStatus: 'unlimited' }],
   ];
 
-  it.each(cases)('%s never gets any lifecycle email', (_label, overrides) => {
+  // pro_inactive is the one template written for subscribers; it has its own
+  // exclusions below.
+  const upsellTemplates = SCHEDULED_LIFECYCLE_TEMPLATES.filter((t) => t !== 'pro_inactive');
+
+  it.each(cases)('%s never gets any upsell email', (_label, overrides) => {
     const base: Partial<LifecycleUserRow> = {
       createdAt: ago(8 * DAY),
       firstProjectAt: ago(7 * DAY),
@@ -92,7 +97,7 @@ describe('staff and subscription exclusions (every template)', () => {
       stripeCustomerId: 'cus_1',
       subscriptionEndedAt: ago(30 * DAY),
     };
-    for (const template of SCHEDULED_LIFECYCLE_TEMPLATES) {
+    for (const template of upsellTemplates) {
       expect(eligibleSince(user({ ...base, ...overrides }), template, NOW), template).toBeNull();
     }
     expect(isWinbackPrecandidate(user({ ...base, ...overrides }))).toBe(false);
@@ -170,7 +175,7 @@ describe('winback', () => {
   });
 
   it('is off unless LIFECYCLE_WINBACK_ENABLED=true', () => {
-    expect(enabledTemplates({})).toEqual(new Set(['welcome', 'limit_hit', 'day7']));
+    expect(enabledTemplates({})).toEqual(new Set(['welcome', 'limit_hit', 'day7', 'pro_inactive']));
     expect(enabledTemplates({ LIFECYCLE_WINBACK_ENABLED: 'false' }).has('winback')).toBe(false);
     expect(enabledTemplates({ LIFECYCLE_WINBACK_ENABLED: 'true' }).has('winback')).toBe(true);
   });
@@ -179,6 +184,90 @@ describe('winback', () => {
     const selection = select([lapsed()], { enabledTemplates: ['welcome', 'limit_hit', 'day7'] });
     expect(selection.eligible.winback).toHaveLength(1);
     expect(selection.toSend).toHaveLength(0);
+  });
+});
+
+describe('pro_inactive', () => {
+  // A paying subscriber per the entitlement rule: active, names a Stripe
+  // subscription, period end in the future.
+  const pro = (over: Partial<LifecycleUserRow> = {}) =>
+    user({
+      createdAt: ago(60 * DAY),
+      isPro: true,
+      subscriptionStatus: 'active',
+      stripeCustomerId: 'cus_1',
+      stripeSubscriptionId: 'sub_1',
+      currentPeriodEnd: new Date(NOW.getTime() + 20 * DAY).toISOString(),
+      firstProjectAt: ago(50 * DAY),
+      lastActivityAt: ago(10 * DAY),
+      ...over,
+    });
+
+  it('goes to a Pro subscriber idle for 7 days, dated from the end of the quiet week', () => {
+    expect(eligibleSince(pro(), 'pro_inactive', NOW)).toBe(Date.parse(ago(10 * DAY)) + 7 * DAY);
+    expect(eligibleSince(pro({ lastActivityAt: ago(7 * DAY) }), 'pro_inactive', NOW)).not.toBeNull();
+    expect(eligibleSince(pro({ subscriptionStatus: 'trialing' }), 'pro_inactive', NOW)).not.toBeNull();
+  });
+
+  it('is not sent while there was activity inside the window', () => {
+    expect(eligibleSince(pro({ lastActivityAt: ago(6 * DAY + 23 * HOUR) }), 'pro_inactive', NOW)).toBeNull();
+    expect(eligibleSince(pro({ lastActivityAt: ago(HOUR) }), 'pro_inactive', NOW)).toBeNull();
+    // daily_reset_date is a date; the loader folds it into lastActivityAt.
+    expect(eligibleSince(pro({ lastActivityAt: '2026-10-15' }), 'pro_inactive', NOW)).toBeNull();
+    expect(eligibleSince(pro({ lastActivityAt: '2026-10-01' }), 'pro_inactive', NOW)).not.toBeNull();
+  });
+
+  it('is not sent when no activity is known at all', () => {
+    expect(eligibleSince(pro({ lastActivityAt: null }), 'pro_inactive', NOW)).toBeNull();
+    expect(eligibleSince(pro({ lastActivityAt: undefined }), 'pro_inactive', NOW)).toBeNull();
+  });
+
+  it('is not sent to anyone who is not entitled to Pro (same rule as the app)', () => {
+    expect(eligibleSince(pro({ isPro: false, subscriptionStatus: 'canceled' }), 'pro_inactive', NOW)).toBeNull();
+    // A bare is_pro flag grants nothing.
+    expect(eligibleSince(pro({ subscriptionStatus: 'inactive' }), 'pro_inactive', NOW)).toBeNull();
+    expect(eligibleSince(pro({ subscriptionStatus: 'past_due' }), 'pro_inactive', NOW)).toBeNull();
+    expect(eligibleSince(pro({ subscriptionStatus: 'paused' }), 'pro_inactive', NOW)).toBeNull();
+    expect(eligibleSince(pro({ stripeSubscriptionId: null }), 'pro_inactive', NOW)).toBeNull();
+    expect(eligibleSince(pro({ currentPeriodEnd: ago(DAY) }), 'pro_inactive', NOW)).toBeNull();
+    expect(eligibleSince(user({ lastActivityAt: ago(30 * DAY) }), 'pro_inactive', NOW)).toBeNull();
+  });
+
+  it('never goes to staff or manual grants, even when the row looks like Pro', () => {
+    expect(eligibleSince(pro({ role: 'admin' }), 'pro_inactive', NOW)).toBeNull();
+    expect(eligibleSince(pro({ role: 'unlimited' }), 'pro_inactive', NOW)).toBeNull();
+    expect(eligibleSince(pro({ subscriptionStatus: 'unlimited', stripeSubscriptionId: null }), 'pro_inactive', NOW)).toBeNull();
+    expect(eligibleSince(pro({ email: 'rascodes123@gmail.com' }), 'pro_inactive', NOW)).toBeNull();
+  });
+
+  it('keys the ledger on the calendar month, so at most one per month', () => {
+    const u = pro();
+    expect(monthRef(NOW)).toBe('2026-10');
+    const fresh = select([u]);
+    expect(fresh.toSend).toEqual([expect.objectContaining({ userId: u.userId, template: 'pro_inactive', ref: '2026-10' })]);
+
+    const sentThisMonth = select([u], { sent: [{ userId: u.userId, template: 'pro_inactive', ref: '2026-10' }] });
+    expect(sentThisMonth.toSend).toHaveLength(0);
+    expect(sentThisMonth.eligible.pro_inactive).toHaveLength(0);
+
+    const sentLastMonth = select([u], { sent: [{ userId: u.userId, template: 'pro_inactive', ref: '2026-09' }] });
+    expect(sentLastMonth.toSend).toHaveLength(1);
+  });
+
+  it('respects suppressions and the marketing opt-out like every other template', () => {
+    const suppressed = pro({ email: 'Quiet@Example.com' });
+    const optedOut = pro();
+    const selection = select([suppressed, optedOut], {
+      suppressedEmails: ['quiet@example.com'],
+      optedOutUserIds: [optedOut.userId],
+    });
+    expect(selection.toSend).toHaveLength(0);
+  });
+
+  it('is on by default and ranks below the free-tier templates', () => {
+    expect(enabledTemplates({}).has('pro_inactive')).toBe(true);
+    const selection = select([pro(), user()]);
+    expect(selection.toSend.map((c) => c.template)).toEqual(['welcome', 'pro_inactive']);
   });
 });
 

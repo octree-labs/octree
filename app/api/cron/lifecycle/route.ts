@@ -2,26 +2,28 @@ import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { stripe } from '@/lib/stripe';
 import { isCronRequestAuthorized } from '@/lib/ops/config';
-import { resend, FROM_ADDRESS } from '@/lib/email/client';
-import { getAppUrl, getUnsubscribeSecret, userUnsubscribeUrl } from '@/lib/email/unsubscribe';
-import { LIFECYCLE_TEMPLATES } from '@/lib/email/lifecycle';
+import { getUnsubscribeSecret } from '@/lib/email/unsubscribe';
+import { SCHEDULED_LIFECYCLE_TEMPLATES } from '@/lib/email/lifecycle';
 import { enabledTemplates } from '@/lib/lifecycle/config';
-import { attachStripeLapses, loadLifecycleRows, MAX_SEND_ATTEMPTS } from '@/lib/lifecycle/load';
+import { attachStripeLapses, loadLifecycleRows } from '@/lib/lifecycle/load';
 import { DEFAULT_SEND_CAP, selectLifecycleCandidates } from '@/lib/lifecycle/select';
-import { sendLifecycleBatch, type LifecycleLedger, type LifecycleMailer } from '@/lib/lifecycle/send';
+import { sendLifecycleBatch } from '@/lib/lifecycle/send';
+import { createLifecycleDeps } from '@/lib/lifecycle/deps';
+import { runBillingFollowUps } from '@/lib/lifecycle/billing-send';
 import { getPostHogServer } from '@/lib/posthog-server';
-import { AnalyticsEvents } from '@/lib/analytics/events';
+import { AnalyticsEvents, type PurchasePlan } from '@/lib/analytics/events';
+import { isPurchasePlan } from '@/lib/checkout-plans';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
-const TOOLS_URL = 'https://tools.useoctree.com';
-
 /**
- * Lifecycle and win-back emails. Scheduled in `vercel.json` (14:30 UTC).
- * `?dry=1` computes the candidates and returns counts plus the first five
- * user ids per template without sending or recording anything.
+ * Lifecycle and win-back emails, plus the billing-recovery follow-ups (the
+ * payment-failed reminder after 5 days, the checkout offer after 48h; see
+ * lib/lifecycle/billing-recovery.ts). Scheduled in `vercel.json` (14:30
+ * UTC). `?dry=1` computes the candidates and returns counts plus the first
+ * five user ids per template without sending or recording anything.
  */
 export async function GET(request: Request) {
   if (!isCronRequestAuthorized(request)) {
@@ -55,7 +57,7 @@ export async function GET(request: Request) {
     });
 
     const summary = Object.fromEntries(
-      LIFECYCLE_TEMPLATES.map((template) => [
+      SCHEDULED_LIFECYCLE_TEMPLATES.map((template) => [
         template,
         {
           enabled: enabled.has(template),
@@ -66,6 +68,53 @@ export async function GET(request: Request) {
       ])
     );
 
+    const posthog = getPostHogServer();
+    const deps = createLifecycleDeps(supabase, {
+      secret,
+      capture: (userId, template) => {
+        posthog?.capture({
+          distinctId: userId,
+          event: AnalyticsEvents.LIFECYCLE_EMAIL_SENT,
+          properties: { template, source: 'server' },
+        });
+      },
+    });
+
+    // Billing-recovery follow-ups: a dry run only counts; a live run sends
+    // them before the scheduled batch (they are few and time-sensitive).
+    // They dedupe on their own ledger rows, so a missing ledger (null from
+    // the loader) means nothing goes out and the response says so.
+    const billing = await runBillingFollowUps({
+      stripe,
+      supabase,
+      deps,
+      now,
+      dry: dry || rows.missingTables.length > 0,
+      onSent: (followUp, extra) => {
+        const plan = followUp.payload.plan;
+        const event =
+          followUp.template === 'payment_failed_reminder'
+            ? {
+                event: AnalyticsEvents.PAYMENT_FAILED_EMAIL_SENT,
+                properties: {
+                  template: 'payment_failed_reminder' as const,
+                  amount: extra.invoice?.amountCents != null ? extra.invoice.amountCents / 100 : null,
+                  currency: extra.invoice?.currency ? extra.invoice.currency.toUpperCase() : null,
+                  has_retry: extra.invoice?.nextPaymentAttempt != null,
+                },
+              }
+            : {
+                event: AnalyticsEvents.CHECKOUT_RECOVERY_EMAIL_SENT,
+                properties: {
+                  template: 'checkout_recovery_offer' as const,
+                  plan: (typeof plan === 'string' && isPurchasePlan(plan) ? plan : 'unknown') as PurchasePlan | 'unknown',
+                  has_offer: extra.promoCode !== null,
+                },
+              };
+        posthog?.capture({ distinctId: followUp.userId, ...event, properties: { ...event.properties, source: 'server' } });
+      },
+    });
+
     if (dry) {
       return NextResponse.json({
         dry: true,
@@ -75,6 +124,7 @@ export async function GET(request: Request) {
         cap: DEFAULT_SEND_CAP,
         missing_tables: rows.missingTables,
         templates: summary,
+        billing,
       });
     }
 
@@ -86,82 +136,7 @@ export async function GET(request: Request) {
       );
     }
 
-    const mailer: LifecycleMailer = {
-      async send(input) {
-        const { data, error } = await resend.emails.send({
-          from: FROM_ADDRESS,
-          to: input.to,
-          subject: input.subject,
-          html: input.html,
-          text: input.text,
-          headers: input.headers,
-        });
-        return { id: data?.id ?? null, error: error?.message ?? null };
-      },
-    };
-
-    const ledger: LifecycleLedger = {
-      async claim({ userId, email, template }) {
-        const { error } = await supabase
-          .from('lifecycle_emails')
-          .insert({ user_id: userId, email, template });
-        if (!error) return true;
-        if (error.code !== '23505') throw new Error(error.message);
-        // 23505 = unique_violation: the pair exists. Take it over only if
-        // its send failed and attempts remain (one UPDATE in the RPC, so a
-        // concurrent run cannot take the same row).
-        const { data: retried, error: retryError } = await supabase.rpc('claim_lifecycle_retry', {
-          p_user_id: userId,
-          p_template: template,
-          p_email: email,
-          p_max_attempts: MAX_SEND_ATTEMPTS,
-        });
-        if (retryError) throw new Error(retryError.message);
-        return retried === true;
-      },
-      async markSent({ userId, template, resendId }) {
-        const { error } = await supabase
-          .from('lifecycle_emails')
-          .update({ resend_id: resendId })
-          .eq('user_id', userId)
-          .eq('template', template);
-        if (error) throw new Error(error.message);
-      },
-      async markFailed({ userId, template, error: message }) {
-        const { error } = await supabase
-          .from('lifecycle_emails')
-          .update({ error: message.slice(0, 500) })
-          .eq('user_id', userId)
-          .eq('template', template);
-        if (error) throw new Error(error.message);
-      },
-    };
-
-    const posthog = getPostHogServer();
-    const results = await sendLifecycleBatch(selection.toSend, {
-      mailer,
-      ledger,
-      async mayEmail({ userId, email }) {
-        const [suppression, preference] = await Promise.all([
-          supabase.from('email_suppressions').select('email').eq('email', email).maybeSingle(),
-          supabase.from('email_preferences').select('marketing_opt_out').eq('user_id', userId).maybeSingle(),
-        ]);
-        // A failed read is treated as "no consent" so an outage cannot
-        // leak email to someone who opted out.
-        if (suppression.error || preference.error) return false;
-        return !suppression.data && !preference.data?.marketing_opt_out;
-      },
-      appUrl: getAppUrl(),
-      toolsUrl: TOOLS_URL,
-      unsubscribeUrl: (userId) => userUnsubscribeUrl(userId, secret),
-      capture: (userId, template) => {
-        posthog?.capture({
-          distinctId: userId,
-          event: AnalyticsEvents.LIFECYCLE_EMAIL_SENT,
-          properties: { template, source: 'server' },
-        });
-      },
-    });
+    const results = await sendLifecycleBatch(selection.toSend, deps);
     if (posthog) {
       await posthog.flush().catch((error) => console.error('[lifecycle] posthog flush failed:', error));
     }
@@ -178,6 +153,7 @@ export async function GET(request: Request) {
       failed: failed.length,
       failures: failed.slice(0, 20),
       templates: summary,
+      billing,
     });
   } catch (error) {
     console.error('[lifecycle] run failed:', error);

@@ -23,9 +23,30 @@ const mocks = vi.hoisted(() => {
   const rpc = vi.fn().mockResolvedValue({ data: 100, error: null });
   const captureServerEvent = vi.fn().mockResolvedValue(undefined);
 
+  // Billing recovery (lib/lifecycle/billing-send.ts): the ledger, the
+  // consent tables, the account email, Stripe's invoice and the mailer.
+  const ledgerInsert = vi.fn().mockResolvedValue({ error: null });
+  const ledgerUpdateEq = vi.fn().mockResolvedValue({ error: null });
+  const ledgerUpdate = vi.fn().mockReturnValue({
+    eq: () => ({ eq: () => ({ eq: ledgerUpdateEq }) }),
+  });
+  const suppressionMaybeSingle = vi.fn().mockResolvedValue({ data: null, error: null });
+  const preferenceMaybeSingle = vi.fn().mockResolvedValue({ data: null, error: null });
+  const getUserById = vi.fn().mockResolvedValue({ data: { user: { email: 'Pro@Example.com' } }, error: null });
+  const invoiceRetrieve = vi.fn();
+  const subscriptionsList = vi.fn().mockResolvedValue({ data: [] });
+  const resendSend = vi.fn().mockResolvedValue({ data: { id: 'msg_1' }, error: null });
+
   const from = vi.fn((table: string) => {
     if (table === 'stripe_webhook_events') return { insert: eventsInsert };
     if (table === 'user_usage') return { update: usageUpdate, upsert: usageUpsert, select: usageSelect };
+    if (table === 'lifecycle_emails') return { insert: ledgerInsert, update: ledgerUpdate };
+    if (table === 'email_suppressions') {
+      return { select: () => ({ eq: () => ({ maybeSingle: suppressionMaybeSingle }) }) };
+    }
+    if (table === 'email_preferences') {
+      return { select: () => ({ eq: () => ({ maybeSingle: preferenceMaybeSingle }) }) };
+    }
     throw new Error(`unexpected table ${table}`);
   });
 
@@ -40,6 +61,14 @@ const mocks = vi.hoisted(() => {
     rpc,
     captureServerEvent,
     from,
+    ledgerInsert,
+    ledgerUpdateEq,
+    suppressionMaybeSingle,
+    preferenceMaybeSingle,
+    getUserById,
+    invoiceRetrieve,
+    subscriptionsList,
+    resendSend,
   };
 });
 
@@ -47,11 +76,22 @@ vi.mock('stripe', () => ({
   default: class StripeMock {
     webhooks = { constructEvent: mocks.constructEvent };
     checkout = { sessions: { listLineItems: vi.fn().mockResolvedValue({ data: [] }) } };
+    invoices = { retrieve: mocks.invoiceRetrieve };
+    subscriptions = { list: mocks.subscriptionsList };
   },
 }));
 
 vi.mock('@supabase/supabase-js', () => ({
-  createClient: () => ({ from: mocks.from, rpc: mocks.rpc }),
+  createClient: () => ({
+    from: mocks.from,
+    rpc: mocks.rpc,
+    auth: { admin: { getUserById: mocks.getUserById } },
+  }),
+}));
+
+vi.mock('@/lib/email/client', () => ({
+  resend: { emails: { send: mocks.resendSend } },
+  FROM_ADDRESS: 'Octree <test@example.com>',
 }));
 
 vi.mock('@/lib/posthog-server', () => ({
@@ -75,6 +115,8 @@ process.env.STRIPE_SECRET_KEY = 'sk_test_placeholder';
 process.env.STRIPE_WEBHOOK_SECRET = 'whsec_placeholder';
 process.env.NEXT_PUBLIC_SUPABASE_URL = 'http://localhost:54321';
 process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role-placeholder';
+// Signs the unsubscribe links in the recovery emails.
+process.env.CRON_SECRET = 'cron-secret-placeholder';
 
 import { POST } from '@/app/api/webhooks/stripe/route';
 
@@ -134,6 +176,60 @@ function subscriptionEvent(type: string, overrides: Record<string, unknown> = {}
   };
 }
 
+function openInvoice(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'in_1',
+    object: 'invoice',
+    status: 'open',
+    amount_due: 999,
+    amount_remaining: 999,
+    currency: 'usd',
+    hosted_invoice_url: 'https://invoice.stripe.com/i/in_1',
+    next_payment_attempt: 1_700_500_000,
+    ...overrides,
+  };
+}
+
+/** customer.subscription.updated with Stripe's previous_attributes. */
+function subscriptionUpdate(
+  overrides: Record<string, unknown>,
+  previous: Record<string, unknown> | undefined,
+  id = 'evt_sub_update_1'
+) {
+  const event = subscriptionEvent('customer.subscription.updated', { latest_invoice: 'in_1', ...overrides });
+  return { ...event, id, data: { ...event.data, previous_attributes: previous } };
+}
+
+function expiredSessionEvent(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'evt_expired_1',
+    type: 'checkout.session.expired',
+    data: {
+      object: {
+        id: 'cs_expired_1',
+        object: 'checkout.session',
+        mode: 'subscription',
+        status: 'expired',
+        payment_status: 'unpaid',
+        amount_total: 999,
+        currency: 'usd',
+        customer: null,
+        customer_email: 'pro@example.com',
+        metadata: { user_id: 'user-1', plan: 'monthly' },
+        after_expiration: {
+          recovery: {
+            enabled: true,
+            allow_promotion_codes: true,
+            expires_at: 1_703_000_000,
+            url: 'https://checkout.stripe.com/c/pay/recovery_1',
+          },
+        },
+        ...overrides,
+      },
+    },
+  };
+}
+
 describe('POST /api/webhooks/stripe', () => {
   let errorSpy: ReturnType<typeof vi.spyOn>;
 
@@ -150,7 +246,16 @@ describe('POST /api/webhooks/stripe', () => {
     });
     mocks.rpc.mockResolvedValue({ data: 100, error: null });
     mocks.trackRedditConversion.mockResolvedValue(undefined);
+    mocks.ledgerInsert.mockResolvedValue({ error: null });
+    mocks.ledgerUpdateEq.mockResolvedValue({ error: null });
+    mocks.suppressionMaybeSingle.mockResolvedValue({ data: null, error: null });
+    mocks.preferenceMaybeSingle.mockResolvedValue({ data: null, error: null });
+    mocks.getUserById.mockResolvedValue({ data: { user: { email: 'Pro@Example.com' } }, error: null });
+    mocks.invoiceRetrieve.mockResolvedValue(openInvoice());
+    mocks.subscriptionsList.mockResolvedValue({ data: [] });
+    mocks.resendSend.mockResolvedValue({ data: { id: 'msg_1' }, error: null });
     errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
   describe('checkout.session.completed for a credit pack (mode: payment)', () => {
@@ -651,5 +756,270 @@ describe('POST /api/webhooks/stripe', () => {
     expect(res.status).toBe(200);
     expect(mocks.eventsInsert).not.toHaveBeenCalled();
     expect(mocks.usageUpdate).not.toHaveBeenCalled();
+  });
+});
+
+describe('billing recovery: dunning on customer.subscription.updated', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.usageMaybeSingle.mockResolvedValue({
+      data: { is_pro: true, stripe_subscription_id: 'sub_1', current_period_start: null, subscription_status: 'active' },
+      error: null,
+    });
+    mocks.ledgerInsert.mockResolvedValue({ error: null });
+    mocks.ledgerUpdateEq.mockResolvedValue({ error: null });
+    mocks.suppressionMaybeSingle.mockResolvedValue({ data: null, error: null });
+    mocks.getUserById.mockResolvedValue({ data: { user: { email: 'Pro@Example.com' } }, error: null });
+    mocks.invoiceRetrieve.mockResolvedValue(openInvoice());
+    mocks.resendSend.mockResolvedValue({ data: { id: 'msg_1' }, error: null });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  it('active -> past_due sends the payment_failed email once, keyed on the invoice', async () => {
+    mocks.constructEvent.mockReturnValue(subscriptionUpdate({ status: 'past_due' }, { status: 'active' }));
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(200);
+    expect(mocks.invoiceRetrieve).toHaveBeenCalledWith('in_1');
+    expect(mocks.ledgerInsert).toHaveBeenCalledTimes(1);
+    expect(mocks.ledgerInsert).toHaveBeenCalledWith({
+      user_id: 'user-1',
+      email: 'pro@example.com',
+      template: 'payment_failed',
+      ref: 'in_1',
+      payload: expect.objectContaining({ subscription_id: 'sub_1', invoice_id: 'in_1', amount_cents: 999 }),
+    });
+    expect(mocks.resendSend).toHaveBeenCalledTimes(1);
+    const mail = mocks.resendSend.mock.calls[0][0];
+    expect(mail.to).toBe('pro@example.com');
+    expect(mail.subject).toBe("Your Octree Pro payment didn't go through");
+    expect(mail.html).toContain('https://invoice.stripe.com/i/in_1');
+    expect(mail.text).toContain('$9.99');
+    expect(mail.text).toContain('/settings');
+    // Transactional: no unsubscribe link in the body.
+    expect(mail.text).not.toContain('Unsubscribe');
+    expect(mocks.ledgerUpdateEq).toHaveBeenCalledTimes(1); // resend_id stored
+    expect(mocks.captureServerEvent).toHaveBeenCalledWith('user-1', 'subscription_past_due', { status: 'past_due' });
+    expect(mocks.captureServerEvent).toHaveBeenCalledWith('user-1', 'payment_failed_email_sent', {
+      template: 'payment_failed',
+      amount: 9.99,
+      currency: 'USD',
+      has_retry: true,
+    });
+    expect(mocks.captureServerEvent).toHaveBeenCalledWith('user-1', 'lifecycle_email_sent', { template: 'payment_failed' });
+    // The user_usage write happened as before.
+    expect(mocks.usageUpdate).toHaveBeenCalledWith(expect.objectContaining({ subscription_status: 'past_due', is_pro: false }));
+  });
+
+  it('a redelivery (or a later update of the same delinquency) sends nothing: the ledger row exists', async () => {
+    mocks.constructEvent.mockReturnValue(subscriptionUpdate({ status: 'past_due' }, { status: 'active' }, 'evt_sub_update_2'));
+    mocks.ledgerInsert.mockResolvedValue({ error: { code: '23505', message: 'duplicate key' } });
+    mocks.rpc.mockResolvedValue({ data: false, error: null }); // claim_lifecycle_retry: nothing retryable
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(200);
+    expect(mocks.rpc).toHaveBeenCalledWith(
+      'claim_lifecycle_retry',
+      expect.objectContaining({ p_user_id: 'user-1', p_template: 'payment_failed', p_ref: 'in_1' })
+    );
+    expect(mocks.resendSend).not.toHaveBeenCalled();
+    expect(mocks.captureServerEvent).not.toHaveBeenCalledWith('user-1', 'payment_failed_email_sent', expect.anything());
+  });
+
+  it.each([
+    ['past_due -> active (recovered)', { status: 'active' }, { status: 'past_due' }],
+    ['past_due -> unpaid (still delinquent)', { status: 'unpaid' }, { status: 'past_due' }],
+    ['past_due, status unchanged (a retry attempt)', { status: 'past_due' }, { metadata: {} }],
+    ['active, no status change', { status: 'active' }, { cancel_at_period_end: true }],
+  ])('%s sends nothing', async (_label, overrides, previous) => {
+    mocks.constructEvent.mockReturnValue(subscriptionUpdate(overrides, previous));
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(200);
+    expect(mocks.invoiceRetrieve).not.toHaveBeenCalled();
+    expect(mocks.ledgerInsert).not.toHaveBeenCalled();
+    expect(mocks.resendSend).not.toHaveBeenCalled();
+  });
+
+  it('respects email_suppressions: no send and no ledger row', async () => {
+    mocks.constructEvent.mockReturnValue(subscriptionUpdate({ status: 'past_due' }, { status: 'active' }));
+    mocks.suppressionMaybeSingle.mockResolvedValue({ data: { email: 'pro@example.com' }, error: null });
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(200);
+    expect(mocks.ledgerInsert).not.toHaveBeenCalled();
+    expect(mocks.resendSend).not.toHaveBeenCalled();
+  });
+
+  it('fails open when the ledger lacks the new columns (migration pending): 200, no email', async () => {
+    mocks.constructEvent.mockReturnValue(subscriptionUpdate({ status: 'past_due' }, { status: 'active' }));
+    mocks.ledgerInsert.mockResolvedValue({
+      error: { code: 'PGRST204', message: "Could not find the 'ref' column of 'lifecycle_emails' in the schema cache" },
+    });
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(200);
+    expect(mocks.resendSend).not.toHaveBeenCalled();
+    expect(mocks.rpc).not.toHaveBeenCalledWith('claim_lifecycle_retry', expect.anything());
+  });
+
+  it('returns 200 when the invoice lookup or the mailer throws', async () => {
+    mocks.constructEvent.mockReturnValue(subscriptionUpdate({ status: 'past_due' }, { status: 'active' }));
+    mocks.invoiceRetrieve.mockRejectedValue(new Error('stripe down'));
+
+    expect((await POST(makeRequest())).status).toBe(200);
+
+    mocks.invoiceRetrieve.mockResolvedValue(openInvoice());
+    mocks.resendSend.mockRejectedValue(new Error('resend down'));
+
+    expect((await POST(makeRequest())).status).toBe(200);
+  });
+
+  it('skips the email when the subscription has no latest invoice', async () => {
+    mocks.constructEvent.mockReturnValue(subscriptionUpdate({ status: 'past_due', latest_invoice: null }, { status: 'active' }));
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(200);
+    expect(mocks.invoiceRetrieve).not.toHaveBeenCalled();
+    expect(mocks.resendSend).not.toHaveBeenCalled();
+  });
+});
+
+describe('billing recovery: checkout.session.expired', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // A free user: no subscription on the row.
+    mocks.usageMaybeSingle.mockResolvedValue({
+      data: { is_pro: false, subscription_status: 'inactive', stripe_customer_id: null },
+      error: null,
+    });
+    mocks.ledgerInsert.mockResolvedValue({ error: null });
+    mocks.ledgerUpdateEq.mockResolvedValue({ error: null });
+    mocks.suppressionMaybeSingle.mockResolvedValue({ data: null, error: null });
+    mocks.preferenceMaybeSingle.mockResolvedValue({ data: null, error: null });
+    mocks.getUserById.mockResolvedValue({ data: { user: { email: 'Pro@Example.com' } }, error: null });
+    mocks.subscriptionsList.mockResolvedValue({ data: [] });
+    mocks.resendSend.mockResolvedValue({ data: { id: 'msg_2' }, error: null });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  it('emails the recovery URL once per session and reports checkout_abandoned', async () => {
+    mocks.constructEvent.mockReturnValue(expiredSessionEvent());
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(200);
+    expect(mocks.captureServerEvent).toHaveBeenCalledWith('user-1', 'checkout_abandoned', {
+      plan: 'monthly',
+      amount: 9.99,
+      currency: 'USD',
+      mode: 'subscription',
+      recoverable: true,
+    });
+    expect(mocks.ledgerInsert).toHaveBeenCalledWith({
+      user_id: 'user-1',
+      email: 'pro@example.com',
+      template: 'checkout_recovery',
+      ref: 'cs_expired_1',
+      payload: expect.objectContaining({
+        session_id: 'cs_expired_1',
+        plan: 'monthly',
+        mode: 'subscription',
+        recovery_url: 'https://checkout.stripe.com/c/pay/recovery_1',
+        recovery_expires_at: 1_703_000_000,
+      }),
+    });
+    expect(mocks.resendSend).toHaveBeenCalledTimes(1);
+    const mail = mocks.resendSend.mock.calls[0][0];
+    expect(mail.to).toBe('pro@example.com');
+    expect(mail.html).toContain('https://checkout.stripe.com/c/pay/recovery_1');
+    // Marketing: one-click unsubscribe present.
+    expect(mail.headers['List-Unsubscribe']).toMatch(/\/api\/email\/unsubscribe\?token=/);
+    expect(mail.text).toContain('Unsubscribe');
+    expect(mocks.captureServerEvent).toHaveBeenCalledWith('user-1', 'checkout_recovery_email_sent', {
+      template: 'checkout_recovery',
+      plan: 'monthly',
+      has_offer: false,
+    });
+  });
+
+  it('sends nothing when Stripe attached no recovery URL, but still reports the abandonment', async () => {
+    mocks.constructEvent.mockReturnValue(expiredSessionEvent({ after_expiration: { recovery: null } }));
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(200);
+    expect(mocks.captureServerEvent).toHaveBeenCalledWith(
+      'user-1',
+      'checkout_abandoned',
+      expect.objectContaining({ recoverable: false })
+    );
+    expect(mocks.ledgerInsert).not.toHaveBeenCalled();
+    expect(mocks.resendSend).not.toHaveBeenCalled();
+  });
+
+  it('sends nothing when the user has subscribed since (user_usage)', async () => {
+    mocks.constructEvent.mockReturnValue(expiredSessionEvent());
+    mocks.usageMaybeSingle.mockResolvedValue({
+      data: { is_pro: true, subscription_status: 'active', stripe_customer_id: 'cus_1' },
+      error: null,
+    });
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(200);
+    expect(mocks.ledgerInsert).not.toHaveBeenCalled();
+    expect(mocks.resendSend).not.toHaveBeenCalled();
+  });
+
+  it('sends nothing when Stripe shows a live subscription on the session customer', async () => {
+    mocks.constructEvent.mockReturnValue(expiredSessionEvent({ customer: 'cus_1' }));
+    mocks.subscriptionsList.mockResolvedValue({ data: [{ id: 'sub_9', status: 'trialing' }] });
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(200);
+    expect(mocks.subscriptionsList).toHaveBeenCalledWith({ customer: 'cus_1', status: 'all', limit: 10 });
+    expect(mocks.resendSend).not.toHaveBeenCalled();
+  });
+
+  it('a redelivery sends nothing (ledger row for the session exists)', async () => {
+    mocks.constructEvent.mockReturnValue(expiredSessionEvent());
+    mocks.ledgerInsert.mockResolvedValue({ error: { code: '23505', message: 'duplicate key' } });
+    mocks.rpc.mockResolvedValue({ data: false, error: null });
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(200);
+    expect(mocks.resendSend).not.toHaveBeenCalled();
+  });
+
+  it('respects the marketing opt-out for recovery email', async () => {
+    mocks.constructEvent.mockReturnValue(expiredSessionEvent());
+    mocks.preferenceMaybeSingle.mockResolvedValue({ data: { marketing_opt_out: true }, error: null });
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(200);
+    expect(mocks.ledgerInsert).not.toHaveBeenCalled();
+    expect(mocks.resendSend).not.toHaveBeenCalled();
+  });
+
+  it('ignores a session without user_id metadata', async () => {
+    mocks.constructEvent.mockReturnValue(expiredSessionEvent({ metadata: {} }));
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(200);
+    expect(mocks.captureServerEvent).not.toHaveBeenCalled();
+    expect(mocks.resendSend).not.toHaveBeenCalled();
   });
 });

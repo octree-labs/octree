@@ -29,6 +29,7 @@ export const AnalyticsEvents = {
   PAYWALL_DISMISSED: 'paywall_dismissed',
   EDIT_LIMIT_HIT: 'edit_limit_hit',
   CHECKOUT_STARTED: 'checkout_started',
+  DUNNING_BANNER_CLICKED: 'dunning_banner_clicked',
 
   // --- Server-side (posthog-node) ---
   SUBSCRIPTION_STARTED: 'subscription_started',
@@ -47,6 +48,10 @@ export const AnalyticsEvents = {
   CREDITS_PURCHASED: 'credits_purchased',
   GENERATE_ALLOWANCE_USED: 'generate_allowance_used',
   GENERATION_PURCHASED: 'generation_purchased',
+  // Billing recovery (Stripe webhook + lifecycle cron)
+  CHECKOUT_ABANDONED: 'checkout_abandoned',
+  CHECKOUT_RECOVERY_EMAIL_SENT: 'checkout_recovery_email_sent',
+  PAYMENT_FAILED_EMAIL_SENT: 'payment_failed_email_sent',
 } as const;
 
 export type AnalyticsEvent = (typeof AnalyticsEvents)[keyof typeof AnalyticsEvents];
@@ -78,6 +83,16 @@ export type CancelFeedback =
   | 'switched_service'
   | 'other';
 export type ExportFormat = 'pdf' | 'zip';
+/** Every email the lifecycle ledger can record (lib/email/lifecycle). */
+export type LifecycleEmailTemplate =
+  | 'welcome'
+  | 'limit_hit'
+  | 'day7'
+  | 'winback'
+  | 'payment_failed'
+  | 'payment_failed_reminder'
+  | 'checkout_recovery'
+  | 'checkout_recovery_offer';
 
 export interface AnalyticsEventProperties {
   [AnalyticsEvents.SIGNUP_COMPLETED]: { provider: SignupProvider };
@@ -112,6 +127,8 @@ export interface AnalyticsEventProperties {
     source: CheckoutSource;
     with_trial: boolean;
   };
+  /** The past-due banner's "Update card" was clicked (opens the billing portal). */
+  [AnalyticsEvents.DUNNING_BANNER_CLICKED]: { location: 'dashboard' | 'editor' };
 
   [AnalyticsEvents.SUBSCRIPTION_STARTED]: {
     plan: CheckoutPlan | 'unknown';
@@ -155,9 +172,33 @@ export interface AnalyticsEventProperties {
     sample_rate: number;
   };
   [AnalyticsEvents.EDIT_LIMIT_HIT_SERVER]: { is_pro: boolean };
-  /** One lifecycle/win-back email went out (app/api/cron/lifecycle). */
+  /** One lifecycle email went out (app/api/cron/lifecycle, or the Stripe webhook for billing recovery). */
   [AnalyticsEvents.LIFECYCLE_EMAIL_SENT]: {
-    template: 'welcome' | 'limit_hit' | 'day7' | 'winback';
+    template: LifecycleEmailTemplate;
+  };
+  /** A Checkout Session expired unpaid (Stripe webhook); `amount` in major units. */
+  [AnalyticsEvents.CHECKOUT_ABANDONED]: {
+    plan: PurchasePlan | 'unknown';
+    amount: number | null;
+    currency: string | null;
+    mode: 'subscription' | 'payment' | 'setup';
+    /** Whether Stripe issued a recovery URL for it. */
+    recoverable: boolean;
+  };
+  /** A recovery email for an expired checkout went out. */
+  [AnalyticsEvents.CHECKOUT_RECOVERY_EMAIL_SENT]: {
+    template: 'checkout_recovery' | 'checkout_recovery_offer';
+    plan: PurchasePlan | 'unknown';
+    /** The offer email carried a promotion code. */
+    has_offer: boolean;
+  };
+  /** A dunning email went out; `amount` in major units. */
+  [AnalyticsEvents.PAYMENT_FAILED_EMAIL_SENT]: {
+    template: 'payment_failed' | 'payment_failed_reminder';
+    amount: number | null;
+    currency: string | null;
+    /** Stripe has another automatic retry scheduled. */
+    has_retry: boolean;
   };
   /** A credit pack was paid for (Stripe webhook); `amount` in major units. */
   [AnalyticsEvents.CREDITS_PURCHASED]: {

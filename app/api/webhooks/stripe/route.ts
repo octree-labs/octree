@@ -6,6 +6,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 
 import {
   describeCheckoutSessionPlan,
+  enteredDelinquency,
   generationCreditsFromSession,
   grantCreditsFromCheckoutSession,
   grantGenerationCredits,
@@ -13,7 +14,12 @@ import {
   subscriptionLifecycleEvents,
   trackPurchaseFromCheckoutSession,
 } from '@/lib/stripe-webhook';
-import { AnalyticsEvents } from '@/lib/analytics/events';
+import { AnalyticsEvents, type PurchasePlan } from '@/lib/analytics/events';
+import { isPurchasePlan } from '@/lib/checkout-plans';
+import { getUnsubscribeSecret } from '@/lib/email/unsubscribe';
+import { createLifecycleDeps } from '@/lib/lifecycle/deps';
+import { sendCheckoutRecoveryEmail, sendPaymentFailedEmail } from '@/lib/lifecycle/billing-send';
+import type { LifecycleSendDeps } from '@/lib/lifecycle/send';
 import { effectiveSubscriptionStatus, isProStatus } from '@/lib/stripe-subscription';
 import {
   monthlyResetDateFor,
@@ -32,6 +38,29 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
 });
 
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET!;
+
+/**
+ * The mailer/ledger for the billing-recovery emails this route sends at
+ * once (lib/lifecycle/billing-send.ts). Null, with a log line, when the
+ * unsubscribe secret is not configured: the email is skipped, never the
+ * webhook.
+ */
+function lifecycleDeps(supabase: ReturnType<typeof createAdminClient>): LifecycleSendDeps | null {
+  const secret = getUnsubscribeSecret();
+  if (!secret) {
+    console.error('[billing-recovery] EMAIL_UNSUBSCRIBE_SECRET (or CRON_SECRET) is not set; email skipped');
+    return null;
+  }
+  return createLifecycleDeps(supabase, {
+    secret,
+    capture: (userId, template) =>
+      captureServerEventAfterResponse(userId, AnalyticsEvents.LIFECYCLE_EMAIL_SENT, { template }),
+  });
+}
+
+function purchasePlanOf(value: string | null | undefined): PurchasePlan | 'unknown' {
+  return value && isPurchasePlan(value) ? value : 'unknown';
+}
 
 export async function POST(request: Request) {
   try {
@@ -251,7 +280,73 @@ export async function POST(request: Request) {
         } catch (error) {
           console.error('PostHog subscription lifecycle event failed:', error);
         }
+
+        // Dunning: the first update that moves the subscription into
+        // past_due / unpaid sends the payment_failed notice for its latest
+        // invoice. The ledger (user, template, invoice id) makes a
+        // redelivery or a later update of the same delinquency a no-op, and
+        // nothing in here can fail the webhook (Stripe would only retry and
+        // hit the same ledger row).
+        if (enteredDelinquency(event as any)) {
+          try {
+            const deps = lifecycleDeps(supabase);
+            if (deps) {
+              const outcome = await sendPaymentFailedEmail({ stripe, supabase, deps, userId, subscription });
+              if (outcome.sent) {
+                captureServerEventAfterResponse(userId, AnalyticsEvents.PAYMENT_FAILED_EMAIL_SENT, {
+                  template: 'payment_failed',
+                  amount: outcome.invoice?.amountCents != null ? outcome.invoice.amountCents / 100 : null,
+                  currency: outcome.invoice?.currency ? outcome.invoice.currency.toUpperCase() : null,
+                  has_retry: outcome.invoice?.nextPaymentAttempt != null,
+                });
+              } else {
+                console.log(`[billing-recovery] payment_failed not sent for ${subscription.id}: ${outcome.reason}`);
+              }
+            }
+          } catch (error) {
+            console.error('[billing-recovery] payment_failed email failed:', error);
+            captureServerExceptionAfterResponse(error, { route: 'api/webhooks/stripe', extra: { step: 'payment_failed' } });
+          }
+        }
         break;
+      case 'checkout.session.expired': {
+        // Abandoned checkout. Stripe attaches `after_expiration.recovery.url`
+        // because the session was created with recovery enabled
+        // (lib/checkout-plans.ts); the recovery email carries it. Keyed on
+        // the session id in the ledger, so a redelivery sends nothing.
+        const expired = event.data.object as Stripe.Checkout.Session;
+        const expiredUserId = expired.metadata?.user_id;
+        if (!expiredUserId) break;
+
+        const plan = purchasePlanOf(expired.metadata?.plan);
+        captureServerEventAfterResponse(expiredUserId, AnalyticsEvents.CHECKOUT_ABANDONED, {
+          plan,
+          amount: typeof expired.amount_total === 'number' ? expired.amount_total / 100 : null,
+          currency: expired.currency ? expired.currency.toUpperCase() : null,
+          mode: expired.mode,
+          recoverable: Boolean(expired.after_expiration?.recovery?.url),
+        });
+
+        try {
+          const deps = lifecycleDeps(supabase);
+          if (deps) {
+            const outcome = await sendCheckoutRecoveryEmail({ stripe, supabase, deps, session: expired });
+            if (outcome.sent) {
+              captureServerEventAfterResponse(expiredUserId, AnalyticsEvents.CHECKOUT_RECOVERY_EMAIL_SENT, {
+                template: 'checkout_recovery',
+                plan,
+                has_offer: false,
+              });
+            } else {
+              console.log(`[billing-recovery] checkout_recovery not sent for ${expired.id}: ${outcome.reason}`);
+            }
+          }
+        } catch (error) {
+          console.error('[billing-recovery] checkout_recovery email failed:', error);
+          captureServerExceptionAfterResponse(error, { route: 'api/webhooks/stripe', extra: { step: 'checkout_recovery' } });
+        }
+        break;
+      }
     }
 
     return NextResponse.json({ received: true });

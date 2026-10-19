@@ -209,6 +209,14 @@ export function useGenerate(options: UseGenerateOptions = {}) {
 
     const totalSize = filesToSend.reduce((sum, f) => sum + f.file.size, 0);
     if (totalSize > MAX_FILE_SIZE) {
+      // `generate_submitted` already fired for this attempt; close it so the
+      // two events stay one-to-one.
+      track(AnalyticsEvents.GENERATE_COMPLETED, {
+        success: false,
+        duration_ms: 0,
+        is_continuation: isContinuation,
+        error_kind: 'too_large',
+      });
       setError('The total size of attached files is too large. Please use fewer or smaller files.');
       return;
     }

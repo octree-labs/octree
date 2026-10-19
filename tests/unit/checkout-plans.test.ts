@@ -48,6 +48,23 @@ describe('resolveCheckoutPlan', () => {
     expect(resolveCheckoutPlan({ plan: 'lifetime' })).toEqual({ ok: false, error: 'Unknown plan: lifetime' });
     expect(resolveCheckoutPlan({ plan: 42 })).toMatchObject({ ok: false });
   });
+
+  it('carries a known source and entry through, and drops anything else without failing', () => {
+    expect(resolveCheckoutPlan({ plan: 'monthly', source: 'paywall', entry: 'onboarding' })).toEqual({
+      ok: true,
+      plan: 'monthly',
+      withTrial: false,
+      source: 'paywall',
+      entry: 'onboarding',
+    });
+    expect(resolveCheckoutPlan({ plan: 'monthly', source: 'buy' })).toEqual({ ok: true, plan: 'monthly', withTrial: false, source: 'buy' });
+    expect(resolveCheckoutPlan({ annual: true, source: 'onboarding' })).toMatchObject({ ok: true, plan: 'monthly', source: 'onboarding' });
+    expect(resolveCheckoutPlan({ plan: 'monthly', source: 'evil<script>', entry: 42 })).toEqual({
+      ok: true,
+      plan: 'monthly',
+      withTrial: false,
+    });
+  });
 });
 
 describe('lookupKeyForPlan', () => {
@@ -86,6 +103,19 @@ describe('buildCheckoutSessionParams', () => {
     });
     expect(params).not.toHaveProperty('customer');
     expect(params.subscription_data).not.toHaveProperty('trial_period_days');
+  });
+
+  it('writes the attribution to the session, the subscription and the payment intent metadata', () => {
+    const sub = buildCheckoutSessionParams({ ...base, plan: 'monthly', source: 'paywall', entry: 'dashboard' });
+    expect(sub.metadata).toEqual({ user_id: 'user-1', plan: 'monthly', source: 'paywall', entry: 'dashboard' });
+    expect(sub.subscription_data?.metadata).toEqual({ user_id: 'user-1', plan: 'monthly', source: 'paywall', entry: 'dashboard' });
+
+    const credit = buildCheckoutSessionParams({ ...base, plan: 'generate_single', source: 'generate-preview' });
+    expect(credit.metadata).toEqual({ user_id: 'user-1', plan: 'generate_single', generation_credits: '1', source: 'generate-preview' });
+    expect(credit.payment_intent_data?.metadata).toEqual({ user_id: 'user-1', plan: 'generate_single', source: 'generate-preview' });
+
+    // Without attribution the metadata is exactly what it was.
+    expect(buildCheckoutSessionParams({ ...base, plan: 'monthly' }).metadata).toEqual({ user_id: 'user-1', plan: 'monthly' });
   });
 
   it('adds the 3-day trial only when asked', () => {

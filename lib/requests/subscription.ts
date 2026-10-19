@@ -3,6 +3,7 @@ import {
   AnalyticsEvents,
   checkoutPlanFromAnnualFlag,
   type CheckoutSource,
+  type GenerateEntry,
   type PurchasePlan,
 } from '@/lib/analytics/events';
 import { track } from '@/lib/analytics/track';
@@ -20,8 +21,14 @@ interface CreateCheckoutSessionOptions {
    */
   annual?: boolean;
   withTrial?: boolean;
-  /** Where the checkout was started from; only used for analytics. */
+  /**
+   * Where the checkout was started from. Captured on `checkout_started`
+   * and written to the Stripe metadata so the webhook can attribute the
+   * sale (`subscription_started`, `onboarding_completed`).
+   */
   source?: CheckoutSource;
+  /** For a checkout from /generate: how the visitor reached /generate. */
+  entry?: GenerateEntry;
 }
 
 /**
@@ -34,6 +41,7 @@ export const createCheckoutSession = async ({
   annual,
   withTrial = false,
   source = 'settings',
+  entry,
 }: CreateCheckoutSessionOptions = {}): Promise<string> => {
   const supabase = createClient();
 
@@ -54,7 +62,7 @@ export const createCheckoutSession = async ({
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(plan ? { plan, withTrial } : { annual, withTrial }),
+    body: JSON.stringify({ ...(plan ? { plan } : { annual }), withTrial, source, entry }),
   });
 
   if (!response.ok) {

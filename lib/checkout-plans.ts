@@ -1,5 +1,11 @@
 import type Stripe from 'stripe';
 
+import {
+  isCheckoutSource,
+  isGenerateEntry,
+  type CheckoutSource,
+  type GenerateEntry,
+} from '@/lib/analytics/events';
 import { PRICE_LOOKUP_KEYS, type PriceLookupKey } from '@/lib/stripe-prices';
 
 /**
@@ -62,9 +68,28 @@ export function lookupKeyForPlan(plan: PurchasePlan): PriceLookupKey {
   return PRICE_LOOKUP_KEYS[plan];
 }
 
+/**
+ * Where the checkout was started from, for attribution on the Stripe
+ * objects. Both are optional and only ever the validated values from
+ * lib/analytics/events.ts; anything else the browser sends is dropped,
+ * never refused (attribution must not fail a purchase).
+ */
+export interface CheckoutAttribution {
+  source?: CheckoutSource;
+  entry?: GenerateEntry;
+}
+
 export type ResolvedCheckoutPlan =
-  | { ok: true; plan: PurchasePlan; withTrial: boolean }
+  | ({ ok: true; plan: PurchasePlan; withTrial: boolean } & CheckoutAttribution)
   | { ok: false; error: string };
+
+export function resolveCheckoutAttribution(body: unknown): CheckoutAttribution {
+  const input = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
+  const attribution: CheckoutAttribution = {};
+  if (isCheckoutSource(input.source)) attribution.source = input.source;
+  if (isGenerateEntry(input.entry)) attribution.entry = input.entry;
+  return attribution;
+}
 
 /**
  * Maps a request body to a plan.
@@ -78,18 +103,36 @@ export type ResolvedCheckoutPlan =
 export function resolveCheckoutPlan(body: unknown): ResolvedCheckoutPlan {
   const input = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
   const withTrial = input.withTrial === true;
+  const attribution = resolveCheckoutAttribution(input);
 
   if (input.plan !== undefined) {
     if (input.plan === 'weekly') return { ok: false, error: WEEKLY_PLAN_RETIRED_MESSAGE };
     if (!isPurchasePlan(input.plan)) {
       return { ok: false, error: `Unknown plan: ${String(input.plan)}` };
     }
-    return { ok: true, plan: input.plan, withTrial };
+    return { ok: true, plan: input.plan, withTrial, ...attribution };
   }
 
   if (input.annual === false) return { ok: false, error: WEEKLY_PLAN_RETIRED_MESSAGE };
 
-  return { ok: true, plan: 'monthly', withTrial };
+  return { ok: true, plan: 'monthly', withTrial, ...attribution };
+}
+
+/**
+ * The metadata every Stripe object of a checkout carries (the session, the
+ * subscription, the payment intent): who bought what, and where in the app
+ * the purchase started. The webhook reads `source`/`entry` back into
+ * `subscription_started` and `onboarding_completed`.
+ */
+export function checkoutMetadata(
+  userId: string,
+  plan: PurchasePlan,
+  attribution: CheckoutAttribution
+): Record<string, string> {
+  const metadata: Record<string, string> = { user_id: userId, plan };
+  if (attribution.source) metadata.source = attribution.source;
+  if (attribution.entry) metadata.entry = attribution.entry;
+  return metadata;
 }
 
 export interface CheckoutSessionInput {
@@ -101,6 +144,9 @@ export interface CheckoutSessionInput {
   email: string | null | undefined;
   origin: string;
   withTrial: boolean;
+  /** Which button started the checkout, and how the visitor reached /generate. */
+  source?: CheckoutSource;
+  entry?: GenerateEntry;
   /** Unix seconds; defaults to now. Injected so the expiry is testable. */
   nowSeconds?: number;
 }
@@ -130,6 +176,7 @@ export function buildCheckoutSessionParams(
 ): Stripe.Checkout.SessionCreateParams {
   const { plan, priceId, userId, customerId, email, origin, withTrial } = input;
   const nowSeconds = input.nowSeconds ?? Math.floor(Date.now() / 1000);
+  const metadata = checkoutMetadata(userId, plan, { source: input.source, entry: input.entry });
 
   const params: Stripe.Checkout.SessionCreateParams = {
     line_items: [{ price: priceId, quantity: 1 }],
@@ -145,7 +192,7 @@ export function buildCheckoutSessionParams(
     automatic_tax: { enabled: true },
     allow_promotion_codes: true,
     locale: 'auto',
-    metadata: { user_id: userId, plan },
+    metadata,
     // Abandoned-checkout recovery: when the session expires unpaid Stripe
     // attaches a recovery URL to it and sends checkout.session.expired; the
     // webhook emails that URL (lib/lifecycle/billing-recovery.ts).
@@ -162,13 +209,13 @@ export function buildCheckoutSessionParams(
   }
 
   if (isSubscriptionPlan(plan)) {
-    params.subscription_data = { metadata: { user_id: userId, plan } };
+    params.subscription_data = { metadata };
     if (withTrial) params.subscription_data.trial_period_days = 3;
   } else {
     params.metadata = isGenerationPlan(plan)
       ? { ...params.metadata, generation_credits: String(GENERATIONS_PER_PURCHASE[plan]) }
       : { ...params.metadata, credits: String(CREDITS_PER_PACK[plan]) };
-    params.payment_intent_data = { metadata: { user_id: userId, plan } };
+    params.payment_intent_data = { metadata };
     // So the next purchase reuses the same customer record.
     if (!customerId) params.customer_creation = 'always';
   }

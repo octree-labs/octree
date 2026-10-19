@@ -428,6 +428,7 @@ export function GeneratePageContent({
                         title={currentTitle}
                         onOpenInOctree={handleOpenInOctree}
                         isCreatingProject={isCreatingProject}
+                        entry={entryRef.current}
                       />
                     )}
                   </div>

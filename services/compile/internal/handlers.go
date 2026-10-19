@@ -308,11 +308,7 @@ func WordCountHandler(c *gin.Context) {
 	startTime := time.Now()
 
 	var req WordCountRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, ErrorResponse{
-			Error:   "Invalid request",
-			Message: "Could not parse JSON payload",
-		})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -321,6 +317,13 @@ func WordCountHandler(c *gin.Context) {
 			Error:   "Invalid request",
 			Message: "The files array must contain at least one file",
 		})
+		return
+	}
+
+	// CountWords writes these files to a temp dir, so the same path checks the
+	// compile route runs apply here too.
+	if errResp := validateFiles(req.Files); errResp != nil {
+		c.JSON(http.StatusBadRequest, *errResp)
 		return
 	}
 

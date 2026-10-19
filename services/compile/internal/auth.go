@@ -36,8 +36,12 @@ var (
 
 // AuthConfig is the compile service's token policy.
 type AuthConfig struct {
-	// Secret is SUPABASE_JWT_SECRET. Empty disables authentication (local dev only).
+	// Secret is SUPABASE_JWT_SECRET. Empty is a configuration error unless
+	// AllowUnauthenticated is set: the middleware then fails closed.
 	Secret string
+	// AllowUnauthenticated (COMPILE_AUTH_DISABLED=true) turns the middleware
+	// into a no-op when Secret is empty. Local development only.
+	AllowUnauthenticated bool
 	// Issuer, when set, must equal the iss claim of "authenticated" tokens
 	// (Supabase: https://<ref>.supabase.co/auth/v1). Service-role keys carry
 	// iss "supabase" and are accepted regardless, so enabling this never cuts
@@ -93,12 +97,19 @@ func ValidateToken(tokenString string, cfg AuthConfig) (jwt.MapClaims, error) {
 	return claims, nil
 }
 
-// JWTAuthMiddleware rejects requests without a valid bearer token. With an
-// empty secret the middleware is a no-op, which is the local dev
-// configuration (services/compile/.env.example); production always sets it.
+// JWTAuthMiddleware rejects requests without a valid bearer token. An empty
+// secret fails closed (503 on every protected route) unless
+// AllowUnauthenticated is set, the local dev configuration; main.go refuses
+// to start in that state anyway, this is the second line.
 func JWTAuthMiddleware(cfg AuthConfig) gin.HandlerFunc {
 	if cfg.Secret == "" {
-		log.Printf("WARNING: SUPABASE_JWT_SECRET is not set; /compile and /synctex accept unauthenticated requests")
+		if !cfg.AllowUnauthenticated {
+			log.Printf("ERROR: SUPABASE_JWT_SECRET is not set and COMPILE_AUTH_DISABLED is not true; protected routes will refuse every request")
+			return func(c *gin.Context) {
+				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "Service authentication is not configured"})
+			}
+		}
+		log.Printf("WARNING: COMPILE_AUTH_DISABLED=true and SUPABASE_JWT_SECRET is not set; protected routes accept unauthenticated requests (local development only)")
 		return func(c *gin.Context) { c.Next() }
 	}
 

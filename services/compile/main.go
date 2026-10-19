@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -30,6 +31,15 @@ const (
 var requestQueue chan *internal.CompileJob
 
 func main() {
+	// Must run before anything else: keeps /proc/<pid>/environ and
+	// /proc/<pid>/mem of this process (which holds SUPABASE_JWT_SECRET)
+	// unreadable to the TeX engines, which run as the same uid.
+	if err := internal.HardenProcess(); err != nil {
+		log.Fatalf("Failed to harden process: %v", err)
+	}
+
+	authConfig := authConfigFromEnv()
+
 	// Setup
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -68,7 +78,7 @@ func main() {
 	}
 
 	// Setup router
-	router := setupRouter()
+	router := setupRouter(authConfig)
 
 	// Create server
 	srv := &http.Server{
@@ -108,7 +118,7 @@ func main() {
 	log.Println("Server exited")
 }
 
-func setupRouter() *gin.Engine {
+func setupRouter(authConfig internal.AuthConfig) *gin.Engine {
 	// Set Gin mode
 	if os.Getenv("GIN_MODE") == "" {
 		gin.SetMode(gin.ReleaseMode)
@@ -123,16 +133,18 @@ func setupRouter() *gin.Engine {
 	// Transparently decompress gzip request bodies
 	router.Use(gzipRequestMiddleware())
 
-	// Routes
+	// Public: the health probe only.
 	router.GET("/health", internal.HealthHandler)
-	router.POST("/word-count", internal.WordCountHandler)
 
-	// Protected routes requiring JWT
+	// Everything that writes request files to disk or runs a TeX tool
+	// requires a token. New routes go in this group unless they are
+	// deliberately public (and then main_test.go must list them).
 	protected := router.Group("/")
-	protected.Use(internal.JWTAuthMiddleware(authConfigFromEnv()))
+	protected.Use(internal.JWTAuthMiddleware(authConfig))
 	{
 		protected.POST("/compile", internal.CompileHandler)
 		protected.POST("/synctex", internal.SynctexHandler)
+		protected.POST("/word-count", internal.WordCountHandler)
 	}
 
 	return router
@@ -140,12 +152,19 @@ func setupRouter() *gin.Engine {
 
 // authConfigFromEnv reads the token policy. SUPABASE_JWT_SECRET is the
 // project's JWT secret; SUPABASE_JWT_ISSUER (optional) pins user tokens to
-// one Supabase project, e.g. https://<ref>.supabase.co/auth/v1.
+// one Supabase project, e.g. https://<ref>.supabase.co/auth/v1. Without a
+// secret the service refuses to start, unless COMPILE_AUTH_DISABLED=true
+// says the open configuration is intended (local development).
 func authConfigFromEnv() internal.AuthConfig {
-	return internal.AuthConfig{
-		Secret: os.Getenv("SUPABASE_JWT_SECRET"),
-		Issuer: os.Getenv("SUPABASE_JWT_ISSUER"),
+	cfg := internal.AuthConfig{
+		Secret:               os.Getenv("SUPABASE_JWT_SECRET"),
+		Issuer:               os.Getenv("SUPABASE_JWT_ISSUER"),
+		AllowUnauthenticated: strings.EqualFold(os.Getenv("COMPILE_AUTH_DISABLED"), "true"),
 	}
+	if cfg.Secret == "" && !cfg.AllowUnauthenticated {
+		log.Fatalf("SUPABASE_JWT_SECRET is not set. Set it, or set COMPILE_AUTH_DISABLED=true to run without authentication (local development only).")
+	}
+	return cfg
 }
 
 // bodyLimitMiddleware caps the raw request body; a body over the limit makes

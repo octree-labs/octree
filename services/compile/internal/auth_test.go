@@ -1,6 +1,8 @@
 package internal
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -213,9 +215,89 @@ func TestJWTAuthMiddleware(t *testing.T) {
 	}
 }
 
-func TestJWTAuthMiddlewareDisabledWithoutSecret(t *testing.T) {
+func TestJWTAuthMiddlewareFailsClosedWithoutSecret(t *testing.T) {
+	// No secret and no explicit opt-out: every protected request is refused,
+	// even a would-be valid one, so a misconfigured production deploy is not
+	// silently open.
 	r := newAuthTestRouter(AuthConfig{})
+	if w := doAuthRequest(r, "Bearer "+serviceRoleKey(t)); w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 when secret is unset, got %d", w.Code)
+	}
+}
+
+func TestJWTAuthMiddlewareOpenOnlyWhenExplicitlyAllowed(t *testing.T) {
+	r := newAuthTestRouter(AuthConfig{AllowUnauthenticated: true})
 	if w := doAuthRequest(r, ""); w.Code != http.StatusOK {
-		t.Fatalf("expected open access without a secret, got %d", w.Code)
+		t.Fatalf("expected open access with AllowUnauthenticated, got %d", w.Code)
+	}
+}
+
+func TestValidateTokenRejectsNbfInFuture(t *testing.T) {
+	token := mintToken(t, testJWTSecret, jwt.MapClaims{
+		"role": "service_role", "iss": "supabase",
+		"nbf": testNow.Add(10 * time.Minute).Unix(),
+		"exp": testNow.Add(time.Hour).Unix(),
+	})
+	if _, err := ValidateToken(token, testAuthConfig()); !errors.Is(err, jwt.ErrTokenNotValidYet) {
+		t.Fatalf("expected nbf-in-future token to be rejected with ErrTokenNotValidYet, got %v", err)
+	}
+}
+
+func TestValidateTokenRejectsRS256(t *testing.T) {
+	// An RS256 token must be rejected by the alg allowlist, not cause a panic
+	// when the HS256 keyfunc hands []byte to an RSA verifier.
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate rsa key: %v", err)
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+		"role": "service_role", "iss": "supabase", "exp": testNow.Add(time.Hour).Unix(),
+	})
+	signed, err := token.SignedString(key)
+	if err != nil {
+		t.Fatalf("sign rs256: %v", err)
+	}
+	if _, err := ValidateToken(signed, testAuthConfig()); err == nil {
+		t.Fatalf("expected RS256 token to be rejected")
+	}
+}
+
+func TestValidateTokenRejectsNonStringRole(t *testing.T) {
+	token := mintToken(t, testJWTSecret, jwt.MapClaims{
+		"role": []string{"service_role"}, "iss": "supabase", "exp": testNow.Add(time.Hour).Unix(),
+	})
+	if _, err := ValidateToken(token, testAuthConfig()); !errors.Is(err, ErrTokenRole) {
+		t.Fatalf("expected non-string role to be rejected with ErrTokenRole, got %v", err)
+	}
+}
+
+func TestValidateTokenRejectsFarFutureExpAnon(t *testing.T) {
+	// A Supabase anon key has a ~10-year exp and a valid signature; exp being
+	// far in the future must not matter, the role gate still rejects it.
+	if _, err := ValidateToken(anonKey(t), testAuthConfig()); !errors.Is(err, ErrTokenRole) {
+		t.Fatalf("expected far-future-exp anon key to be rejected by role, got %v", err)
+	}
+}
+
+func TestJWTAuthMiddlewareBearerPrefixVariants(t *testing.T) {
+	r := newAuthTestRouter(testAuthConfig())
+	tok := serviceRoleKey(t)
+	cases := []struct {
+		name   string
+		header string
+		status int
+	}{
+		{"lowercase bearer", "bearer " + tok, http.StatusOK},
+		{"mixed case bearer", "BeArEr " + tok, http.StatusOK},
+		{"extra spaces after bearer", "Bearer   " + tok, http.StatusOK},
+		{"no space", "Bearer" + tok, http.StatusUnauthorized},
+		{"token only, no prefix", tok, http.StatusUnauthorized},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if w := doAuthRequest(r, tc.header); w.Code != tc.status {
+				t.Fatalf("%s: got %d want %d", tc.name, w.Code, tc.status)
+			}
+		})
 	}
 }

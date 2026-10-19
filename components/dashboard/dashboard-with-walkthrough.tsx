@@ -228,7 +228,8 @@ export function DashboardWithWalkthrough({
         open={walkthroughOpen}
         onOpenChange={handleWalkthroughClose}
         onComplete={handleWalkthroughComplete}
-        initialStep={generateWalkthroughCompleted ? 1 : 0}
+        variant={isEmpty ? 'empty' : 'projects'}
+        skipGenerate={generateWalkthroughCompleted}
       />
     </>
   );

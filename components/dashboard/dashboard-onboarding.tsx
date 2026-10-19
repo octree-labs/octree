@@ -1,17 +1,26 @@
 'use client';
 
-import { useState, useEffect, useLayoutEffect, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
-const DASHBOARD_STEPS = [
-  {
-    target: 'dashboard-generate-button',
-    title: 'Create documents with AI',
-    description:
-      'Nothing to bring? "Generate with AI" opens the generator, where you describe what you want and get a LaTeX document in seconds.',
-  },
+interface WalkthroughStep {
+  target: string;
+  title: string;
+  description: string;
+}
+
+const GENERATE_STEP: WalkthroughStep = {
+  target: 'dashboard-generate-button',
+  title: 'Create documents with AI',
+  description:
+    'Nothing to bring? "Generate with AI" opens the generator, where you describe what you want and get a LaTeX document in seconds.',
+};
+
+/** The populated dashboard: action cards, header, New Project / Import, the table. */
+const PROJECT_STEPS: readonly WalkthroughStep[] = [
+  GENERATE_STEP,
   {
     target: 'dashboard-header',
     title: 'Your dashboard',
@@ -30,25 +39,61 @@ const DASHBOARD_STEPS = [
     description:
       'All your projects appear here. Click one to open it in the editor, or use the menu (⋯) to rename or delete it.',
   },
-] as const;
+];
+
+/**
+ * The empty dashboard ("Start with your document"): the same targets, but the
+ * spotlight starts on the option cards, which are the main action there, and
+ * the Generate text link comes last.
+ */
+const EMPTY_STEPS: readonly WalkthroughStep[] = [
+  {
+    target: 'dashboard-header',
+    title: 'Start with your document',
+    description:
+      'Your first project is best started from LaTeX you already have. Once it exists, this becomes your projects hub.',
+  },
+  {
+    target: 'dashboard-projects',
+    title: 'Bring your document',
+    description:
+      'Upload a .tex or a ZIP (an Overleaf export works as-is), paste LaTeX, or try the sample article. It opens in the editor and compiles right away.',
+  },
+  {
+    target: 'dashboard-new-project',
+    title: 'Or start blank',
+    description:
+      'An empty article template to write from scratch. You can add files and folders in the editor.',
+  },
+  GENERATE_STEP,
+];
+
+export type DashboardWalkthroughVariant = 'projects' | 'empty';
+
+function stepsFor(variant: DashboardWalkthroughVariant, skipGenerate: boolean): WalkthroughStep[] {
+  const steps = variant === 'empty' ? EMPTY_STEPS : PROJECT_STEPS;
+  return skipGenerate ? steps.filter((step) => step !== GENERATE_STEP) : [...steps];
+}
 
 interface DashboardOnboardingProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onComplete?: () => void;
-  initialStep?: number;
+  /** `empty` when the user has no projects yet (the "Start with your document" state). */
+  variant?: DashboardWalkthroughVariant;
+  /** Leave out the Generate step (the user already took the generator's own tour). */
+  skipGenerate?: boolean;
 }
-
-const clampStep = (value: number) =>
-  Math.max(0, Math.min(value, DASHBOARD_STEPS.length - 1));
 
 export function DashboardOnboarding({
   open,
   onOpenChange,
   onComplete,
-  initialStep = 0,
+  variant = 'projects',
+  skipGenerate = false,
 }: DashboardOnboardingProps) {
-  const [step, setStep] = useState(() => clampStep(initialStep));
+  const DASHBOARD_STEPS = useMemo(() => stepsFor(variant, skipGenerate), [variant, skipGenerate]);
+  const [step, setStep] = useState(0);
   const [targetRect, setTargetRect] = useState<DOMRect | null>(null);
   const [cardPosition, setCardPosition] = useState<{ top: number; left: number } | null>(null);
   const [measureAttempted, setMeasureAttempted] = useState(false);
@@ -87,16 +132,16 @@ export function DashboardOnboarding({
       setCardPosition(null);
       setMeasureAttempted(true);
     }
-  }, [step]);
+  }, [step, DASHBOARD_STEPS]);
 
   useEffect(() => {
     if (open) {
-      setStep(clampStep(initialStep));
+      setStep(0);
       setTargetRect(null);
       setCardPosition(null);
       setMeasureAttempted(false);
     }
-  }, [open, initialStep]);
+  }, [open, DASHBOARD_STEPS]);
 
   useLayoutEffect(() => {
     if (!open) return;
@@ -123,7 +168,7 @@ export function DashboardOnboarding({
       window.removeEventListener('resize', onResizeOrScroll);
       window.removeEventListener('scroll', onResizeOrScroll, true);
     };
-  }, [open, step, measureTarget]);
+  }, [open, step, measureTarget, DASHBOARD_STEPS]);
 
   const handleNext = () => {
     if (isLast) {

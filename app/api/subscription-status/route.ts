@@ -1,10 +1,20 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { captureServerExceptionAfterResponse } from '@/lib/posthog-server';
+import {
+  captureServerEventAfterResponse,
+  captureServerExceptionAfterResponse,
+} from '@/lib/posthog-server';
 import type Stripe from 'stripe';
 import { stripe } from '@/lib/stripe';
+import { AnalyticsEvents } from '@/lib/analytics/events';
 import { hasUnlimitedEdits } from '@/lib/paywall';
+import {
+  isRevokingStripeStatus,
+  proEntitlement,
+  rowClaimsPro,
+  type StripeStatusReport,
+} from '@/lib/subscription/entitlement';
 import { resolveStripeCustomer } from '@/lib/stripe-customer';
 import {
   appliedCouponId,
@@ -178,7 +188,9 @@ async function findActiveSubscription(
 function buildUsageResponse(
   usageData: Tables<'user_usage'> | null,
   hasUnlimited: boolean,
-  subscription?: Stripe.Subscription | null
+  subscription?: Stripe.Subscription | null,
+  /** Stripe's answer for the row's stored subscription when no live one was found. */
+  storedStripeStatus: StripeStatusReport = null
 ) {
   const editCount = usageData?.edit_count || 0;
   const monthlyEditCount = usageData?.monthly_edit_count || 0;
@@ -187,7 +199,15 @@ function buildUsageResponse(
   // RPC below rewrote it, so it must not be trusted for a paused subscription.
   const effectiveStatus = subscription ? effectiveSubscriptionStatus(subscription) : null;
   const isActive = effectiveStatus === 'active';
-  const isPaused = effectiveStatus === 'paused';
+
+  // Pro by the shared rule (lib/subscription/entitlement.ts): Stripe's
+  // answer when there is one, else the allowlist, the `unlimited` grant, or
+  // an active row whose period has not ended. `is_pro` alone grants nothing.
+  const entitlement = proEntitlement({
+    row: usageData,
+    stripeStatus: effectiveStatus ?? storedStripeStatus,
+    hasUnlimited,
+  });
 
   const baseRemainingEdits = isActive
     ? Math.max(0, PRO_MONTHLY_EDIT_LIMIT - monthlyEditCount)
@@ -211,7 +231,13 @@ function buildUsageResponse(
         ? baseRemainingEdits
         : 0,
     editCredits,
-    isPro: isActive || hasUnlimited || (!isPaused && Boolean(usageData?.is_pro)),
+    isPro: entitlement.isPro,
+    proSource: entitlement.isPro ? entitlement.source : null,
+    // The row fields the client needs to apply the same rule
+    // (entitlementFromStatusResponse in lib/subscription/entitlement.ts).
+    subscriptionStatus: usageData?.subscription_status ?? null,
+    currentPeriodEnd: usageData?.current_period_end ?? null,
+    hasStripeSubscription: Boolean(usageData?.stripe_subscription_id),
     limitReached: hasUnlimited ? false : allowanceSpent && editCredits <= 0,
     monthlyLimitReached: hasUnlimited
       ? false
@@ -276,6 +302,80 @@ async function updateSubscriptionInDB(
   }
 }
 
+/**
+ * What Stripe says about the subscription id the row remembers, for a row
+ * that still claims Pro although no active/trialing subscription was found
+ * for the customer. `missing` is a 404 (the subscription, or the whole
+ * customer, was deleted). Any other Stripe failure reports `null` (not
+ * consulted): the row rule then decides, and nothing is rewritten.
+ */
+async function lookupStoredSubscription(
+  subscriptionId: string
+): Promise<{ status: StripeStatusReport; subscription: Stripe.Subscription | null }> {
+  try {
+    const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+    return { status: effectiveSubscriptionStatus(subscription), subscription };
+  } catch (error: any) {
+    if (error?.code === 'resource_missing' || error?.statusCode === 404) {
+      return { status: 'missing', subscription: null };
+    }
+    console.error('Error retrieving stored Stripe subscription:', error);
+    return { status: null, subscription: null };
+  }
+}
+
+/**
+ * Self-heal: the row says Pro, Stripe says the subscription is gone. Writes
+ * `is_pro = false, subscription_status = 'inactive'` through the same
+ * service-role RPC every other subscription write uses (the RPC derives
+ * is_pro from the status), keeping the subscription id as a record of what
+ * the user had. Returns the row as it now stands; on failure the stale row
+ * is returned unchanged, but the response is already computed from Stripe's
+ * answer, so the user does not get Pro either way.
+ */
+async function revokeStaleEntitlement(
+  admin: any,
+  userId: string,
+  usageData: Tables<'user_usage'>,
+  customerId: string | null,
+  stripeSubscription: Stripe.Subscription | null
+): Promise<Tables<'user_usage'>> {
+  const periodStart = stripeSubscription?.current_period_start
+    ? new Date(stripeSubscription.current_period_start * 1000).toISOString()
+    : usageData.current_period_start;
+  const periodEnd = stripeSubscription?.current_period_end
+    ? new Date(stripeSubscription.current_period_end * 1000).toISOString()
+    : usageData.current_period_end;
+
+  try {
+    const { error } = await admin.rpc('update_user_subscription_status', {
+      p_user_id: userId,
+      p_stripe_customer_id: usageData.stripe_customer_id ?? customerId,
+      p_stripe_subscription_id: usageData.stripe_subscription_id,
+      p_subscription_status: 'inactive',
+      p_current_period_start: periodStart,
+      p_current_period_end: periodEnd,
+      p_cancel_at_period_end:
+        stripeSubscription?.cancel_at_period_end ?? usageData.cancel_at_period_end ?? false,
+    });
+    if (error) {
+      console.error('Error revoking stale Pro entitlement:', error);
+      return usageData;
+    }
+  } catch (error) {
+    console.error('Error revoking stale Pro entitlement:', error);
+    return usageData;
+  }
+
+  return {
+    ...usageData,
+    is_pro: false,
+    subscription_status: 'inactive',
+    current_period_start: periodStart,
+    current_period_end: periodEnd,
+  };
+}
+
 export async function GET() {
   try {
     const supabase = await createClient();
@@ -311,20 +411,37 @@ export async function GET() {
     }
 
     const customerId = await findStripeCustomerId(supabase, user);
-    if (!customerId) {
-      return NextResponse.json({
-        hasSubscription: false,
-        subscription: null,
-        usage: buildUsageResponse(usageData, hasUnlimited),
-      });
-    }
+    const subscription = customerId ? await findActiveSubscription(customerId) : null;
 
-    const subscription = await findActiveSubscription(customerId);
-    if (!subscription) {
+    if (!subscription || !customerId) {
+      // No live subscription, but the row still claims Pro: ask Stripe about
+      // the subscription it remembers and, when that one is gone for good,
+      // rewrite the row to the free tier so it stops lying on the next read
+      // (and for the routes that read `is_pro` directly).
+      let storedStatus: StripeStatusReport = null;
+      if (rowClaimsPro(usageData, hasUnlimited) && usageData.stripe_subscription_id) {
+        const stored = await lookupStoredSubscription(usageData.stripe_subscription_id);
+        storedStatus = stored.status;
+        if (isRevokingStripeStatus(storedStatus)) {
+          const previousStatus = usageData.subscription_status ?? null;
+          usageData = await revokeStaleEntitlement(
+            admin,
+            user.id,
+            usageData,
+            customerId,
+            stored.subscription
+          );
+          captureServerEventAfterResponse(user.id, AnalyticsEvents.PRO_ENTITLEMENT_REVOKED, {
+            reason: storedStatus,
+            previous_status: previousStatus,
+          });
+        }
+      }
+
       return NextResponse.json({
         hasSubscription: false,
         subscription: null,
-        usage: buildUsageResponse(usageData, hasUnlimited),
+        usage: buildUsageResponse(usageData, hasUnlimited, null, storedStatus),
       });
     }
 

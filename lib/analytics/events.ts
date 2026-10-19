@@ -160,7 +160,7 @@ export interface AnalyticsEventProperties {
     reason: PaywallReason;
     offers?: PaywallOffer[];
   };
-  [AnalyticsEvents.PAYWALL_DISMISSED]: { feature: PaywallFeature };
+  [AnalyticsEvents.PAYWALL_DISMISSED]: { feature: PaywallFeature; reason?: PaywallReason };
   [AnalyticsEvents.EDIT_LIMIT_HIT]: { is_pro: boolean; source: 'chat' | 'accept' };
   [AnalyticsEvents.CHECKOUT_STARTED]: {
     plan: PurchasePlan;

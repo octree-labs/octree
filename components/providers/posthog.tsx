@@ -35,11 +35,14 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
       capture_pageview: 'history_change',
       capture_pageleave: true,
       capture_exceptions: true,
-      // Session replay is switched on in the PostHog project. LaTeX source
-      // (Monaco), the PDF preview and every input are masked so document
-      // content never leaves the browser, and the PDF viewer is blocked
-      // outright. Canvas capture (pdf.js pages) is a project-level setting
-      // in PostHog and stays off; posthog-js does not expose it client-side.
+      // Session replay is switched on in the PostHog project (scoped to
+      // app.useoctree.com); the client must not switch it back off. LaTeX
+      // source (Monaco), the PDF preview and every input are masked so
+      // document content never leaves the browser, and the PDF viewer is
+      // blocked outright. Canvas capture (pdf.js pages) is a project-level
+      // setting in PostHog and stays off; posthog-js does not expose it
+      // client-side.
+      disable_session_recording: false,
       session_recording: {
         maskAllInputs: true,
         maskTextSelector: '.monaco-editor, [data-ph-mask], .pdf-preview',

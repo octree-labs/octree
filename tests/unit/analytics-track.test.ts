@@ -73,7 +73,7 @@ describe('track wrappers', () => {
   });
 
   it('are no-ops before PostHog is initialised (no key in dev/tests)', () => {
-    track(AnalyticsEvents.PROJECT_CREATED, { source: 'dashboard' });
+    track(AnalyticsEvents.PROJECT_CREATED, { source: 'blank' });
     identifyUser('user_1', { email: 'a@b.c' });
     resetAnalytics();
     captureClientException(new Error('boom'));

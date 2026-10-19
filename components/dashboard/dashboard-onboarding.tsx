@@ -10,25 +10,25 @@ const DASHBOARD_STEPS = [
     target: 'dashboard-generate-button',
     title: 'Create documents with AI',
     description:
-      'Click the "Generate with AI" card to open the generator. There you can describe what you want and get a LaTeX document in seconds.',
+      'Nothing to bring? "Generate with AI" opens the generator, where you describe what you want and get a LaTeX document in seconds.',
   },
   {
     target: 'dashboard-header',
     title: 'Your dashboard',
     description:
-      'This is your projects hub. From here you can create new projects, open the AI generator, or jump into any existing project.',
+      'This is your projects hub. From here you can bring your own document, start a new project, or jump into any existing one.',
   },
   {
     target: 'dashboard-new-project',
     title: 'New project',
     description:
-      'Click "+ New Project" to create an empty LaTeX project. You can add files and folders, then open the project in the editor to start writing.',
+      'Start a blank LaTeX project from here, or import a .zip / .tex you already have. Add files and folders, then write in the editor.',
   },
   {
     target: 'dashboard-projects',
     title: 'Your projects',
     description:
-      'All your projects are listed here. Click a row to open it in the editor, or use the menu (⋯) to rename or delete a project.',
+      'All your projects appear here. Click one to open it in the editor, or use the menu (⋯) to rename or delete it.',
   },
 ] as const;
 

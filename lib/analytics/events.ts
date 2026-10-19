@@ -17,6 +17,7 @@ export const AnalyticsEvents = {
   // --- Acquisition and activation (browser) ---
   SIGNUP_COMPLETED: 'signup_completed',
   ONBOARDING_COMPLETED: 'onboarding_completed',
+  ONBOARDING_START_OPTION_SELECTED: 'onboarding_start_option_selected',
   PROJECT_CREATED: 'project_created',
   AI_EDIT_REQUESTED: 'ai_edit_requested',
   AI_EDIT_ACCEPTED: 'ai_edit_accepted',
@@ -67,7 +68,20 @@ export type PurchasePlan = CheckoutPlan | 'credits_100' | 'generate_single';
 /** How a generation was paid for (consume_generation in the database). */
 export type GenerationKind = 'pro' | 'free' | 'credit';
 export type CheckoutSource = 'onboarding' | 'paywall' | 'settings' | 'generate-preview' | 'toolbar' | 'buy';
-export type ProjectSource = 'dashboard' | 'import' | 'generate';
+/**
+ * How a project came to exist. `upload` / `paste` / `sample` / `blank` are the
+ * "Start with your document" options (onboarding step and the empty
+ * dashboard); `import` is the dashboard Import dialog (ZIP); `generate` is the
+ * AI generator; `blank` is also the dashboard "New Project" dialog.
+ */
+export type ProjectSource = 'upload' | 'paste' | 'sample' | 'blank' | 'generate' | 'import';
+/**
+ * What a new user picked on the "Start with your document" screen. The four
+ * cards map 1:1 onto a ProjectSource; `generate` is the small text link and
+ * `later` is "I'll do this later".
+ */
+export type StartOptionChoice = 'upload' | 'paste' | 'sample' | 'blank' | 'generate' | 'later';
+export type StartOptionContext = 'onboarding' | 'dashboard';
 export type CancelOffer = 'pause' | 'discount';
 /** Stripe's `cancellation_details.feedback` enum. */
 export type CancelFeedback =
@@ -82,6 +96,11 @@ export type ExportFormat = 'pdf' | 'zip';
 export interface AnalyticsEventProperties {
   [AnalyticsEvents.SIGNUP_COMPLETED]: { provider: SignupProvider };
   [AnalyticsEvents.ONBOARDING_COMPLETED]: { plan: OnboardingPlan };
+  [AnalyticsEvents.ONBOARDING_START_OPTION_SELECTED]: {
+    option: StartOptionChoice;
+    /** `onboarding`: the final onboarding step; `dashboard`: the empty dashboard. */
+    context: StartOptionContext;
+  };
   [AnalyticsEvents.PROJECT_CREATED]: { source: ProjectSource };
   [AnalyticsEvents.AI_EDIT_REQUESTED]: {
     has_selection: boolean;

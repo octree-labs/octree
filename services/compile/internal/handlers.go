@@ -2,6 +2,7 @@ package internal
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -11,7 +12,53 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// MaxFilesPerRequest bounds the number of files written per compile; real
+// projects are tens of files, and the request body is capped separately.
+const MaxFilesPerRequest = 1000
+
 var requestQueue chan *CompileJob
+
+// bindJSON parses the body and maps an oversized body (see
+// MaxRequestBodyBytes in main.go) to 413 instead of a generic 400.
+func bindJSON(c *gin.Context, dest interface{}) bool {
+	err := c.ShouldBindJSON(dest)
+	if err == nil {
+		return true
+	}
+	var tooLarge *http.MaxBytesError
+	if errors.As(err, &tooLarge) {
+		c.JSON(http.StatusRequestEntityTooLarge, ErrorResponse{
+			Error:   "Request too large",
+			Message: fmt.Sprintf("Request body exceeds the %d MB limit", tooLarge.Limit>>20),
+		})
+		return false
+	}
+	c.JSON(http.StatusBadRequest, ErrorResponse{
+		Error:   "Invalid request",
+		Message: "Could not parse JSON payload",
+	})
+	return false
+}
+
+// validateFiles rejects requests whose file list could escape the workspace
+// or is unreasonably large.
+func validateFiles(files []FileEntry) *ErrorResponse {
+	if len(files) > MaxFilesPerRequest {
+		return &ErrorResponse{
+			Error:   "Invalid request",
+			Message: fmt.Sprintf("Too many files (%d); the limit is %d", len(files), MaxFilesPerRequest),
+		}
+	}
+	for _, file := range files {
+		if err := validateFilePath(file.Path); err != nil {
+			return &ErrorResponse{
+				Error:   "Invalid request",
+				Message: fmt.Sprintf("Invalid file path: %v", err),
+			}
+		}
+	}
+	return nil
+}
 
 // SetRequestQueue sets the queue for compilation jobs
 func SetRequestQueue(queue chan *CompileJob) {
@@ -50,11 +97,7 @@ func HealthHandler(c *gin.Context) {
 func CompileHandler(c *gin.Context) {
 	// Parse request
 	var req CompileRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, ErrorResponse{
-			Error:   "Invalid request",
-			Message: "Could not parse JSON payload",
-		})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -63,6 +106,11 @@ func CompileHandler(c *gin.Context) {
 			Error:   "Invalid request",
 			Message: "The files array must contain at least one file",
 		})
+		return
+	}
+
+	if errResp := validateFiles(req.Files); errResp != nil {
+		c.JSON(http.StatusBadRequest, *errResp)
 		return
 	}
 
@@ -161,11 +209,7 @@ func SynctexHandler(c *gin.Context) {
 	startTime := time.Now()
 
 	var req SynctexRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, ErrorResponse{
-			Error:   "Invalid request",
-			Message: "Could not parse JSON payload",
-		})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -185,12 +229,21 @@ func SynctexHandler(c *gin.Context) {
 		return
 	}
 
-	if req.Direction == "forward" && req.File == "" {
-		c.JSON(http.StatusBadRequest, ErrorResponse{
-			Error:   "Invalid request",
-			Message: "file is required for forward sync",
-		})
-		return
+	if req.Direction == "forward" {
+		if req.File == "" {
+			c.JSON(http.StatusBadRequest, ErrorResponse{
+				Error:   "Invalid request",
+				Message: "file is required for forward sync",
+			})
+			return
+		}
+		if err := validateFilePath(req.File); err != nil {
+			c.JSON(http.StatusBadRequest, ErrorResponse{
+				Error:   "Invalid request",
+				Message: fmt.Sprintf("Invalid file path: %v", err),
+			})
+			return
+		}
 	}
 
 	cache := GetCache()

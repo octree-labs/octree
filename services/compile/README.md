@@ -7,7 +7,8 @@ A high-performance LaTeX compilation service written in Go, featuring intelligen
 - **Intelligent Caching**: Content-based hashing for instant cache hits
 - **Incremental Compilation**: 30-40% faster recompilation when only text changes
 - **Smart Compilation**: Skips unnecessary steps (e.g., bibtex when `.bib` unchanged)
-- **latexmk Orchestration**: Delegates multi-pass, bibliography, and shell-escape flows to `latexmk` for maximum compatibility
+- **latexmk Orchestration**: Delegates multi-pass and bibliography flows to `latexmk` for maximum compatibility
+- **No shell escape**: every engine run gets `-no-shell-escape` (`-shell-restricted`, allowlisted to `repstopdf`, only for projects with EPS figures); minted/pythontex are refused with a clear error
 - **Concurrent Safety**: Project-level locking prevents race conditions
 - **Memory Management**: Automatic cache eviction (30min timeout + LRU)
 - **Production Ready**: Tested with 260+ test cases, 100% success rate
@@ -22,7 +23,7 @@ A high-performance LaTeX compilation service written in Go, featuring intelligen
 ## Prerequisites
 
 - **Go**: 1.21 or higher
-- **LaTeX**: Full TeX Live distribution (includes `latexmk`, `pythontex`, and the required auxiliary tools)
+- **LaTeX**: Full TeX Live distribution (includes `latexmk` and the required auxiliary tools)
   - macOS: `brew install --cask mactex`
   - Ubuntu: `sudo apt-get install texlive-full`
 - **Make**: For build automation
@@ -198,6 +199,15 @@ Environment variables (optional):
 ```bash
 # Port (default: 3001)
 export PORT=3001
+
+# Auth: HS256 tokens signed with this secret, role authenticated|service_role
+# (the anon key is rejected). Unset = auth off, local dev only.
+export SUPABASE_JWT_SECRET=...
+# Optional: pin user tokens to one project (https://<ref>.supabase.co/auth/v1)
+export SUPABASE_JWT_ISSUER=...
+
+# Compilation timeout per request in seconds (default 600)
+export COMPILATION_TIMEOUT_SECONDS=600
 
 # Cache settings (set in internal/cache.go)
 CacheExpirationTime = 30 * time.Minute  # Evict after 30min inactivity

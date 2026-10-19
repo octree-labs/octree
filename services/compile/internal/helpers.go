@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -250,86 +251,189 @@ func buildFileHashMap(files []FileEntry) map[string]string {
 	return hashes
 }
 
-// requiresShellEscape inspects TeX content to see if dangerous packages (minted, pythontex, etc.)
-// are used and therefore need -shell-escape.
-func requiresShellEscape(mainContent string, files []FileEntry) bool {
-	triggers := []string{
-		`\usepackage{minted}`,
-		`\usepackage[`,
-		`\begin{minted`,
-		`\inputminted`,
-		`\usepackage{pythontex}`,
-		`\begin{python}`,
-		`\begin{pycode}`,
-		`\py{`,
-		`\pyc{`,
-		`\usepackage{gnuplottex}`,
-		`\begin{gnuplot}`,
-		`\usepackage{asymptote}`,
-		`\begin{asy}`,
-	}
+// Shell escape policy
+//
+// `\write18` (and LuaTeX's os.execute) hands the document a shell on the
+// compile host. The service used to turn on full `-shell-escape` whenever a
+// document loaded minted/pythontex -- and, through a broken string
+// comparison, whenever it contained a bare `\usepackage[`, i.e. almost
+// always. Nothing in the product needs it: the generate prompt tells the
+// model not to use shell-escape packages, the tools templates do not use
+// minted, and pythontex/gnuplottex were never advertised.
+//
+// Policy now:
+//   - every engine run gets `-no-shell-escape`;
+//   - documents that need EPS conversion get `-shell-restricted` instead,
+//     TeX Live's allowlisted mode, with the allowlist narrowed to repstopdf
+//     (see restrictedShellEscapeCommands) so pdflatex can still turn
+//     `\includegraphics{figure.eps}` into a PDF;
+//   - minted, pythontex and friends are refused up front with a clear error.
+//     minted needs `pygmentize`, which restricted mode does not allow, so the
+//     only way to support it would be full shell escape. Not worth it.
 
-	if containsTrigger(mainContent, triggers) {
-		return true
-	}
+const (
+	shellEscapeFlagDisabled   = "-no-shell-escape"
+	shellEscapeFlagRestricted = "-shell-restricted"
+)
 
-	for _, file := range files {
-		if file.Encoding == "base64" {
-			continue
-		}
-		if containsTrigger(file.Content, triggers) {
-			return true
-		}
-	}
-	return false
+// restrictedShellEscapeCommands replaces texmf.cnf's shell_escape_commands
+// (kpathsea lets the environment override it). repstopdf is the restricted
+// epstopdf wrapper the graphics drivers call for .eps figures.
+const restrictedShellEscapeCommands = "repstopdf"
+
+// shellEscapePackages need `\write18` for anything useful. Loading one is a
+// hard error (see unsupportedShellEscapeFeature) rather than a silent
+// fallback, because under -no-shell-escape they fail in confusing ways.
+var shellEscapePackages = map[string]string{
+	"minted":       "minted",
+	"pythontex":    "pythontex",
+	"gnuplottex":   "gnuplottex",
+	"svg":          "svg",
+	"auto-pst-pdf": "auto-pst-pdf",
 }
 
-// usesPythonTex determines whether the document relies on the pythontex package.
-func usesPythonTex(mainContent string, files []FileEntry) bool {
-	triggers := []string{
-		`\usepackage{pythontex}`,
-		`\begin{python}`,
-		`\begin{pycode}`,
-		`\begin{pyblock}`,
-		`\py{`,
-		`\pyc{`,
-		`\pycode`,
-	}
-
-	if containsTrigger(mainContent, triggers) {
-		return true
-	}
-
-	for _, file := range files {
-		if file.Encoding == "base64" {
-			continue
-		}
-		if containsTrigger(file.Content, triggers) {
-			return true
-		}
-	}
-
-	return false
+// shellEscapeMacros are environments/commands of those packages, caught even
+// when the package is loaded from a file we are not inspecting.
+var shellEscapeMacros = []struct{ needle, feature string }{
+	{`\begin{minted}`, "minted"},
+	{`\inputminted`, "minted"},
+	{`\begin{pycode}`, "pythontex"},
+	{`\begin{pyblock}`, "pythontex"},
+	{`\begin{pyconsole}`, "pythontex"},
+	{`\begin{gnuplot}`, "gnuplottex"},
+	{`\includesvg`, "svg"},
 }
 
-func containsTrigger(content string, triggers []string) bool {
-	if content == "" {
-		return false
+var packageLoadPattern = regexp.MustCompile(`\\(?:usepackage|RequirePackage)\s*(?:\[[^\]]*\])?\s*\{([^}]*)\}`)
+
+// stripTeXComments drops everything from an unescaped % to the end of each
+// line, so a commented-out `% \usepackage{minted}` does not count.
+func stripTeXComments(content string) string {
+	if !strings.Contains(content, "%") {
+		return content
 	}
-	lower := strings.ToLower(content)
-	for _, trigger := range triggers {
-		if strings.Contains(lower, strings.ToLower(trigger)) {
-			// special-case \usepackage[, ensure minted etc.
-			if trigger == `\\usepackage[` {
-				if strings.Contains(lower, "minted") || strings.Contains(lower, "pythontex") || strings.Contains(lower, "gnuplottex") || strings.Contains(lower, "asymptote") {
-					return true
+	var b strings.Builder
+	b.Grow(len(content))
+	escaped := false
+	skipping := false
+	for i := 0; i < len(content); i++ {
+		ch := content[i]
+		switch {
+		case ch == '\n':
+			skipping = false
+			escaped = false
+			b.WriteByte(ch)
+		case skipping:
+			// drop
+		case ch == '\\' && !escaped:
+			escaped = true
+			b.WriteByte(ch)
+		case ch == '%' && !escaped:
+			skipping = true
+		default:
+			escaped = false
+			b.WriteByte(ch)
+		}
+	}
+	return b.String()
+}
+
+// texSources returns the comment-stripped text of every TeX-like file in the
+// request (main file first), which is what the policy checks scan.
+func texSources(mainContent string, files []FileEntry) []string {
+	sources := make([]string, 0, len(files)+1)
+	if mainContent != "" {
+		sources = append(sources, stripTeXComments(mainContent))
+	}
+	for _, file := range files {
+		if file.Encoding == "base64" || file.Content == "" {
+			continue
+		}
+		if !shouldInspectForEngine(file.Path) {
+			continue
+		}
+		if file.Content == mainContent {
+			continue
+		}
+		sources = append(sources, stripTeXComments(file.Content))
+	}
+	return sources
+}
+
+// unsupportedShellEscapeFeature returns the name of the first package or
+// macro in the sources that cannot work without full shell escape, or "".
+func unsupportedShellEscapeFeature(sources []string) string {
+	for _, content := range sources {
+		for _, match := range packageLoadPattern.FindAllStringSubmatch(content, -1) {
+			for _, pkg := range strings.Split(match[1], ",") {
+				if feature, ok := shellEscapePackages[strings.ToLower(strings.TrimSpace(pkg))]; ok {
+					return feature
 				}
-				continue
 			}
-			return true
+		}
+		lower := strings.ToLower(content)
+		for _, macro := range shellEscapeMacros {
+			if strings.Contains(lower, strings.ToLower(macro.needle)) {
+				return macro.feature
+			}
 		}
 	}
-	return false
+	return ""
+}
+
+// needsEPSConversion reports whether the project includes EPS/PS graphics
+// (or loads epstopdf explicitly), the one case that needs the restricted
+// shell escape allowlist.
+func needsEPSConversion(files []FileEntry, sources []string) (bool, string) {
+	for _, file := range files {
+		lower := strings.ToLower(file.Path)
+		if strings.HasSuffix(lower, ".eps") || strings.HasSuffix(lower, ".ps") {
+			return true, file.Path
+		}
+	}
+	for _, content := range sources {
+		lower := strings.ToLower(content)
+		if strings.Contains(lower, ".eps") {
+			return true, ".eps reference"
+		}
+		for _, match := range packageLoadPattern.FindAllStringSubmatch(content, -1) {
+			for _, pkg := range strings.Split(match[1], ",") {
+				if strings.TrimSpace(strings.ToLower(pkg)) == "epstopdf" {
+					return true, "epstopdf package"
+				}
+			}
+		}
+	}
+	return false, ""
+}
+
+// shellEscapeFlag picks the engine flag for this project and says why.
+func shellEscapeFlag(files []FileEntry, sources []string) (string, string) {
+	if ok, reason := needsEPSConversion(files, sources); ok {
+		return shellEscapeFlagRestricted, reason
+	}
+	return shellEscapeFlagDisabled, ""
+}
+
+// validateFilePath rejects paths that would escape the project workspace.
+// Paths are joined onto a per-project temp directory, so "../" or an
+// absolute path would let a request write anywhere the service can.
+func validateFilePath(path string) error {
+	switch {
+	case path == "":
+		return fmt.Errorf("file path must not be empty")
+	case len(path) > 512:
+		return fmt.Errorf("file path too long")
+	case strings.ContainsRune(path, 0):
+		return fmt.Errorf("file path contains a NUL byte")
+	case strings.HasPrefix(path, "/") || strings.HasPrefix(path, "\\") || filepath.IsAbs(path):
+		return fmt.Errorf("file path must be relative: %q", path)
+	}
+	cleaned := filepath.Clean(filepath.FromSlash(path))
+	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("file path escapes the project directory: %q", path)
+	}
+	return nil
 }
 
 // updateCachedFiles writes only changed files to the temp directory

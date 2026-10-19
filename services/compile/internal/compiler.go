@@ -24,7 +24,34 @@ import (
 const (
 	MaxLogChars  = 5000
 	LogTailLines = 80
+	// MaxLatexmkPasses bounds how many times latexmk reruns the engine for
+	// one request; cross-reference loops that do not settle stop here.
+	MaxLatexmkPasses = 5
 )
+
+// childEnvAllowlist is what the LaTeX toolchain gets to see. The service's
+// own environment carries SUPABASE_JWT_SECRET, and LuaLaTeX documents can
+// read any variable with os.getenv even with shell escape off, so the
+// engine must not inherit the process environment wholesale.
+var childEnvAllowlist = []string{
+	"PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "TZ",
+	"LANG", "LANGUAGE", "LC_ALL", "LC_CTYPE",
+	"TEXMFHOME", "TEXMFVAR", "TEXMFCONFIG", "TEXMFCNF", "TEXMFLOCAL", "TEXMFOUTPUT",
+	"OSFONTDIR", "FONTCONFIG_PATH", "FONTCONFIG_FILE", "XDG_CACHE_HOME",
+	"SOURCE_DATE_EPOCH",
+}
+
+// childEnv builds the environment for latexmk and the engines: the
+// allowlisted variables from the service's environment plus extra.
+func childEnv(extra ...string) []string {
+	env := make([]string, 0, len(childEnvAllowlist)+len(extra))
+	for _, key := range childEnvAllowlist {
+		if value, ok := os.LookupEnv(key); ok {
+			env = append(env, key+"="+value)
+		}
+	}
+	return append(env, extra...)
+}
 
 var historyDir string
 var compilationTimeout = 10 * time.Minute // Default timeout for LaTeX compilation
@@ -61,32 +88,32 @@ func New() *Compiler {
 }
 
 type compileSession struct {
-	compiler            *Compiler
-	ctx                 context.Context
-	cancel              context.CancelFunc
-	files               []FileEntry
-	projectID           string
-	enqueuedAt          time.Time
-	receivedAt          time.Time
-	queueMs             int64
-	mainContent         string
-	mainFilePath        string
-	jobName             string
-	tempDir             string
-	texFilePath         string
-	pdfPath             string
-	logPath             string
-	fileChanges         *FileChanges
-	isIncremental       bool
-	shouldCleanup       bool
-	metadata            *compileMetadata
-	requiresShellEscape bool
-	requiresPythonTex   bool
-	stdout              bytes.Buffer
-	stderr              bytes.Buffer
-	exitCode            int
-	bibTool             bibliographyTool
-	engine              latexEngine
+	compiler           *Compiler
+	ctx                context.Context
+	cancel             context.CancelFunc
+	files              []FileEntry
+	projectID          string
+	enqueuedAt         time.Time
+	receivedAt         time.Time
+	queueMs            int64
+	mainContent        string
+	mainFilePath       string
+	jobName            string
+	tempDir            string
+	texFilePath        string
+	pdfPath            string
+	logPath            string
+	fileChanges        *FileChanges
+	isIncremental      bool
+	shouldCleanup      bool
+	metadata           *compileMetadata
+	shellEscape        string // engine flag, see shellEscapeFlag
+	unsupportedFeature string // package that needs full shell escape, see unsupportedShellEscapeFeature
+	stdout             bytes.Buffer
+	stderr             bytes.Buffer
+	exitCode           int
+	bibTool            bibliographyTool
+	engine             latexEngine
 }
 
 func newCompileSession(compiler *Compiler, files []FileEntry, enqueuedAt time.Time, projectID string) *compileSession {
@@ -139,6 +166,10 @@ func (c *Compiler) Compile(files []FileEntry, enqueuedAt time.Time, projectID st
 		return result
 	}
 
+	if result := session.rejectUnsupported(); result != nil {
+		return result
+	}
+
 	if errResult := session.prepareWorkspace(cache); errResult != nil {
 		return errResult
 	}
@@ -148,6 +179,21 @@ func (c *Compiler) Compile(files []FileEntry, enqueuedAt time.Time, projectID st
 	session.runCompilation(needsBib, needsMultiPass)
 
 	return session.finalize(cache)
+}
+
+// rejectUnsupported fails fast, before any workspace is written, for
+// documents that need full shell escape. The message is surfaced as both the
+// error message and the log tail so every client shows it.
+func (s *compileSession) rejectUnsupported() *CompileResult {
+	if s.unsupportedFeature == "" {
+		return nil
+	}
+	s.cleanup()
+
+	message := fmt.Sprintf("%s is not supported: it needs LaTeX shell escape (\\write18), which this compile service keeps disabled. Use the listings or verbatim package for code instead.", s.unsupportedFeature)
+	result := s.compiler.errorResult(s.metadata, message, s.queueMs, s.receivedAt)
+	result.LogTail = "! " + message
+	return result
 }
 
 func (s *compileSession) logInitialDetails() {
@@ -164,14 +210,18 @@ func (s *compileSession) logInitialDetails() {
 	preview = strings.ReplaceAll(preview, "\n", " ")
 	log.Printf("[%s] TeX preview: %s...", s.compiler.RequestID, preview)
 
-	if requiresShellEscape(s.mainContent, s.files) {
-		s.requiresShellEscape = true
-		log.Printf("[%s] Shell escape enabled (detected minted/pythontex usage)", s.compiler.RequestID)
+	sources := texSources(s.mainContent, s.files)
+	if feature := unsupportedShellEscapeFeature(sources); feature != "" {
+		s.unsupportedFeature = feature
+		log.Printf("[%s] Refusing document: %s needs shell escape", s.compiler.RequestID, feature)
 	}
 
-	if usesPythonTex(s.mainContent, s.files) {
-		s.requiresPythonTex = true
-		log.Printf("[%s] PythonTeX detected; pythontex helper will run between passes", s.compiler.RequestID)
+	flag, reason := shellEscapeFlag(s.files, sources)
+	s.shellEscape = flag
+	if reason != "" {
+		log.Printf("[%s] Shell escape: %s (triggered by %s)", s.compiler.RequestID, flag, reason)
+	} else {
+		log.Printf("[%s] Shell escape: %s", s.compiler.RequestID, flag)
 	}
 
 	engine, reason := s.detectEngine()
@@ -577,35 +627,33 @@ func (s *compileSession) adjustStrategyForIncremental(needsBib bool, needsMultiP
 func (s *compileSession) runCompilation(needsBib, needsMultiPass bool) {
 	s.exitCode = 0
 
-	log.Printf("[%s] Delegating compilation to latexmk (bib=%v, multi-pass=%v, pythontex=%v)",
-		s.compiler.RequestID, needsBib, needsMultiPass, s.requiresPythonTex)
+	log.Printf("[%s] Delegating compilation to latexmk (bib=%v, multi-pass=%v)",
+		s.compiler.RequestID, needsBib, needsMultiPass)
 
 	s.recordExitCode(s.runLatexmk("initial"))
-
-	if s.exitCode == 0 && s.requiresPythonTex {
-		s.recordExitCode(s.runPythonTex())
-		if s.exitCode == 0 {
-			s.recordExitCode(s.runLatexmk("post-pythontex"))
-		}
-	}
 }
 
 func (s *compileSession) runLatexmk(stage string) error {
 	log.Printf("[%s] Running latexmk (%s) with engine=%s (timeout: %v)", s.compiler.RequestID, stage, s.engine, compilationTimeout)
 
+	shellEscape := s.shellEscape
+	if shellEscape == "" {
+		shellEscape = shellEscapeFlagDisabled
+	}
 	engineOpts := []string{
 		"-interaction=nonstopmode",
 		"-file-line-error",
 		"-synctex=1",
-	}
-	if s.requiresShellEscape {
-		engineOpts = append(engineOpts, "-shell-escape")
+		shellEscape,
 	}
 	latexCommand := fmt.Sprintf("%s %s %%O %%S", s.engine.command(), strings.Join(engineOpts, " "))
 
 	args := []string{
 		"-silent",
 		"-f",
+		// Cap the rerun loop (latexmk's own default is 5); -f would otherwise
+		// keep going as long as the aux files change.
+		"-e", fmt.Sprintf("$max_repeat=%d", MaxLatexmkPasses),
 	}
 	// Only force full rebuild on non-incremental (first) compiles.
 	// For incremental builds, let latexmk reuse .aux/.bbl/.toc files for speed.
@@ -632,7 +680,15 @@ func (s *compileSession) runLatexmk(stage string) error {
 	// Set TEXINPUTS to include the project root directory so .sty/.cls files
 	// in the root can be found even when main.tex is in a subdirectory
 	texInputs := fmt.Sprintf(".:%s:", s.tempDir)
-	cmd.Env = append(os.Environ(), "TEXINPUTS="+texInputs)
+	cmd.Env = childEnv(
+		"TEXINPUTS="+texInputs,
+		// Restricted mode may only run the EPS converter (kpathsea reads
+		// this over texmf.cnf). Irrelevant under -no-shell-escape.
+		"shell_escape_commands="+restrictedShellEscapeCommands,
+		// TeX Live's default, pinned: \openout may only write under the
+		// working directory.
+		"openout_any=p",
+	)
 
 	// Create a new process group so we can kill all child processes on timeout
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -665,43 +721,6 @@ func (s *compileSession) runLatexmk(stage string) error {
 		log.Printf("[%s] latexmk (%s) exited with error: %v", s.compiler.RequestID, stage, err)
 	} else {
 		log.Printf("[%s] latexmk (%s) completed successfully", s.compiler.RequestID, stage)
-	}
-	return err
-}
-
-func (s *compileSession) runPythonTex() error {
-	log.Printf("[%s] Running pythontex helper...", s.compiler.RequestID)
-	cmd := exec.CommandContext(s.ctx, "pythontex", filepath.Base(s.texFilePath))
-	cmd.Dir = s.tempDir
-	cmd.Stdout = &s.stdout
-	cmd.Stderr = &s.stderr
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-
-	done := make(chan error, 1)
-	go func() {
-		done <- cmd.Wait()
-	}()
-
-	var err error
-	select {
-	case <-s.ctx.Done():
-		if cmd.Process != nil {
-			log.Printf("[%s] Killing pythontex process group %d due to timeout", s.compiler.RequestID, cmd.Process.Pid)
-			syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		}
-		<-done
-		err = fmt.Errorf("compilation timeout exceeded (%v)", compilationTimeout)
-	case err = <-done:
-	}
-
-	if err != nil {
-		log.Printf("[%s] pythontex exited with error: %v", s.compiler.RequestID, err)
-	} else {
-		log.Printf("[%s] pythontex completed successfully", s.compiler.RequestID)
 	}
 	return err
 }

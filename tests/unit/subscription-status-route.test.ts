@@ -16,14 +16,31 @@ const mocks = vi.hoisted(() => {
   const userFrom = vi.fn(() => ({
     select: () => ({ eq: () => ({ single: userSingle }) }),
   }));
-  const adminRpc = vi.fn(async () => ({ error: null }));
+  const adminRpc = vi.fn(async (): Promise<{ error: { message: string } | null }> => ({ error: null }));
   const adminFrom = vi.fn(() => ({
     update: () => ({ eq: async () => ({ error: null }) }),
   }));
   const subscriptionsList = vi.fn();
+  const subscriptionsRetrieve = vi.fn();
   const resolveStripeCustomer = vi.fn();
-  return { getUser, userSingle, userFrom, adminRpc, adminFrom, subscriptionsList, resolveStripeCustomer };
+  const captureServerEventAfterResponse = vi.fn();
+  return {
+    getUser,
+    userSingle,
+    userFrom,
+    adminRpc,
+    adminFrom,
+    subscriptionsList,
+    subscriptionsRetrieve,
+    resolveStripeCustomer,
+    captureServerEventAfterResponse,
+  };
 });
+
+vi.mock('@/lib/posthog-server', () => ({
+  captureServerEventAfterResponse: mocks.captureServerEventAfterResponse,
+  captureServerExceptionAfterResponse: vi.fn(),
+}));
 
 vi.mock('@/lib/supabase/server', () => ({
   createClient: async () => ({ auth: { getUser: mocks.getUser }, from: mocks.userFrom }),
@@ -34,7 +51,7 @@ vi.mock('@/lib/supabase/admin', () => ({
 }));
 
 vi.mock('@/lib/stripe', () => ({
-  stripe: { subscriptions: { list: mocks.subscriptionsList } },
+  stripe: { subscriptions: { list: mocks.subscriptionsList, retrieve: mocks.subscriptionsRetrieve } },
 }));
 
 vi.mock('@/lib/stripe-customer', () => ({
@@ -42,6 +59,7 @@ vi.mock('@/lib/stripe-customer', () => ({
 }));
 
 import { GET } from '@/app/api/subscription-status/route';
+import { entitlementFromStatusResponse } from '@/lib/subscription/entitlement';
 
 const user = { id: 'user-1', email: 'pro@example.com' };
 const periodStart = 1_760_000_000;
@@ -157,13 +175,273 @@ describe('GET /api/subscription-status: when the subscription RPC runs', () => {
     expect(mocks.adminRpc).toHaveBeenCalledTimes(1);
   });
 
-  it('never calls the RPC without a Stripe subscription', async () => {
+  it('never calls the RPC for a free row without a Stripe subscription', async () => {
+    mocks.userSingle.mockResolvedValue({
+      data: usageRow({ is_pro: false, subscription_status: 'inactive', stripe_subscription_id: null, current_period_start: null, current_period_end: null }),
+      error: null,
+    });
     mocks.subscriptionsList.mockResolvedValue({ data: [] });
 
     const res = await GET();
     const body = await res.json();
 
     expect(body.hasSubscription).toBe(false);
+    expect(body.usage.isPro).toBe(false);
     expect(mocks.adminRpc).not.toHaveBeenCalled();
+    expect(mocks.subscriptionsRetrieve).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Self-heal for stale rows: `is_pro = true` for a subscription Stripe has
+ * ended. The row's claim no longer grants Pro, and the row is rewritten to
+ * the free tier through the same RPC the webhook path uses.
+ */
+describe('GET /api/subscription-status: stale is_pro rows', () => {
+  const canceledPeriodEnd = periodStart - 24 * 60 * 60;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.getUser.mockResolvedValue({ data: { user }, error: null });
+    mocks.resolveStripeCustomer.mockResolvedValue({ customerId: 'cus_1' });
+    mocks.subscriptionsList.mockResolvedValue({ data: [] });
+    mocks.adminRpc.mockResolvedValue({ error: null });
+    mocks.userSingle.mockResolvedValue({
+      data: usageRow({
+        is_pro: true,
+        subscription_status: 'active',
+        current_period_end: new Date(canceledPeriodEnd * 1000).toISOString(),
+      }),
+      error: null,
+    });
+  });
+
+  it('revokes Pro and rewrites the row when Stripe reports the stored subscription canceled', async () => {
+    mocks.subscriptionsRetrieve.mockResolvedValue(
+      stripeSubscription({ status: 'canceled', current_period_end: canceledPeriodEnd })
+    );
+
+    const res = await GET();
+    const body = await res.json();
+
+    expect(mocks.subscriptionsRetrieve).toHaveBeenCalledWith('sub_1');
+    expect(body.hasSubscription).toBe(false);
+    expect(body.usage.isPro).toBe(false);
+    expect(body.usage.stripeStatus).toBe('canceled');
+    // What the webhook's customer.subscription.deleted would have written.
+    expect(body.usage.subscriptionStatus).toBe('canceled');
+    expect(mocks.adminRpc).toHaveBeenCalledTimes(1);
+    expect(mocks.adminRpc).toHaveBeenCalledWith(
+      'update_user_subscription_status',
+      expect.objectContaining({
+        p_user_id: 'user-1',
+        p_stripe_customer_id: 'cus_1',
+        p_stripe_subscription_id: 'sub_1',
+        p_subscription_status: 'canceled',
+        p_current_period_end: new Date(canceledPeriodEnd * 1000).toISOString(),
+      })
+    );
+    expect(mocks.captureServerEventAfterResponse).toHaveBeenCalledWith(
+      'user-1',
+      'pro_entitlement_revoked',
+      { reason: 'canceled', previous_status: 'active' }
+    );
+  });
+
+  it('revokes when the stored subscription no longer exists in Stripe (404)', async () => {
+    mocks.subscriptionsRetrieve.mockRejectedValue(
+      Object.assign(new Error('No such subscription'), { code: 'resource_missing', statusCode: 404 })
+    );
+
+    const res = await GET();
+    const body = await res.json();
+
+    expect(body.usage.isPro).toBe(false);
+    expect(body.usage.stripeStatus).toBe('missing');
+    expect(mocks.adminRpc).toHaveBeenCalledWith(
+      'update_user_subscription_status',
+      expect.objectContaining({ p_subscription_status: 'canceled' })
+    );
+    expect(mocks.captureServerEventAfterResponse).toHaveBeenCalledWith(
+      'user-1',
+      'pro_entitlement_revoked',
+      expect.objectContaining({ reason: 'missing' })
+    );
+  });
+
+  it('does not grant Pro from is_pro alone even when the RPC write fails', async () => {
+    mocks.subscriptionsRetrieve.mockResolvedValue(stripeSubscription({ status: 'canceled' }));
+    mocks.adminRpc.mockResolvedValue({ error: { message: 'boom' } });
+
+    const res = await GET();
+    const body = await res.json();
+
+    expect(body.usage.isPro).toBe(false);
+  });
+
+  it('keeps Pro and writes nothing when the stored subscription is still active in Stripe', async () => {
+    mocks.subscriptionsRetrieve.mockResolvedValue(stripeSubscription({ status: 'active' }));
+
+    const res = await GET();
+    const body = await res.json();
+
+    expect(body.usage.isPro).toBe(true);
+    expect(body.usage.proSource).toBe('stripe');
+    // The client re-derives from these fields; it must reach the same answer.
+    expect(body.usage.stripeStatus).toBe('active');
+    expect(entitlementFromStatusResponse(body).isPro).toBe(true);
+    expect(mocks.adminRpc).not.toHaveBeenCalled();
+    expect(mocks.captureServerEventAfterResponse).not.toHaveBeenCalled();
+  });
+
+  it('writes incomplete_expired as the webhook would', async () => {
+    mocks.subscriptionsRetrieve.mockResolvedValue(stripeSubscription({ status: 'incomplete_expired' }));
+
+    const res = await GET();
+    const body = await res.json();
+
+    expect(body.usage.isPro).toBe(false);
+    expect(mocks.adminRpc).toHaveBeenCalledWith(
+      'update_user_subscription_status',
+      expect.objectContaining({ p_subscription_status: 'incomplete_expired' })
+    );
+  });
+
+  it('does not rewrite the row for a status the webhook owns (past_due), and does not grant Pro', async () => {
+    mocks.subscriptionsRetrieve.mockResolvedValue(stripeSubscription({ status: 'past_due' }));
+
+    const res = await GET();
+    const body = await res.json();
+
+    expect(body.usage.isPro).toBe(false);
+    expect(mocks.adminRpc).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the row rule when Stripe is unreachable: period ended, so not Pro, nothing written', async () => {
+    mocks.subscriptionsRetrieve.mockRejectedValue(new Error('network'));
+
+    const res = await GET();
+    const body = await res.json();
+
+    expect(body.usage.isPro).toBe(false);
+    expect(body.usage.stripeStatus).toBeNull();
+    expect(mocks.adminRpc).not.toHaveBeenCalled();
+    expect(mocks.captureServerEventAfterResponse).not.toHaveBeenCalled();
+  });
+
+  it('keeps Pro for an active row with a subscription id but no period end when Stripe is unreachable (never revokes)', async () => {
+    // Several live subscribers' rows predate the period columns. A Stripe
+    // outage must not read as "period ended" for them.
+    mocks.resolveStripeCustomer.mockRejectedValue(new Error('network'));
+    mocks.userSingle.mockResolvedValue({
+      data: usageRow({ current_period_start: null, current_period_end: null }),
+      error: null,
+    });
+    mocks.subscriptionsRetrieve.mockRejectedValue(new Error('network'));
+
+    const res = await GET();
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.usage.isPro).toBe(true);
+    expect(body.usage.proSource).toBe('row');
+    expect(entitlementFromStatusResponse(body).isPro).toBe(true);
+    expect(mocks.adminRpc).not.toHaveBeenCalled();
+    expect(mocks.captureServerEventAfterResponse).not.toHaveBeenCalled();
+  });
+
+  it('does not revoke on a Stripe error that is not a 404 (401/403/5xx)', async () => {
+    for (const statusCode of [401, 403, 500, 503]) {
+      vi.clearAllMocks();
+      mocks.getUser.mockResolvedValue({ data: { user }, error: null });
+      mocks.resolveStripeCustomer.mockResolvedValue({ customerId: 'cus_1' });
+      mocks.subscriptionsList.mockResolvedValue({ data: [] });
+      // Row inside its paid period: the row rule keeps Pro while Stripe is unavailable.
+      const futureEnd = Math.floor(Date.now() / 1000) + 10 * 24 * 60 * 60;
+      mocks.userSingle.mockResolvedValue({
+        data: usageRow({ current_period_end: new Date(futureEnd * 1000).toISOString() }),
+        error: null,
+      });
+      mocks.subscriptionsRetrieve.mockRejectedValue(Object.assign(new Error('stripe'), { statusCode }));
+
+      const res = await GET();
+      const body = await res.json();
+
+      expect(body.usage.isPro).toBe(true);
+      expect(mocks.adminRpc).not.toHaveBeenCalled();
+      expect(mocks.captureServerEventAfterResponse).not.toHaveBeenCalled();
+    }
+  });
+
+  it('does not ask Stripe again once the row has been rewritten (no flapping)', async () => {
+    mocks.userSingle.mockResolvedValue({
+      data: usageRow({ is_pro: false, subscription_status: 'canceled' }),
+      error: null,
+    });
+
+    const res = await GET();
+    const body = await res.json();
+
+    expect(body.usage.isPro).toBe(false);
+    expect(mocks.subscriptionsRetrieve).not.toHaveBeenCalled();
+    expect(mocks.adminRpc).not.toHaveBeenCalled();
+  });
+
+  it('keeps Pro from the row inside a paid period that the webhook has not synced yet', async () => {
+    const futureEnd = Math.floor(Date.now() / 1000) + 10 * 24 * 60 * 60;
+    mocks.userSingle.mockResolvedValue({
+      data: usageRow({ current_period_end: new Date(futureEnd * 1000).toISOString() }),
+      error: null,
+    });
+    mocks.subscriptionsRetrieve.mockRejectedValue(new Error('network'));
+
+    const res = await GET();
+    const body = await res.json();
+
+    expect(body.usage.isPro).toBe(true);
+    expect(body.usage.proSource).toBe('row');
+    expect(mocks.adminRpc).not.toHaveBeenCalled();
+  });
+
+  it('never grants Pro to is_pro = true with no subscription id, and never asks Stripe for it', async () => {
+    mocks.userSingle.mockResolvedValue({
+      data: usageRow({ is_pro: true, subscription_status: 'active', stripe_subscription_id: null }),
+      error: null,
+    });
+
+    const res = await GET();
+    const body = await res.json();
+
+    expect(body.usage.isPro).toBe(false);
+    expect(mocks.subscriptionsRetrieve).not.toHaveBeenCalled();
+    expect(mocks.adminRpc).not.toHaveBeenCalled();
+  });
+
+  it('keeps the unlimited grant without consulting Stripe', async () => {
+    mocks.userSingle.mockResolvedValue({
+      data: usageRow({ subscription_status: 'unlimited', stripe_subscription_id: 'sub_old' }),
+      error: null,
+    });
+
+    const res = await GET();
+    const body = await res.json();
+
+    expect(body.usage.isPro).toBe(true);
+    expect(body.usage.proSource).toBe('unlimited');
+    expect(mocks.subscriptionsRetrieve).not.toHaveBeenCalled();
+  });
+
+  it('checks the stored subscription even when no Stripe customer resolves', async () => {
+    mocks.resolveStripeCustomer.mockResolvedValue(null);
+    mocks.subscriptionsRetrieve.mockResolvedValue(stripeSubscription({ status: 'canceled' }));
+
+    const res = await GET();
+    const body = await res.json();
+
+    expect(body.usage.isPro).toBe(false);
+    expect(mocks.adminRpc).toHaveBeenCalledWith(
+      'update_user_subscription_status',
+      expect.objectContaining({ p_subscription_status: 'canceled', p_stripe_customer_id: 'cus_1' })
+    );
   });
 });

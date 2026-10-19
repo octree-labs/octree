@@ -12,7 +12,8 @@
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage",
     "dev:all": "supabase start && concurrently -n web,agent,compile -c blue,magenta,yellow \"npm run dev\" \"npm --prefix services/agent run dev\" \"make -C services/compile run\"",
-    "resume:redesign": "tsx scripts/resume/redesign.ts"
+    "resume:redesign": "tsx scripts/resume/redesign.ts",
+    "reconcile:pro": "tsx scripts/reconcile-pro-from-stripe.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^2.0.107",

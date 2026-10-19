@@ -8,10 +8,12 @@
  * does with the state those endpoints report.
  */
 
+import { entitlementFromStatusResponse } from '@/lib/subscription/entitlement';
+
 export type ProFeature = 'ai-edit' | 'export' | 'generate';
 
 export interface FeatureUsage {
-  /** Active subscription, or `is_pro` on user_usage. */
+  /** Pro by the entitlement rule (lib/subscription/entitlement.ts). */
   isPro: boolean;
   /**
    * The subscription's last renewal charge failed (Stripe past_due /
@@ -102,6 +104,7 @@ export interface SubscriptionStatusResponse {
    */
   subscription?: ({ effective_status?: string } & Record<string, unknown>) | null;
   usage: {
+    /** Computed by the server with the entitlement rule; the client recomputes it from the fields below. */
     isPro: boolean;
     hasUnlimitedEdits: boolean;
     limitReached: boolean;
@@ -109,6 +112,12 @@ export interface SubscriptionStatusResponse {
     /** Absent from older responses; treated as 0. */
     freeGenerationsRemaining?: number;
     generationCredits?: number;
+    /** user_usage.subscription_status, current_period_end and whether a Stripe subscription id is stored. */
+    subscriptionStatus?: string | null;
+    currentPeriodEnd?: string | null;
+    hasStripeSubscription?: boolean;
+    /** Stripe's answer about the stored subscription when no live one was found (lib/subscription/entitlement.ts). */
+    stripeStatus?: string | null;
   } & Record<string, unknown>;
 }
 
@@ -141,7 +150,9 @@ export function toFeatureUsage(
 ): FeatureUsage | null {
   if (!data?.usage) return null;
   return {
-    isPro: Boolean(subscriptionGrantsPro(data) || data.usage.isPro),
+    // One rule, shared with GET /api/subscription-status: a bare
+    // `is_pro = true` on the row no longer grants Pro on its own.
+    isPro: entitlementFromStatusResponse(data).isPro,
     paymentPastDue: subscriptionPastDue(data),
     hasUnlimitedEdits: Boolean(data.usage.hasUnlimitedEdits),
     limitReached: Boolean(data.usage.limitReached),

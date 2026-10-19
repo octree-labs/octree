@@ -53,6 +53,7 @@ export const AnalyticsEvents = {
   CHECKOUT_ABANDONED: 'checkout_abandoned',
   CHECKOUT_RECOVERY_EMAIL_SENT: 'checkout_recovery_email_sent',
   PAYMENT_FAILED_EMAIL_SENT: 'payment_failed_email_sent',
+  PRO_ENTITLEMENT_REVOKED: 'pro_entitlement_revoked',
 } as const;
 
 export type AnalyticsEvent = (typeof AnalyticsEvents)[keyof typeof AnalyticsEvents];
@@ -235,6 +236,15 @@ export interface AnalyticsEventProperties {
     credits: number;
     amount: number | null;
     currency: string | null;
+  };
+  /**
+   * GET /api/subscription-status found `user_usage` still claiming Pro for
+   * a subscription Stripe reports as gone, and rewrote the row to the free
+   * tier (lib/subscription/entitlement.ts). `missing` is a Stripe 404.
+   */
+  [AnalyticsEvents.PRO_ENTITLEMENT_REVOKED]: {
+    reason: 'canceled' | 'incomplete_expired' | 'missing';
+    previous_status: string | null;
   };
 }
 

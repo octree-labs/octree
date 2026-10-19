@@ -13,7 +13,7 @@ import {
 import { FeatureList } from '@/app/onboarding/components/feature-list';
 import { PlanPicker, type PickerPlan } from '@/components/subscription/plan-picker';
 import { createCheckoutSession } from '@/lib/requests/subscription';
-import { subscriptionGrantsPro } from '@/lib/subscription/features';
+import { entitlementFromStatusResponse } from '@/lib/subscription/entitlement';
 import PDFViewer from '@/components/pdf-viewer';
 import { toast } from 'sonner';
 import { CompilationError } from '@/types/compilation';
@@ -27,6 +27,10 @@ interface SubscriptionData {
         remainingEdits: number | null;
         isPro: boolean;
         hasUnlimitedEdits: boolean;
+        subscriptionStatus?: string | null;
+        currentPeriodEnd?: string | null;
+        hasStripeSubscription?: boolean;
+        stripeStatus?: string | null;
     };
 }
 
@@ -62,11 +66,9 @@ export function DocumentPreview({ latex, title, onOpenInOctree, isCreatingProjec
             .catch(() => {});
     }, []);
 
-    const isPro = Boolean(
-        subscriptionGrantsPro(subscriptionData) ||
-        subscriptionData?.usage?.isPro ||
-        subscriptionData?.usage?.hasUnlimitedEdits
-    );
+    // Same rule as the server and lib/subscription/features.ts: a bare
+    // `is_pro` flag does not grant Pro; the allowlist is part of the rule.
+    const isPro = entitlementFromStatusResponse(subscriptionData).isPro;
 
     const canExport = subscriptionData !== null && isPro;
 

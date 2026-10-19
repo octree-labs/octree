@@ -60,10 +60,11 @@ const GENERATE_QUOTA_COPY = {
  * With `offers` including `single` (only Generate does this, with reason
  * `generate_quota`) it shows two offers. The one-off $2.99 generation credit
  * comes first and carries the primary button: this paywall opens the moment a
- * new account spends its single free generation, and on the first day of
- * PostHog data (18 Oct 2026) 4 of 4 such users dismissed it (8 dismissals,
- * 1 checkout) with Pro on top. A $2.99 "finish this document" is the smaller ask; Pro stays
- * one tap below it.
+ * new account spends its single free generation. On the first day of PostHog
+ * data (18 Oct 2026), with Pro on top, all four such users dismissed it at
+ * least once (eight dismissals) and only one came back to start a monthly
+ * checkout. A $2.99 "finish this document" is the smaller ask; Pro stays one
+ * tap below it.
  */
 export function PaywallDialog() {
   const { open, feature, reason, offers } = usePaywall();

@@ -114,7 +114,7 @@ describe('attachStripeLapses', () => {
     const result = await attachStripeLapses(
       stripe,
       rows([sentUser, optedOut, suppressed, paying], {
-        sent: [{ userId: 'u1', template: 'winback' }],
+        sent: [{ userId: 'u1', template: 'winback', ref: '' }],
         optedOutUserIds: ['u2'],
         suppressedEmails: ['quiet@example.com'],
       })

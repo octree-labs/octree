@@ -6,7 +6,7 @@ import {
   selectLifecycleCandidates,
   type LifecycleUserRow,
 } from '@/lib/lifecycle/select';
-import { LIFECYCLE_TEMPLATES } from '@/lib/email/lifecycle';
+import { SCHEDULED_LIFECYCLE_TEMPLATES } from '@/lib/email/lifecycle';
 import { enabledTemplates } from '@/lib/lifecycle/config';
 
 // 14:30 UTC, the cron's scheduled time.
@@ -40,7 +40,7 @@ function select(users: LifecycleUserRow[], extra: Partial<Parameters<typeof sele
     suppressedEmails: [],
     optedOutUserIds: [],
     sent: [],
-    enabledTemplates: [...LIFECYCLE_TEMPLATES],
+    enabledTemplates: [...SCHEDULED_LIFECYCLE_TEMPLATES],
     now: NOW,
     ...extra,
   });
@@ -92,7 +92,7 @@ describe('staff and subscription exclusions (every template)', () => {
       stripeCustomerId: 'cus_1',
       subscriptionEndedAt: ago(30 * DAY),
     };
-    for (const template of LIFECYCLE_TEMPLATES) {
+    for (const template of SCHEDULED_LIFECYCLE_TEMPLATES) {
       expect(eligibleSince(user({ ...base, ...overrides }), template, NOW), template).toBeNull();
     }
     expect(isWinbackPrecandidate(user({ ...base, ...overrides }))).toBe(false);

@@ -13,6 +13,13 @@ type Db = SupabaseClient<Database>;
 const PAGE = 1000;
 
 const UNDEFINED_TABLE = '42P01';
+/** Postgres `undefined_column`, and PostgREST's schema-cache version of it. */
+const UNDEFINED_COLUMN = new Set(['42703', 'PGRST204']);
+
+/** A read or write that failed because the lifecycle migration is pending. */
+export function isMissingLedgerSchema(error: { code?: string } | null | undefined): boolean {
+  return !!error?.code && (error.code === UNDEFINED_TABLE || UNDEFINED_COLUMN.has(error.code));
+}
 
 /**
  * A claimed ledger row whose send failed (`error` set, no `resend_id`) is
@@ -30,7 +37,7 @@ async function selectAll<T>(
     if (error) {
       // The lifecycle tables arrive with the migration in this change; a dry
       // run before it is applied should still report candidates.
-      if (error.code === UNDEFINED_TABLE && options.onMissingTable) {
+      if (isMissingLedgerSchema(error) && options.onMissingTable) {
         options.onMissingTable();
         return rows;
       }
@@ -66,6 +73,8 @@ export async function listAllAuthUsers(supabase: Db): Promise<AuthUserLite[]> {
 export interface LedgerRow {
   userId: string;
   template: string;
+  /** '' for the scheduled templates (see migration 20261019010000). */
+  ref?: string;
   resendId: string | null;
   error: string | null;
   attempts: number;
@@ -85,8 +94,8 @@ export interface LifecycleRows {
   suppressedEmails: string[];
   optedOutUserIds: string[];
   /** Ledger rows that still block a send (see `isRetryable`). */
-  sent: Array<{ userId: string; template: string }>;
-  /** Lifecycle tables the database does not have yet (migration pending). */
+  sent: Array<{ userId: string; template: string; ref: string }>;
+  /** Lifecycle tables (or columns) the database does not have yet (migration pending). */
   missingTables: string[];
 }
 
@@ -119,9 +128,11 @@ export async function loadLifecycleRows(supabase: Db): Promise<LifecycleRows> {
       (from, to) =>
         supabase
           .from('lifecycle_emails')
-          .select('user_id, template, resend_id, error, attempts')
+          .select('user_id, template, ref, resend_id, error, attempts')
           .order('id')
           .range(from, to),
+      // `ref` arrives with migration 20261019010000; before it the select
+      // fails with undefined_column and is reported like a missing table.
       { onMissingTable: () => missingTables.push('lifecycle_emails') }
     ),
   ]);
@@ -156,12 +167,13 @@ export async function loadLifecycleRows(supabase: Db): Promise<LifecycleRows> {
     .map((row) => ({
       userId: row.user_id,
       template: row.template,
+      ref: row.ref ?? '',
       resendId: row.resend_id,
       error: row.error,
       attempts: row.attempts,
     }))
     .filter((row) => !isRetryable(row))
-    .map(({ userId, template }) => ({ userId, template }));
+    .map(({ userId, template, ref }) => ({ userId, template, ref }));
 
   return {
     users,

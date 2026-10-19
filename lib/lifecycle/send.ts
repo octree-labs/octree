@@ -18,17 +18,36 @@ export interface LifecycleMailer {
   }): Promise<{ id: string | null; error: string | null }>;
 }
 
+/**
+ * Thrown by a ledger whose table or columns are not there yet (the migration
+ * has not been applied). Callers that must never fail, the Stripe webhook,
+ * catch it and skip the email; the cron reports it.
+ */
+export class LifecycleLedgerUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'LifecycleLedgerUnavailableError';
+  }
+}
+
+export interface LifecycleLedgerKey {
+  userId: string;
+  template: LifecycleTemplate;
+  /** '' for the scheduled templates; the Stripe object id for billing recovery. */
+  ref: string;
+}
+
 export interface LifecycleLedger {
   /**
-   * Inserts the (user, template) row before the send, or takes over a row
-   * whose earlier send failed and still has attempts left. Returns false
-   * when the pair is already claimed, i.e. another run got there first.
+   * Inserts the (user, template, ref) row before the send, or takes over a
+   * row whose earlier send failed and still has attempts left. Returns false
+   * when the key is already claimed, i.e. another run got there first.
    */
-  claim(row: { userId: string; email: string; template: LifecycleTemplate }): Promise<boolean>;
+  claim(row: LifecycleLedgerKey & { email: string; payload?: Record<string, unknown> }): Promise<boolean>;
   /** Stores the Resend message id on the claimed row. */
-  markSent(row: { userId: string; template: LifecycleTemplate; resendId: string }): Promise<void>;
+  markSent(row: LifecycleLedgerKey & { resendId: string }): Promise<void>;
   /** Stores the Resend error on the claimed row; the row stays claimed. */
-  markFailed(row: { userId: string; template: LifecycleTemplate; error: string }): Promise<void>;
+  markFailed(row: LifecycleLedgerKey & { error: string }): Promise<void>;
 }
 
 export interface LifecycleSendDeps {
@@ -39,7 +58,7 @@ export interface LifecycleSendDeps {
    * address is suppressed or the user has opted out since the rows were
    * loaded. Checked before the claim so a refusal leaves no ledger row.
    */
-  mayEmail: (candidate: { userId: string; email: string }) => Promise<boolean>;
+  mayEmail: (candidate: { userId: string; email: string; transactional?: boolean }) => Promise<boolean>;
   /** PostHog capture, fire-and-forget. */
   capture?: (userId: string, template: LifecycleTemplate) => void;
   appUrl: string;
@@ -71,23 +90,21 @@ export async function sendLifecycleEmail(
   deps: LifecycleSendDeps
 ): Promise<LifecycleSendResult> {
   const { userId, template, email } = candidate;
+  const ref = candidate.ref ?? '';
 
-  if (!(await deps.mayEmail({ userId, email }))) {
+  if (!(await deps.mayEmail({ userId, email, transactional: candidate.transactional }))) {
     return { userId, template, sent: false, reason: 'opted out' };
   }
 
-  // Claim the (user, template) slot before sending so two overlapping runs
-  // cannot both deliver. A failed send keeps the row with the error on it;
-  // the next run retries it until MAX_SEND_ATTEMPTS (lib/lifecycle/load).
-  const claimed = await deps.ledger.claim({ userId, email, template });
+  // Claim the (user, template, ref) slot before sending so two overlapping
+  // runs cannot both deliver. A failed send keeps the row with the error on
+  // it; the next run retries it until MAX_SEND_ATTEMPTS (lib/lifecycle/load).
+  const claimed = await deps.ledger.claim({ userId, email, template, ref, payload: candidate.payload });
   if (!claimed) return { userId, template, sent: false, reason: 'already sent' };
 
   const unsubscribeUrl = deps.unsubscribeUrl(userId);
-  const content = renderLifecycleTemplate(template, {
-    appUrl: deps.appUrl,
-    toolsUrl: deps.toolsUrl,
-    unsubscribeUrl,
-  });
+  const templateInput = { appUrl: deps.appUrl, toolsUrl: deps.toolsUrl, unsubscribeUrl };
+  const content = candidate.render ? candidate.render(templateInput) : renderLifecycleTemplate(template, templateInput);
 
   const { id, error } = await deps.mailer.send({
     to: email,
@@ -97,14 +114,14 @@ export async function sendLifecycleEmail(
     headers: unsubscribeHeaders(unsubscribeUrl),
   });
   if (error) {
-    await deps.ledger.markFailed({ userId, template, error }).catch((err) => {
+    await deps.ledger.markFailed({ userId, template, ref, error }).catch((err) => {
       console.error('[lifecycle] failed to store send error:', err);
     });
     return { userId, template, sent: false, reason: error };
   }
 
   if (id) {
-    await deps.ledger.markSent({ userId, template, resendId: id }).catch((err) => {
+    await deps.ledger.markSent({ userId, template, ref, resendId: id }).catch((err) => {
       console.error('[lifecycle] failed to store resend id:', err);
     });
   }

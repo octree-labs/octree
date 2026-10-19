@@ -17,7 +17,7 @@
  * One email per user per run, highest-priority template first
  * (limit_hit > day7 > welcome > winback), oldest-eligible first, capped.
  */
-import type { LifecycleTemplate } from '@/lib/email/lifecycle';
+import type { LifecycleEmailContent, LifecycleTemplate, LifecycleTemplateInput, ScheduledLifecycleTemplate } from '@/lib/email/lifecycle';
 import { isAdminEmail } from '@/lib/admin';
 import { hasUnlimitedEdits } from '@/lib/paywall';
 
@@ -51,9 +51,12 @@ export interface LifecycleSelectionInput {
   suppressedEmails: Iterable<string>;
   /** user ids with email_preferences.marketing_opt_out = true. */
   optedOutUserIds: Iterable<string>;
-  /** Already-sent (user_id, template) pairs from lifecycle_emails. */
-  sent: Iterable<{ userId: string; template: string }>;
-  enabledTemplates: ReadonlySet<LifecycleTemplate> | LifecycleTemplate[];
+  /**
+   * Already-sent (user_id, template) pairs from lifecycle_emails. Rows of
+   * the billing-recovery templates carry a `ref` and are ignored here.
+   */
+  sent: Iterable<{ userId: string; template: string; ref?: string }>;
+  enabledTemplates: ReadonlySet<ScheduledLifecycleTemplate> | ScheduledLifecycleTemplate[];
   now: Date;
   /** Maximum sends per run across all templates. */
   cap?: number;
@@ -65,13 +68,28 @@ export interface LifecycleCandidate {
   template: LifecycleTemplate;
   /** The timestamp that made the user eligible; the run sends oldest first. */
   eligibleSince: number;
+  /**
+   * Ledger key for the billing-recovery templates: the invoice or Checkout
+   * Session id the email is about. Absent ('' in the table) for the
+   * scheduled templates, which go out once per user.
+   */
+  ref?: string;
+  /** Stored on the ledger row for the follow-up to use (recovery url, plan, amounts). */
+  payload?: Record<string, unknown>;
+  /**
+   * Renders the email for a billing-recovery template, which needs its
+   * Stripe data; the scheduled templates render from the app URLs alone.
+   */
+  render?: (input: LifecycleTemplateInput) => LifecycleEmailContent;
+  /** Transactional notices skip the marketing opt-out (suppressions still apply). */
+  transactional?: boolean;
 }
 
 export interface LifecycleSelection {
   /** Candidates to send this run, in send order (already capped). */
   toSend: LifecycleCandidate[];
   /** Everyone eligible per template before the cap, oldest first. */
-  eligible: Record<LifecycleTemplate, LifecycleCandidate[]>;
+  eligible: Record<ScheduledLifecycleTemplate, LifecycleCandidate[]>;
 }
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -91,7 +109,7 @@ export const LIFECYCLE_RULES = {
 export const DEFAULT_SEND_CAP = 200;
 
 /** Templates in the order a user who qualifies for several gets them. */
-export const TEMPLATE_PRIORITY: readonly LifecycleTemplate[] = ['limit_hit', 'day7', 'welcome', 'winback'];
+export const TEMPLATE_PRIORITY: readonly ScheduledLifecycleTemplate[] = ['limit_hit', 'day7', 'welcome', 'winback'];
 
 /**
  * Statuses that mean the user has a subscription relationship Octree must
@@ -124,7 +142,7 @@ export function isStaff(user: LifecycleUserRow): boolean {
  * null when the rule does not apply. Independent of suppression, opt-out and
  * dedupe, which `selectLifecycleCandidates` layers on top.
  */
-export function eligibleSince(user: LifecycleUserRow, template: LifecycleTemplate, now: Date): number | null {
+export function eligibleSince(user: LifecycleUserRow, template: ScheduledLifecycleTemplate, now: Date): number | null {
   const nowMs = now.getTime();
   if (isStaff(user) || hasSubscription(user)) return null;
 
@@ -170,11 +188,15 @@ export function isWinbackPrecandidate(user: LifecycleUserRow): boolean {
 export function selectLifecycleCandidates(input: LifecycleSelectionInput): LifecycleSelection {
   const suppressed = new Set(Array.from(input.suppressedEmails, (e) => e.toLowerCase()));
   const optedOut = new Set(input.optedOutUserIds);
-  const sentKeys = new Set(Array.from(input.sent, (s) => `${s.userId}:${s.template}`));
+  const sentKeys = new Set(
+    Array.from(input.sent)
+      .filter((s) => !s.ref)
+      .map((s) => `${s.userId}:${s.template}`)
+  );
   const enabled = new Set(input.enabledTemplates);
   const cap = input.cap ?? DEFAULT_SEND_CAP;
 
-  const eligible: Record<LifecycleTemplate, LifecycleCandidate[]> = {
+  const eligible: Record<ScheduledLifecycleTemplate, LifecycleCandidate[]> = {
     welcome: [],
     limit_hit: [],
     day7: [],

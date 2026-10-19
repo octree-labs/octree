@@ -650,6 +650,13 @@ func (s *compileSession) runLatexmk(stage string) error {
 
 	args := []string{
 		"-silent",
+		// -norc MUST come before -e: latexmk reads ./latexmkrc and
+		// ./.latexmkrc from its working directory -- here the attacker's
+		// workspace -- and executes them as Perl before compiling. Without
+		// -norc a project containing such a file runs arbitrary code as the
+		// compile user, bypassing every shell-escape control. We pass all
+		// configuration via -e and -pdflatex=, so no rc file is needed.
+		"-norc",
 		"-f",
 		// Cap the rerun loop (latexmk's own default is 5); -f would otherwise
 		// keep going as long as the aux files change.

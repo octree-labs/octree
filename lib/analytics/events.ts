@@ -24,6 +24,8 @@ export const AnalyticsEvents = {
   GENERATE_SUBMITTED: 'generate_submitted',
   COMPILE_COMPLETED: 'compile_completed',
   EXPORT_CLICKED: 'export_clicked',
+  IMPORT_PREVIEW_SHOWN: 'import_preview_shown',
+  IMPORT_PREVIEW_SIGNUP_CLICKED: 'import_preview_signup_clicked',
 
   // --- Monetisation (browser) ---
   PAYWALL_SHOWN: 'paywall_shown',
@@ -108,6 +110,8 @@ export type LifecycleEmailTemplate =
   | 'payment_failed_reminder'
   | 'checkout_recovery'
   | 'checkout_recovery_offer';
+/** Which control on the logged-out import landing started sign-up. */
+export type ImportPreviewCta = 'google' | 'email' | 'login';
 
 export interface AnalyticsEventProperties {
   [AnalyticsEvents.SIGNUP_COMPLETED]: { provider: SignupProvider };
@@ -134,6 +138,22 @@ export interface AnalyticsEventProperties {
     sample_rate: number;
   };
   [AnalyticsEvents.EXPORT_CLICKED]: { format: ExportFormat; allowed: boolean };
+  /**
+   * The logged-out /import/start landing finished loading its PDF preview.
+   * `source` is the draft's origin slug (e.g. `tools:templates:x`); `ok` is
+   * false when the compile failed or the preview was unavailable.
+   */
+  [AnalyticsEvents.IMPORT_PREVIEW_SHOWN]: {
+    source: string;
+    ok: boolean;
+    reason?: 'compile_failed' | 'unavailable' | 'too_large' | 'not_found';
+  };
+  /** A sign-up / log-in control on that landing was clicked. */
+  [AnalyticsEvents.IMPORT_PREVIEW_SIGNUP_CLICKED]: {
+    source: string;
+    method: ImportPreviewCta;
+    preview_ok: boolean | null;
+  };
 
   [AnalyticsEvents.PAYWALL_SHOWN]: {
     feature: PaywallFeature;

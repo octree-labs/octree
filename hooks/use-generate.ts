@@ -11,6 +11,8 @@ import { Message, MessageAttachment } from '@/components/generate/MessageBubble'
 import type { GenerationMilestone } from '@/components/generate/GenerationProgressTracker';
 import type { Json } from '@/database.types';
 import { readStream } from '@/lib/utils/sse';
+import { AnalyticsEvents, type GenerateErrorKind } from '@/lib/analytics/events';
+import { track } from '@/lib/analytics/track';
 
 export interface AttachedFile {
   id: string;
@@ -243,6 +245,12 @@ export function useGenerate(options: UseGenerateOptions = {}) {
     setGenerationMilestone('started');
     setError(null);
 
+    // One `generate_completed` per attempt (a retry is its own attempt),
+    // reported from `finally` whatever path the attempt took.
+    const startedAt = Date.now();
+    let producedLatexLength: number | null = null;
+    let errorKind: GenerateErrorKind = 'unknown';
+
     let persistentUserMessage = userMessage;
 
     const controller = new AbortController();
@@ -349,11 +357,14 @@ export function useGenerate(options: UseGenerateOptions = {}) {
       });
 
       if (!response.ok) {
+        errorKind = 'request_failed';
         if (response.status === 413) {
+          errorKind = 'too_large';
           throw new Error('Total attachment size is too large for the server. Please try with smaller files.');
         }
         const json = await response.json().catch(() => ({}));
         if (response.status === 402 && json.upgradeRequired) {
+          errorKind = 'quota';
           // The server is the source of truth for the allowance; it says
           // which offers apply (Pro, or the one-off credit as well).
           PaywallActions.open(
@@ -366,7 +377,11 @@ export function useGenerate(options: UseGenerateOptions = {}) {
       }
 
       const reader = response.body?.getReader();
-      if (!reader) throw new Error('No response stream');
+      if (!reader) {
+        errorKind = 'no_stream';
+        throw new Error('No response stream');
+      }
+      errorKind = 'stream_error';
 
       let finalLatex: string | null = null;
       let docTitle = 'Untitled Document';
@@ -408,10 +423,13 @@ export function useGenerate(options: UseGenerateOptions = {}) {
       });
 
       if (!completed) {
+        errorKind = 'incomplete';
         throw new Error('Generation timed out before completion. Please try again.');
       }
 
+      errorKind = 'empty';
       if (finalLatex && userId) {
+        producedLatexLength = (finalLatex as string).length;
         const successMessage = 'Document generated successfully. Preview it below or open it in Octree.';
         const successAssistantMessage = {
           id: assistantMessage.id,
@@ -475,7 +493,8 @@ export function useGenerate(options: UseGenerateOptions = {}) {
     } catch (err) {
       const isAbort = (err as Error).name === 'AbortError';
       const msg = err instanceof Error ? err.message : 'Generation failed';
-      
+      if (isAbort) errorKind = 'aborted';
+
       if (documentId && userId) {
           let finalLatex: string | null = null;
           let finalAssistantContent: string;
@@ -551,6 +570,13 @@ export function useGenerate(options: UseGenerateOptions = {}) {
       
       setError(msg);
     } finally {
+      const success = producedLatexLength !== null;
+      track(AnalyticsEvents.GENERATE_COMPLETED, {
+        success,
+        duration_ms: Date.now() - startedAt,
+        is_continuation: isContinuation,
+        ...(success ? { latex_length: producedLatexLength ?? 0 } : { error_kind: errorKind }),
+      });
       setIsGenerating(false);
       setGenerationMilestone('started');
       abortControllerRef.current = null;

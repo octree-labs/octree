@@ -9,11 +9,11 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/octree/latex-compile/internal"
 )
 
@@ -22,11 +22,24 @@ const (
 	MaxConcurrentRequests     = 2
 	DefaultCompilationTimeout = 10 * time.Minute // Default 10 minutes for complex documents
 	ShutdownTimeout           = 60 * time.Second
+	// MaxRequestBodyBytes caps a compile request, both on the wire and after
+	// gzip decompression. The app's own route limit is 25 MB; projects with
+	// base64 images are the largest real payloads.
+	MaxRequestBodyBytes = 64 << 20
 )
 
 var requestQueue chan *internal.CompileJob
 
 func main() {
+	// Must run before anything else: keeps /proc/<pid>/environ and
+	// /proc/<pid>/mem of this process (which holds SUPABASE_JWT_SECRET)
+	// unreadable to the TeX engines, which run as the same uid.
+	if err := internal.HardenProcess(); err != nil {
+		log.Fatalf("Failed to harden process: %v", err)
+	}
+
+	authConfig := authConfigFromEnv()
+
 	// Setup
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -65,7 +78,7 @@ func main() {
 	}
 
 	// Setup router
-	router := setupRouter()
+	router := setupRouter(authConfig)
 
 	// Create server
 	srv := &http.Server{
@@ -105,7 +118,7 @@ func main() {
 	log.Println("Server exited")
 }
 
-func setupRouter() *gin.Engine {
+func setupRouter(authConfig internal.AuthConfig) *gin.Engine {
 	// Set Gin mode
 	if os.Getenv("GIN_MODE") == "" {
 		gin.SetMode(gin.ReleaseMode)
@@ -115,58 +128,52 @@ func setupRouter() *gin.Engine {
 
 	// CORS middleware
 	router.Use(corsMiddleware())
+	// Cap request bodies before anything reads them
+	router.Use(bodyLimitMiddleware())
 	// Transparently decompress gzip request bodies
 	router.Use(gzipRequestMiddleware())
 
-	// Routes
+	// Public: the health probe only.
 	router.GET("/health", internal.HealthHandler)
-	router.POST("/word-count", internal.WordCountHandler)
 
-	// Protected routes requiring JWT
+	// Everything that writes request files to disk or runs a TeX tool
+	// requires a token. New routes go in this group unless they are
+	// deliberately public (and then main_test.go must list them).
 	protected := router.Group("/")
-	protected.Use(jwtAuthMiddleware())
+	protected.Use(internal.JWTAuthMiddleware(authConfig))
 	{
 		protected.POST("/compile", internal.CompileHandler)
 		protected.POST("/synctex", internal.SynctexHandler)
+		protected.POST("/word-count", internal.WordCountHandler)
 	}
 
 	return router
 }
 
-func jwtAuthMiddleware() gin.HandlerFunc {
+// authConfigFromEnv reads the token policy. SUPABASE_JWT_SECRET is the
+// project's JWT secret; SUPABASE_JWT_ISSUER (optional) pins user tokens to
+// one Supabase project, e.g. https://<ref>.supabase.co/auth/v1. Without a
+// secret the service refuses to start, unless COMPILE_AUTH_DISABLED=true
+// says the open configuration is intended (local development).
+func authConfigFromEnv() internal.AuthConfig {
+	cfg := internal.AuthConfig{
+		Secret:               os.Getenv("SUPABASE_JWT_SECRET"),
+		Issuer:               os.Getenv("SUPABASE_JWT_ISSUER"),
+		AllowUnauthenticated: strings.EqualFold(os.Getenv("COMPILE_AUTH_DISABLED"), "true"),
+	}
+	if cfg.Secret == "" && !cfg.AllowUnauthenticated {
+		log.Fatalf("SUPABASE_JWT_SECRET is not set. Set it, or set COMPILE_AUTH_DISABLED=true to run without authentication (local development only).")
+	}
+	return cfg
+}
+
+// bodyLimitMiddleware caps the raw request body; a body over the limit makes
+// the JSON bind fail with *http.MaxBytesError (handlers answer 413).
+func bodyLimitMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		jwtSecret := os.Getenv("SUPABASE_JWT_SECRET")
-		if jwtSecret == "" {
-			c.Next()
-			return
+		if c.Request.Body != nil {
+			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, MaxRequestBodyBytes)
 		}
-
-		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Authorization header required"})
-			return
-		}
-
-		const prefix = "Bearer "
-		if len(authHeader) < len(prefix) || authHeader[:len(prefix)] != prefix {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid authorization header format"})
-			return
-		}
-
-		tokenString := authHeader[len(prefix):]
-
-		token, err := jwt.Parse(tokenString, func(t *jwt.Token) (interface{}, error) {
-			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, jwt.ErrSignatureInvalid
-			}
-			return []byte(jwtSecret), nil
-		}, jwt.WithValidMethods([]string{"HS256"}))
-
-		if err != nil || !token.Valid {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
-			return
-		}
-
 		c.Next()
 	}
 }
@@ -202,7 +209,9 @@ func gzipRequestMiddleware() gin.HandlerFunc {
 		}
 		defer reader.Close()
 
-		c.Request.Body = io.NopCloser(reader)
+		// The raw body is already capped; cap the decompressed stream too so a
+		// small gzip bomb cannot expand past the same limit.
+		c.Request.Body = http.MaxBytesReader(c.Writer, io.NopCloser(reader), MaxRequestBodyBytes)
 		c.Request.Header.Del("Content-Encoding")
 		c.Request.ContentLength = -1
 

@@ -21,6 +21,9 @@ services:
       - PORT=3001
       - HISTORY_DIR=/app/logs
       - GIN_MODE=debug
+      # Local dev: no JWT secret, so auth is explicitly off. The service
+      # refuses to start without a secret unless this is set.
+      - COMPILE_AUTH_DISABLED=true
     restart: unless-stopped
     deploy:
       resources:

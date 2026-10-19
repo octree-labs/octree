@@ -197,8 +197,10 @@ export function GeneratePageContent({
     return null;
   }, [subscriptionUsage]);
 
-  // `/generate?from=onboarding|dashboard` says which card sent the visitor;
-  // read once on mount so a later in-page navigation does not lose it.
+  // `/generate?from=onboarding|dashboard` says which card sent the visitor.
+  // Read once on mount: the first submission on this page carries it. After a
+  // generation `router.replace('/generate/<id>')` remounts this component, so
+  // continuation submits report `direct`, which is all the funnel needs.
   const entryRef = useRef<GenerateEntry>('direct');
   useEffect(() => {
     if (typeof window === 'undefined') return;

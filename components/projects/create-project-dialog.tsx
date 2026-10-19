@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { PlusIcon } from 'lucide-react';
+import { PlusIcon, Upload } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -12,9 +12,21 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import { CreateProjectTabs } from '@/components/projects/create-project-tabs';
+import {
+  CreateProjectTabs,
+  type CreateProjectTab,
+} from '@/components/projects/create-project-tabs';
 
-export function CreateProjectDialog() {
+interface CreateProjectDialogProps {
+  /**
+   * `create` (default): the "New Project" trigger, opening on the blank tab.
+   * `import`: an "Import" trigger opening straight on the ZIP tab, so
+   * bringing an existing document is a first-class dashboard action.
+   */
+  mode?: CreateProjectTab;
+}
+
+export function CreateProjectDialog({ mode = 'create' }: CreateProjectDialogProps) {
   const [open, setOpen] = useState(false);
   const router = useRouter();
 
@@ -30,20 +42,29 @@ export function CreateProjectDialog() {
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
-        <Button size="sm" variant="gradient">
-          <PlusIcon />
-          New Project
-        </Button>
+        {mode === 'import' ? (
+          <Button size="sm" variant="outline">
+            <Upload />
+            Import
+          </Button>
+        ) : (
+          <Button size="sm" variant="gradient">
+            <PlusIcon />
+            New Project
+          </Button>
+        )}
       </DialogTrigger>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
-          <DialogTitle>New Project</DialogTitle>
+          <DialogTitle>{mode === 'import' ? 'Import project' : 'New Project'}</DialogTitle>
           <DialogDescription>
-            Create a new project or import from a ZIP file.
+            {mode === 'import'
+              ? 'Upload a ZIP of your LaTeX project, for example an Overleaf export.'
+              : 'Create a new project or import from a ZIP file.'}
           </DialogDescription>
         </DialogHeader>
 
-        <CreateProjectTabs onSuccess={handleSuccess} />
+        <CreateProjectTabs onSuccess={handleSuccess} defaultTab={mode} />
       </DialogContent>
     </Dialog>
   );

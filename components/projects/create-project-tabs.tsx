@@ -15,16 +15,20 @@ import { track } from '@/lib/analytics/track';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
+export type CreateProjectTab = 'create' | 'import';
+
 interface CreateProjectTabsProps {
   onSuccess: (projectId: string) => void;
   onError?: (error: string) => void;
+  defaultTab?: CreateProjectTab;
 }
 
 export function CreateProjectTabs({
   onSuccess,
   onError,
+  defaultTab = 'create',
 }: CreateProjectTabsProps) {
-  const [activeTab, setActiveTab] = useState('create');
+  const [activeTab, setActiveTab] = useState<string>(defaultTab);
 
   const [title, setTitle] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -185,7 +189,9 @@ export function CreateProjectTabs({
                   </span>
                   <span className="text-neutral-600"> or drag and drop</span>
                 </div>
-                <p className="text-xs text-neutral-500">ZIP files up to 50MB</p>
+                <p className="text-xs text-neutral-500">
+                  ZIP files up to 50MB. An Overleaf export (Download → Source) works as-is.
+                </p>
               </div>
             </div>
 

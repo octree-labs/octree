@@ -40,4 +40,7 @@ export const EXPERIENCE_OPTIONS = [
   { value: 'expert', label: 'Expert - I know LaTeX inside out' },
 ];
 
-export const TOTAL_STEPS = 2;
+/** 0: about you, 1: plan, 2: start with your document. */
+export const TOTAL_STEPS = 3;
+export const PLAN_STEP = 1;
+export const START_STEP = 2;

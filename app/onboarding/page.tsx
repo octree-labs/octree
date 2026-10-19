@@ -31,6 +31,8 @@ import {
   ROLE_OPTIONS,
   USE_CASE_OPTIONS,
   TOTAL_STEPS,
+  PLAN_STEP,
+  START_STEP,
 } from './constants';
 import { OctreeLogo, OctreeWordmark } from '@/components/icons/octree-logo';
 import { FREE_DAILY_EDIT_LIMIT } from '@/data/constants';
@@ -39,6 +41,7 @@ import { createCheckoutSession } from '@/lib/requests/subscription';
 import { getUserUsageStatus, upsertUserUsage } from '@/lib/requests/user';
 import { completeFreeOnboarding } from '@/lib/requests/onboarding';
 import { AuthMarketingSection } from '@/components/auth/auth-marketing-section';
+import { StartWithDocument } from '@/components/onboarding/start-with-document';
 
 export default function OnboardingPage() {
   const [currentStep, setCurrentStep] = useState(0);
@@ -126,7 +129,7 @@ export default function OnboardingPage() {
     }
 
     // Special handling for step 1 (subscription step)
-    if (currentStep === 1) {
+    if (currentStep === PLAN_STEP) {
       setIsSubmitting(true);
       try {
         const checkoutUrl = await createCheckoutSession({
@@ -161,8 +164,10 @@ export default function OnboardingPage() {
   };
 
   // Continue on the free plan: marks onboarding complete (same flag the Stripe
-  // webhook sets for paying users) and goes to the dashboard. Pro features are
-  // gated inside the product instead.
+  // webhook sets for paying users), then shows the "Start with your document"
+  // step. The flag is written first, so a refresh on that step lands on the
+  // dashboard (whose empty state offers the same options) instead of looping
+  // back here. Pro features are gated inside the product instead.
   const handleContinueFree = async () => {
     setIsSubmitting(true);
     try {
@@ -179,7 +184,8 @@ export default function OnboardingPage() {
       }
 
       await completeFreeOnboarding(user);
-      router.push('/');
+      setIsSubmitting(false);
+      setCurrentStep(START_STEP);
     } catch (error) {
       console.error('Failed to continue on the free plan:', error);
       toast.error('Something went wrong. Please try again.');
@@ -287,6 +293,26 @@ export default function OnboardingPage() {
           </>
         );
 
+      case START_STEP:
+        return (
+          <>
+            <div className="space-y-1.5">
+              <h2 className="text-2xl font-semibold leading-none tracking-tight">
+                Start with your document
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                Bring the LaTeX you are already working on. It opens in the editor and compiles
+                right away.
+              </p>
+            </div>
+            <StartWithDocument
+              context="onboarding"
+              onSkip={() => router.push('/')}
+              className="pt-2"
+            />
+          </>
+        );
+
       default:
         return null;
     }
@@ -294,7 +320,7 @@ export default function OnboardingPage() {
 
   const isStepValid = () => {
     if (currentStep === 0) return !!role && !!useCase && !!referralSource;
-    if (currentStep === 1) return true; // Subscription step is always valid
+    if (currentStep === PLAN_STEP) return true; // Subscription step is always valid
     return false;
   };
 
@@ -313,41 +339,44 @@ export default function OnboardingPage() {
           <div className="w-full max-w-md space-y-6">
             <div className="space-y-6">
               {renderStep()}
-              <div className="space-y-3">
-                <Button
-                  className="w-full"
-                  variant="gradient"
-                  onClick={handleNext}
-                  disabled={isSubmitting || !isStepValid()}
-                >
-                  {isSubmitting
-                    ? currentStep === 1
-                      ? 'Loading...'
-                      : 'Saving...'
-                    : currentStep === TOTAL_STEPS - 1
-                      ? 'Get Octree Pro →'
-                      : 'Continue'}
-                </Button>
-                {currentStep === 1 && (
-                  <>
-                    <p className="text-center text-xs text-muted-foreground">
-                      Cancel anytime. No questions asked.
-                    </p>
-                    <Button
-                      className="w-full"
-                      variant="ghost"
-                      onClick={handleContinueFree}
-                      disabled={isSubmitting}
-                    >
-                      Continue with the free plan
-                    </Button>
-                    <p className="text-center text-xs text-muted-foreground">
-                      Free includes {FREE_DAILY_EDIT_LIMIT} AI edits a day, unlimited projects and PDF
-                      preview. Upgrade any time from the editor.
-                    </p>
-                  </>
-                )}
-              </div>
+              {/* The start step's cards are their own actions; no footer button. */}
+              {currentStep !== START_STEP && (
+                <div className="space-y-3">
+                  <Button
+                    className="w-full"
+                    variant="gradient"
+                    onClick={handleNext}
+                    disabled={isSubmitting || !isStepValid()}
+                  >
+                    {isSubmitting
+                      ? currentStep === PLAN_STEP
+                        ? 'Loading...'
+                        : 'Saving...'
+                      : currentStep === PLAN_STEP
+                        ? 'Get Octree Pro →'
+                        : 'Continue'}
+                  </Button>
+                  {currentStep === PLAN_STEP && (
+                    <>
+                      <p className="text-center text-xs text-muted-foreground">
+                        Cancel anytime. No questions asked.
+                      </p>
+                      <Button
+                        className="w-full"
+                        variant="ghost"
+                        onClick={handleContinueFree}
+                        disabled={isSubmitting}
+                      >
+                        Continue with the free plan
+                      </Button>
+                      <p className="text-center text-xs text-muted-foreground">
+                        Free includes {FREE_DAILY_EDIT_LIMIT} AI edits a day, unlimited projects and PDF
+                        preview. Upgrade any time from the editor.
+                      </p>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Progress dots with back button and user info below card */}
@@ -357,7 +386,7 @@ export default function OnboardingPage() {
                   currentStep={currentStep}
                   totalSteps={TOTAL_STEPS}
                 />
-                {currentStep > 0 && (
+                {currentStep > 0 && currentStep !== START_STEP && (
                   <Button
                     variant="link"
                     onClick={handleBack}

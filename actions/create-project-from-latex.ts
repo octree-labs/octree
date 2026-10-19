@@ -9,6 +9,14 @@ interface CreateProjectFromLatexResult {
   error: string | null;
 }
 
+/**
+ * Hard caps on a single main.tex and its title. The onboarding screen checks
+ * the same document size client-side (lib/onboarding/start-options.ts) and
+ * sends larger documents through the ZIP import; this is the backstop.
+ */
+const MAX_LATEX_BYTES = 2 * 1024 * 1024;
+const MAX_TITLE_LENGTH = 200;
+
 export async function createProjectFromLatex(
   title: string,
   latexContent: string
@@ -25,7 +33,16 @@ export async function createProjectFromLatex(
       return { projectId: null, error: 'Not authenticated' };
     }
 
-    const sanitizedTitle = title.trim() || 'Untitled Document';
+    if (typeof latexContent !== 'string' || !latexContent.trim()) {
+      return { projectId: null, error: 'The document is empty' };
+    }
+    if (Buffer.byteLength(latexContent, 'utf8') > MAX_LATEX_BYTES) {
+      return { projectId: null, error: 'The document is too large; upload it as a ZIP instead' };
+    }
+
+    const sanitizedTitle =
+      (typeof title === 'string' ? title : '').trim().slice(0, MAX_TITLE_LENGTH) ||
+      'Untitled Document';
 
     const projectData: TablesInsert<'projects'> = {
       title: sanitizedTitle,

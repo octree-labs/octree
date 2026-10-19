@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { render } from '@react-email/render';
-import { resend, FROM_ADDRESS } from './client';
+import { resend, FROM_ADDRESS, REPLY_TO_ADDRESS } from './client';
 import { WelcomeEmail } from './templates/welcome';
 import { SignInEmail } from './templates/sign-in';
 
@@ -32,6 +32,7 @@ export async function sendWelcomeEmail(email: string): Promise<void> {
   if (await isSuppressed(email)) return;
   const { error } = await resend.emails.send({
     from: FROM_ADDRESS,
+    replyTo: REPLY_TO_ADDRESS,
     to: email,
     subject: 'Welcome to Octree',
     html: await render(
@@ -45,6 +46,7 @@ export async function sendSignInEmail(email: string): Promise<void> {
   if (await isSuppressed(email)) return;
   const { error } = await resend.emails.send({
     from: FROM_ADDRESS,
+    replyTo: REPLY_TO_ADDRESS,
     to: email,
     subject: 'New sign-in to your Octree account',
     html: await render(

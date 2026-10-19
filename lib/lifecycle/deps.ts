@@ -33,9 +33,10 @@ export function createLifecycleMailer(): LifecycleMailer {
       // webhook route imports this file. A missing key must cost one
       // skipped email (caught and logged by the caller), never the
       // webhook's module load.
-      const { resend, FROM_ADDRESS } = await import('@/lib/email/client');
+      const { resend, FROM_ADDRESS, REPLY_TO_ADDRESS } = await import('@/lib/email/client');
       const { data, error } = await resend.emails.send({
         from: FROM_ADDRESS,
+        replyTo: REPLY_TO_ADDRESS,
         to: input.to,
         subject: input.subject,
         html: input.html,

@@ -11,6 +11,13 @@ export interface LifecycleEmailContent {
 }
 
 export interface LifecycleLayoutInput {
+  /**
+   * The template name, for `utm_campaign`: every link in the body and the
+   * button is tagged `utm_source=lifecycle&utm_medium=email&utm_campaign=<template>`
+   * so a visit from the email is attributed in PostHog. The unsubscribe link
+   * is left alone.
+   */
+  template: string;
   subject: string;
   /** One-line preview text shown by mail clients after the subject. */
   preheader?: string;
@@ -28,6 +35,51 @@ export interface LifecycleLayoutInput {
   unsubscribeUrl?: string;
   /** Optional secondary link under the button, e.g. the billing portal. */
   secondary?: { label: string; href: string };
+}
+
+export const EMAIL_UTM_SOURCE = 'lifecycle';
+export const EMAIL_UTM_MEDIUM = 'email';
+
+/**
+ * `href` with the campaign UTM parameters appended. Existing query strings
+ * and fragments are kept; a parameter already present is not overwritten
+ * (a template that deep-links with its own utm_* keeps it). Stripe-hosted
+ * pages (checkout recovery, hosted invoices) are returned as issued: they
+ * carry no PostHog, so a tag there measures nothing, and the URLs are
+ * signed and best left untouched. Anything that is not an absolute URL is
+ * returned unchanged.
+ */
+export function withEmailUtm(href: string, template: string): string {
+  let url: URL;
+  try {
+    url = new URL(href);
+  } catch {
+    return href;
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return href;
+  if (url.hostname === 'stripe.com' || url.hostname.endsWith('.stripe.com')) return href;
+  const params: Array<[string, string]> = [
+    ['utm_source', EMAIL_UTM_SOURCE],
+    ['utm_medium', EMAIL_UTM_MEDIUM],
+    ['utm_campaign', template],
+  ];
+  for (const [key, value] of params) {
+    if (!url.searchParams.has(key)) url.searchParams.set(key, value);
+  }
+  return url.toString();
+}
+
+/**
+ * Re-tags the links inside a rendered paragraph. `link()` is the only thing
+ * that puts a URL in a paragraph, so the two shapes it writes are the two
+ * rewritten: `href="..."` (HTML-escaped) and `(url)` in the text version.
+ */
+function tagParagraphLinks(para: { html: string; text: string }, template: string): { html: string; text: string } {
+  const unescape = (value: string) => value.replace(/&quot;/g, '"').replace(/&gt;/g, '>').replace(/&lt;/g, '<').replace(/&amp;/g, '&');
+  return {
+    html: para.html.replace(/href="([^"]*)"/g, (_m, href: string) => `href="${escapeHtml(withEmailUtm(unescape(href), template))}"`),
+    text: para.text.replace(/\((https?:\/\/[^\s)]+)\)/g, (_m, href: string) => `(${withEmailUtm(href, template)})`),
+  };
 }
 
 export function escapeHtml(value: string): string {
@@ -60,7 +112,15 @@ export function join(...parts: Array<string | { html: string; text: string }>): 
 
 const FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
 
-export function renderLifecycleEmail(input: LifecycleLayoutInput): LifecycleEmailContent {
+export function renderLifecycleEmail(layout: LifecycleLayoutInput): LifecycleEmailContent {
+  const input: LifecycleLayoutInput = {
+    ...layout,
+    paragraphs: layout.paragraphs.map((para) => tagParagraphLinks(para, layout.template)),
+    cta: { ...layout.cta, href: withEmailUtm(layout.cta.href, layout.template) },
+    secondary: layout.secondary
+      ? { ...layout.secondary, href: withEmailUtm(layout.secondary.href, layout.template) }
+      : undefined,
+  };
   const closing = input.closing ?? ['— Basil, founder of Octree'];
   const preheader = input.preheader ? escapeHtml(input.preheader) : '';
 

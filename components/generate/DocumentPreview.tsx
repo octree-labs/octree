@@ -14,6 +14,7 @@ import { FeatureList } from '@/app/onboarding/components/feature-list';
 import { PlanPicker, type PickerPlan } from '@/components/subscription/plan-picker';
 import { createCheckoutSession } from '@/lib/requests/subscription';
 import { entitlementFromStatusResponse } from '@/lib/subscription/entitlement';
+import type { GenerateEntry } from '@/lib/analytics/events';
 import PDFViewer from '@/components/pdf-viewer';
 import { toast } from 'sonner';
 import { CompilationError } from '@/types/compilation';
@@ -39,9 +40,11 @@ interface DocumentPreviewProps {
     title: string;
     onOpenInOctree: () => void;
     isCreatingProject: boolean;
+    /** How the visitor reached /generate; attributed to a checkout started here. */
+    entry?: GenerateEntry;
 }
 
-export function DocumentPreview({ latex, title, onOpenInOctree, isCreatingProject }: DocumentPreviewProps) {
+export function DocumentPreview({ latex, title, onOpenInOctree, isCreatingProject, entry }: DocumentPreviewProps) {
     const [viewMode, setViewMode] = useState<'code' | 'pdf'>('code');
     const [pdfData, setPdfData] = useState<string | null>(null);
     const [pdfError, setPdfError] = useState<CompilationError | null>(null);
@@ -79,6 +82,7 @@ export function DocumentPreview({ latex, title, onOpenInOctree, isCreatingProjec
                 plan,
                 withTrial: false,
                 source: 'generate-preview',
+                entry,
             });
             window.location.href = checkoutUrl;
         } catch (error) {

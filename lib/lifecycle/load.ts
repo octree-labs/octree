@@ -101,17 +101,23 @@ export interface LifecycleRows {
 
 export async function loadLifecycleRows(supabase: Db): Promise<LifecycleRows> {
   const missingTables: string[] = [];
-  const [authUsers, usage, projects, suppressions, prefs, ledger] = await Promise.all([
+  const [authUsers, usage, projects, generated, suppressions, prefs, ledger] = await Promise.all([
     listAllAuthUsers(supabase),
     selectAll((from, to) =>
       supabase
         .from('user_usage')
-        .select('user_id, edit_count, daily_reset_date, is_pro, subscription_status, stripe_customer_id, role')
+        .select(
+          'user_id, edit_count, daily_reset_date, is_pro, subscription_status, stripe_customer_id, stripe_subscription_id, current_period_start, current_period_end, updated_at, role'
+        )
         .order('user_id')
         .range(from, to)
     ),
     selectAll((from, to) =>
-      supabase.from('projects').select('user_id, created_at').order('id').range(from, to)
+      supabase.from('projects').select('user_id, created_at, updated_at').order('id').range(from, to)
+    ),
+    // Only the timestamps: a generation is activity for the pro_inactive rule.
+    selectAll((from, to) =>
+      supabase.from('generated_documents').select('user_id, created_at').order('id').range(from, to)
     ),
     selectAll((from, to) => supabase.from('email_suppressions').select('email').order('email').range(from, to)),
     selectAll(
@@ -138,10 +144,31 @@ export async function loadLifecycleRows(supabase: Db): Promise<LifecycleRows> {
   ]);
 
   const firstProject = new Map<string, string>();
+  const lastActivity = new Map<string, string>();
+  const noteActivity = (userId: string, at: string | null | undefined) => {
+    if (!at) return;
+    const current = lastActivity.get(userId);
+    if (!current || at > current) lastActivity.set(userId, at);
+  };
   for (const project of projects) {
     if (!project.created_at) continue;
     const current = firstProject.get(project.user_id);
     if (!current || project.created_at < current) firstProject.set(project.user_id, project.created_at);
+    noteActivity(project.user_id, project.updated_at ?? project.created_at);
+  }
+  for (const doc of generated) noteActivity(doc.user_id, doc.created_at);
+  for (const row of usage) {
+    // user_usage.updated_at moves on every counted AI edit (increment_edit_count,
+    // both branches) and every generation (consume_generation); it is the only
+    // edit signal for Pro users, whose branch of increment_edit_count never
+    // touches daily_reset_date. It also moves on the subscription writes of
+    // the Stripe webhook, which only ever makes someone look more recently
+    // active, never less.
+    noteActivity(row.user_id, row.updated_at);
+    // daily_reset_date is a date (`YYYY-MM-DD`): the day the free counter
+    // started, moved by increment_edit_count on the first edit of a new day.
+    // As an ISO string it sorts correctly against the timestamps above.
+    noteActivity(row.user_id, row.daily_reset_date);
   }
 
   const usageByUser = new Map(usage.map((row) => [row.user_id, row]));
@@ -157,9 +184,13 @@ export async function loadLifecycleRows(supabase: Db): Promise<LifecycleRows> {
       isPro: row?.is_pro ?? false,
       subscriptionStatus: row?.subscription_status ?? null,
       stripeCustomerId: row?.stripe_customer_id ?? null,
+      stripeSubscriptionId: row?.stripe_subscription_id ?? null,
+      currentPeriodStart: row?.current_period_start ?? null,
+      currentPeriodEnd: row?.current_period_end ?? null,
       role: row?.role ?? null,
       firstProjectAt: firstProject.get(user.id) ?? null,
       subscriptionEndedAt: null,
+      lastActivityAt: lastActivity.get(user.id) ?? null,
     };
   });
 

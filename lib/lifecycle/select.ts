@@ -13,13 +13,20 @@
  *              is the day the counter started, set by increment_edit_count.
  *   day7       7..14d after sign-up, has a project
  *   winback    has a Stripe customer, subscription ended >= 7d ago
+ *   pro_inactive  entitled to Pro (lib/subscription/entitlement.ts), at
+ *              least 7 days into the current billing period, and no
+ *              activity for 7 days (no project saved, no document generated,
+ *              no AI edit counted). The only template for subscribers; at
+ *              most one per calendar month (ledger ref = `YYYY-MM`).
  *
  * One email per user per run, highest-priority template first
- * (limit_hit > day7 > welcome > winback), oldest-eligible first, capped.
+ * (limit_hit > day7 > welcome > winback > pro_inactive), oldest-eligible
+ * first, capped.
  */
 import type { LifecycleEmailContent, LifecycleTemplate, LifecycleTemplateInput, ScheduledLifecycleTemplate } from '@/lib/email/lifecycle';
 import { isAdminEmail } from '@/lib/admin';
 import { hasUnlimitedEdits } from '@/lib/paywall';
+import { isProEntitled } from '@/lib/subscription/entitlement';
 
 export interface LifecycleUserRow {
   userId: string;
@@ -34,6 +41,15 @@ export interface LifecycleUserRow {
   isPro: boolean;
   subscriptionStatus: string | null;
   stripeCustomerId: string | null;
+  /** user_usage.stripe_subscription_id / current_period_end: the entitlement rule reads them. */
+  stripeSubscriptionId?: string | null;
+  currentPeriodEnd?: string | null;
+  /**
+   * user_usage.current_period_start: written by the Stripe webhook when the
+   * subscription starts and on every renewal. Null for rows from before the
+   * period columns existed.
+   */
+  currentPeriodStart?: string | null;
   /** `unlimited` and other staff roles never get upsell email. */
   role: string | null;
   /** Earliest projects.created_at for the user, null when they have none. */
@@ -43,6 +59,15 @@ export interface LifecycleUserRow {
    * null when unknown or still active. Loaded only for win-back candidates.
    */
   subscriptionEndedAt: string | null;
+  /**
+   * The latest of: any projects.updated_at (bumped on every file save), any
+   * generated_documents.created_at, user_usage.updated_at (bumped by
+   * increment_edit_count and consume_generation on every counted edit or
+   * generation, for Pro and free alike) and user_usage.daily_reset_date
+   * (free users only). Null when none is known. Loaded for the pro_inactive
+   * rule.
+   */
+  lastActivityAt?: string | null;
 }
 
 export interface LifecycleSelectionInput {
@@ -52,8 +77,9 @@ export interface LifecycleSelectionInput {
   /** user ids with email_preferences.marketing_opt_out = true. */
   optedOutUserIds: Iterable<string>;
   /**
-   * Already-sent (user_id, template) pairs from lifecycle_emails. Rows of
-   * the billing-recovery templates carry a `ref` and are ignored here.
+   * Already-sent (user_id, template, ref) rows from lifecycle_emails. The
+   * scheduled templates match on ref '' (once per user), pro_inactive on
+   * the month ref (once per month); the billing-recovery rows never match.
    */
   sent: Iterable<{ userId: string; template: string; ref?: string }>;
   enabledTemplates: ReadonlySet<ScheduledLifecycleTemplate> | ScheduledLifecycleTemplate[];
@@ -70,8 +96,9 @@ export interface LifecycleCandidate {
   eligibleSince: number;
   /**
    * Ledger key for the billing-recovery templates: the invoice or Checkout
-   * Session id the email is about. Absent ('' in the table) for the
-   * scheduled templates, which go out once per user.
+   * Session id the email is about. The calendar month (`YYYY-MM`) for
+   * pro_inactive, which goes out at most once a month. Absent ('' in the
+   * table) for the other scheduled templates, which go out once per user.
    */
   ref?: string;
   /** Stored on the ledger row for the follow-up to use (recovery url, plan, amounts). */
@@ -104,12 +131,13 @@ export const LIFECYCLE_RULES = {
   limit_hit: { minEdits: 5, recencyMs: 2 * DAY_MS },
   day7: { minAgeMs: 7 * DAY_MS, maxAgeMs: 14 * DAY_MS },
   winback: { minLapsedMs: 7 * DAY_MS },
+  pro_inactive: { minIdleMs: 7 * DAY_MS },
 } as const;
 
 export const DEFAULT_SEND_CAP = 200;
 
 /** Templates in the order a user who qualifies for several gets them. */
-export const TEMPLATE_PRIORITY: readonly ScheduledLifecycleTemplate[] = ['limit_hit', 'day7', 'welcome', 'winback'];
+export const TEMPLATE_PRIORITY: readonly ScheduledLifecycleTemplate[] = ['limit_hit', 'day7', 'welcome', 'winback', 'pro_inactive'];
 
 /**
  * Statuses that mean the user has a subscription relationship Octree must
@@ -138,13 +166,59 @@ export function isStaff(user: LifecycleUserRow): boolean {
 }
 
 /**
+ * Pro right now, by the one entitlement rule (lib/subscription/entitlement.ts)
+ * applied to the user_usage row: Stripe is not consulted here, so a stale
+ * `active` row whose period end has passed is not Pro, and a bare `is_pro`
+ * flag grants nothing.
+ */
+export function isEntitledToPro(user: LifecycleUserRow, now: Date): boolean {
+  return isProEntitled({
+    row: {
+      is_pro: user.isPro,
+      subscription_status: user.subscriptionStatus,
+      stripe_subscription_id: user.stripeSubscriptionId ?? null,
+      current_period_end: user.currentPeriodEnd ?? null,
+    },
+    hasUnlimited: hasUnlimitedEdits(user.email),
+    now,
+  });
+}
+
+/** `YYYY-MM` of `now` (UTC): the pro_inactive ledger ref. */
+export function monthRef(now: Date): string {
+  return now.toISOString().slice(0, 7);
+}
+
+/** The ledger ref a scheduled template is keyed on this run. */
+export function scheduledRef(template: ScheduledLifecycleTemplate, now: Date): string {
+  return template === 'pro_inactive' ? monthRef(now) : '';
+}
+
+/**
  * Returns the timestamp that makes the user eligible for the template, or
  * null when the rule does not apply. Independent of suppression, opt-out and
  * dedupe, which `selectLifecycleCandidates` layers on top.
  */
 export function eligibleSince(user: LifecycleUserRow, template: ScheduledLifecycleTemplate, now: Date): number | null {
   const nowMs = now.getTime();
-  if (isStaff(user) || hasSubscription(user)) return null;
+  if (isStaff(user)) return null;
+
+  if (template === 'pro_inactive') {
+    // `unlimited` is a manual grant (staff, partners), not a plan to come back to.
+    if (user.subscriptionStatus === 'unlimited' || !isEntitledToPro(user, now)) return null;
+    const { minIdleMs } = LIFECYCLE_RULES.pro_inactive;
+    // Someone who paid (or renewed) this week is not inactive, whatever the
+    // activity tables say: a free user idle for ten days who buys Pro today
+    // writes nothing to projects or generated_documents by buying. The quiet
+    // week therefore starts no earlier than the period did.
+    const periodStart = ms(user.currentPeriodStart ?? null);
+    if (periodStart !== null && nowMs - periodStart < minIdleMs) return null;
+    const lastActive = ms(user.lastActivityAt ?? null);
+    if (lastActive === null || nowMs - lastActive < minIdleMs) return null;
+    return Math.max(lastActive, periodStart ?? 0) + minIdleMs;
+  }
+
+  if (hasSubscription(user)) return null;
 
   switch (template) {
     case 'welcome': {
@@ -188,11 +262,7 @@ export function isWinbackPrecandidate(user: LifecycleUserRow): boolean {
 export function selectLifecycleCandidates(input: LifecycleSelectionInput): LifecycleSelection {
   const suppressed = new Set(Array.from(input.suppressedEmails, (e) => e.toLowerCase()));
   const optedOut = new Set(input.optedOutUserIds);
-  const sentKeys = new Set(
-    Array.from(input.sent)
-      .filter((s) => !s.ref)
-      .map((s) => `${s.userId}:${s.template}`)
-  );
+  const sentKeys = new Set(Array.from(input.sent, (s) => `${s.userId}:${s.template}:${s.ref ?? ''}`));
   const enabled = new Set(input.enabledTemplates);
   const cap = input.cap ?? DEFAULT_SEND_CAP;
 
@@ -201,18 +271,20 @@ export function selectLifecycleCandidates(input: LifecycleSelectionInput): Lifec
     limit_hit: [],
     day7: [],
     winback: [],
+    pro_inactive: [],
   };
 
   const claimed = new Set<string>();
   for (const template of TEMPLATE_PRIORITY) {
+    const ref = scheduledRef(template, input.now);
     for (const user of input.users) {
       if (!user.email) continue;
       const email = user.email.toLowerCase();
       if (suppressed.has(email) || optedOut.has(user.userId)) continue;
-      if (sentKeys.has(`${user.userId}:${template}`)) continue;
+      if (sentKeys.has(`${user.userId}:${template}:${ref}`)) continue;
       const since = eligibleSince(user, template, input.now);
       if (since === null) continue;
-      eligible[template].push({ userId: user.userId, email, template, eligibleSince: since });
+      eligible[template].push({ userId: user.userId, email, template, eligibleSince: since, ...(ref ? { ref } : {}) });
     }
     eligible[template].sort((a, b) => a.eligibleSince - b.eligibleSince || a.userId.localeCompare(b.userId));
   }

@@ -15,7 +15,10 @@ import { captureServerExceptionAfterResponse } from '@/lib/posthog-server';
 /**
  * Starts a Stripe Checkout Session.
  *
- * Body: `{ plan: 'monthly' | 'annual' | 'semester' | 'credits_100', withTrial? }`.
+ * Body: `{ plan: 'monthly' | 'annual' | 'semester' | 'credits_100', withTrial?,
+ * source?, entry? }`. `source` (which button) and `entry` (how /generate was
+ * reached) are attribution only: validated, written to the Stripe metadata
+ * and read back by the webhook; an unknown value is dropped, not refused.
  * The legacy `{ annual: true }` body (older clients) still buys the monthly
  * plan; `annual: false` / `plan: 'weekly'` asked for the retired weekly plan
  * and gets a 400. See lib/checkout-plans.ts for the mapping.
@@ -69,6 +72,8 @@ export async function POST(request: Request) {
       email: user.email,
       origin: origin ?? '',
       withTrial: resolved.withTrial,
+      source: resolved.source,
+      entry: resolved.entry,
     });
 
     const session = await stripe.checkout.sessions.create(sessionConfig);

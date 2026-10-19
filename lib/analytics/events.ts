@@ -22,6 +22,7 @@ export const AnalyticsEvents = {
   AI_EDIT_REQUESTED: 'ai_edit_requested',
   AI_EDIT_ACCEPTED: 'ai_edit_accepted',
   GENERATE_SUBMITTED: 'generate_submitted',
+  GENERATE_COMPLETED: 'generate_completed',
   COMPILE_COMPLETED: 'compile_completed',
   EXPORT_CLICKED: 'export_clicked',
   IMPORT_PREVIEW_SHOWN: 'import_preview_shown',
@@ -48,6 +49,9 @@ export const AnalyticsEvents = {
   AI_EDIT_SERVED: 'ai_edit_served',
   EDIT_LIMIT_HIT_SERVER: 'edit_limit_hit_server',
   LIFECYCLE_EMAIL_SENT: 'lifecycle_email_sent',
+  // Resend webhook (app/api/webhooks/resend): engagement with those emails.
+  EMAIL_OPENED: 'email_opened',
+  EMAIL_CLICKED: 'email_clicked',
   CREDITS_PURCHASED: 'credits_purchased',
   GENERATE_ALLOWANCE_USED: 'generate_allowance_used',
   GENERATION_PURCHASED: 'generation_purchased',
@@ -75,7 +79,12 @@ export type CheckoutPlan = 'monthly' | 'annual' | 'semester' | 'weekly';
 export type PurchasePlan = CheckoutPlan | 'credits_100' | 'generate_single';
 /** How a generation was paid for (consume_generation in the database). */
 export type GenerationKind = 'pro' | 'free' | 'credit';
-export type CheckoutSource = 'onboarding' | 'paywall' | 'settings' | 'generate-preview' | 'toolbar' | 'buy';
+export const CHECKOUT_SOURCES = ['onboarding', 'paywall', 'settings', 'generate-preview', 'toolbar', 'buy'] as const;
+export type CheckoutSource = (typeof CHECKOUT_SOURCES)[number];
+/** Validates a `source` sent by the browser before it reaches Stripe metadata. */
+export function isCheckoutSource(value: unknown): value is CheckoutSource {
+  return typeof value === 'string' && (CHECKOUT_SOURCES as readonly string[]).includes(value);
+}
 /**
  * How a project came to exist. `upload` / `paste` / `sample` / `blank` are the
  * "Start with your document" options (onboarding step and the empty
@@ -96,6 +105,23 @@ const GENERATE_ENTRIES: ReadonlySet<string> = new Set(['onboarding', 'dashboard'
 export function generateEntryFromParam(value: string | null | undefined): GenerateEntry {
   return value && GENERATE_ENTRIES.has(value) ? (value as GenerateEntry) : 'direct';
 }
+export function isGenerateEntry(value: unknown): value is GenerateEntry {
+  return value === 'direct' || (typeof value === 'string' && GENERATE_ENTRIES.has(value));
+}
+/**
+ * Why a generation attempt did not produce a document. Short categories
+ * only; the raw message never leaves the browser.
+ */
+export type GenerateErrorKind =
+  | 'aborted'
+  | 'quota'
+  | 'too_large'
+  | 'request_failed'
+  | 'no_stream'
+  | 'stream_error'
+  | 'incomplete'
+  | 'empty'
+  | 'unknown';
 export type CancelOffer = 'pause' | 'discount';
 /** Stripe's `cancellation_details.feedback` enum. */
 export type CancelFeedback =
@@ -112,6 +138,7 @@ export type LifecycleEmailTemplate =
   | 'limit_hit'
   | 'day7'
   | 'winback'
+  | 'pro_inactive'
   | 'payment_failed'
   | 'payment_failed_reminder'
   | 'checkout_recovery'
@@ -125,6 +152,14 @@ export interface AnalyticsEventProperties {
     plan: OnboardingPlan;
     /** The "how did you find Octree" answer from the onboarding form (free plan only). */
     referral_source?: string;
+    /**
+     * Pro only, from the subscription's Checkout metadata
+     * (lib/checkout-plans.ts): which plan was bought, which button in the
+     * app started the checkout and, for /generate, how the visitor got there.
+     */
+    checkout_plan?: CheckoutPlan;
+    source?: CheckoutSource;
+    entry?: GenerateEntry;
   };
   [AnalyticsEvents.ONBOARDING_START_OPTION_SELECTED]: {
     option: StartOptionChoice;
@@ -143,6 +178,19 @@ export interface AnalyticsEventProperties {
     /** Where the visit to /generate started; ties a submission back to the
      * `onboarding_start_option_selected` or dashboard card that sent it. */
     entry: GenerateEntry;
+  };
+  /**
+   * One generation attempt ended (hooks/use-generate.ts): exactly one per
+   * `generate_submitted` or retry, success or not. `duration_ms` runs from
+   * the request leaving the browser to the document being saved.
+   */
+  [AnalyticsEvents.GENERATE_COMPLETED]: {
+    success: boolean;
+    duration_ms: number;
+    is_continuation: boolean;
+    error_kind?: GenerateErrorKind;
+    /** Characters of LaTeX produced, on success. */
+    latex_length?: number;
   };
   [AnalyticsEvents.COMPILE_COMPLETED]: {
     success: boolean;
@@ -188,6 +236,10 @@ export interface AnalyticsEventProperties {
     interval: 'month' | 'week' | 'year' | 'day' | 'unknown';
     amount: number | null;
     currency: string | null;
+    /** Which button started the checkout (Checkout Session metadata). */
+    source?: CheckoutSource;
+    /** For a checkout from /generate: how the visitor reached /generate. */
+    entry?: GenerateEntry;
   };
   [AnalyticsEvents.SUBSCRIPTION_CANCELED]: {
     /** `at_period_end`: user turned off renewal; `deleted`: Stripe ended it. */
@@ -228,6 +280,15 @@ export interface AnalyticsEventProperties {
   /** One lifecycle email went out (app/api/cron/lifecycle, or the Stripe webhook for billing recovery). */
   [AnalyticsEvents.LIFECYCLE_EMAIL_SENT]: {
     template: LifecycleEmailTemplate;
+  };
+  /** Resend reported an open of a ledgered email (app/api/webhooks/resend). */
+  [AnalyticsEvents.EMAIL_OPENED]: {
+    template: LifecycleEmailTemplate;
+  };
+  /** Resend reported a click; `link` is hostname + path only, never the query. */
+  [AnalyticsEvents.EMAIL_CLICKED]: {
+    template: LifecycleEmailTemplate;
+    link?: string;
   };
   /** A Checkout Session expired unpaid (Stripe webhook); `amount` in major units. */
   [AnalyticsEvents.CHECKOUT_ABANDONED]: {

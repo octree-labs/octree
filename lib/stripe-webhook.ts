@@ -4,10 +4,15 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { trackRedditConversion } from '@/lib/reddit-capi';
 import {
   AnalyticsEvents,
+  isCheckoutSource,
+  isGenerateEntry,
   type AnalyticsEvent,
   type AnalyticsEventProperties,
   type CheckoutPlan,
+  type CheckoutSource,
+  type GenerateEntry,
 } from '@/lib/analytics/events';
+import { isSubscriptionPlan, isPurchasePlan } from '@/lib/checkout-plans';
 import { STRIPE_PRICE_IDS } from '@/lib/stripe-config';
 import { PRICE_LOOKUP_KEYS, PRICE_METADATA_KEY, isPriceLookupKey } from '@/lib/stripe-prices';
 
@@ -42,6 +47,27 @@ export function planFromPrice(
   return 'unknown';
 }
 
+/**
+ * The attribution lib/checkout-plans.ts wrote on the Checkout Session and
+ * copied to the subscription: which button started the checkout and, from
+ * /generate, how the visitor got there. Only the known values come back;
+ * absent on sessions from before the metadata existed.
+ */
+export function checkoutAttributionFromMetadata(
+  metadata: Stripe.Metadata | null | undefined
+): { source?: CheckoutSource; entry?: GenerateEntry } {
+  const attribution: { source?: CheckoutSource; entry?: GenerateEntry } = {};
+  if (isCheckoutSource(metadata?.source)) attribution.source = metadata.source;
+  if (isGenerateEntry(metadata?.entry)) attribution.entry = metadata.entry;
+  return attribution;
+}
+
+/** `metadata.plan` when it names a recurring plan; the Checkout Session wrote it. */
+export function subscriptionPlanFromMetadata(metadata: Stripe.Metadata | null | undefined): CheckoutPlan | null {
+  const plan = metadata?.plan;
+  return isPurchasePlan(plan) && isSubscriptionPlan(plan) ? plan : null;
+}
+
 function intervalFromPrice(price: Stripe.Price | null | undefined): SubscriptionInterval {
   const interval = price?.recurring?.interval;
   return interval === 'month' || interval === 'week' || interval === 'year' || interval === 'day'
@@ -69,11 +95,15 @@ export async function describeCheckoutSessionPlan(
     console.error('Could not read checkout line items for analytics:', error);
   }
 
+  const fromPrice = planFromPrice(price);
   return {
-    plan: planFromPrice(price),
+    // The price is the truth; the session's own metadata fills in when the
+    // line-item read failed.
+    plan: fromPrice === 'unknown' ? (subscriptionPlanFromMetadata(session.metadata) ?? 'unknown') : fromPrice,
     interval: intervalFromPrice(price),
     amount: typeof session.amount_total === 'number' ? session.amount_total / 100 : null,
     currency: session.currency ? session.currency.toUpperCase() : null,
+    ...checkoutAttributionFromMetadata(session.metadata),
   };
 }
 
@@ -121,7 +151,9 @@ export function enteredDelinquency(event: SubscriptionUpdatedEvent): boolean {
  *
  * `onboarding_completed` fires for every first subscription of a customer
  * record, so a user who re-subscribes months later counts again; the paid
- * onboarding path has no other server-side signal.
+ * onboarding path has no other server-side signal. It carries the plan and
+ * the checkout attribution from the subscription metadata so a sale can be
+ * read against the paywall, /buy, settings or an email without a join.
  */
 export function subscriptionLifecycleEvents(event: {
   type: string;
@@ -137,9 +169,14 @@ export function subscriptionLifecycleEvents(event: {
 
   if (event.type === 'customer.subscription.created') {
     if (status === 'active' || status === 'trialing') {
+      const checkoutPlan = subscriptionPlanFromMetadata(subscription.metadata);
       events.push({
         event: AnalyticsEvents.ONBOARDING_COMPLETED,
-        properties: { plan: 'pro' },
+        properties: {
+          plan: 'pro',
+          ...(checkoutPlan ? { checkout_plan: checkoutPlan } : {}),
+          ...checkoutAttributionFromMetadata(subscription.metadata),
+        },
       });
     }
     return events;

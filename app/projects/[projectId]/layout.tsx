@@ -12,6 +12,7 @@ import { getProjectById } from '@/actions/get-projects';
 import { getCurrentUser } from '@/actions/get-user';
 import { getUserWalkthroughStatus } from '@/actions/get-walkthrough';
 import { PaywallDialog } from '@/components/subscription/paywall-dialog';
+import { DunningBanner } from '@/components/subscription/dunning-banner';
 import { EditorWalkthroughWrapper } from '@/components/editor/editor-walkthrough-wrapper';
 
 import { DragDropProvider } from '@/components/providers/dnd-provider';
@@ -55,6 +56,9 @@ export default async function ProjectLayout({
               <SaveStatus />
             </div>
           </header>
+
+          {/* "Your last payment failed" while the subscription is past_due. */}
+          <DunningBanner location="editor" />
 
           <div className="min-h-0 flex-1 overflow-hidden">
             <EditorWalkthroughWrapper

@@ -125,9 +125,19 @@ describe('toFeatureUsage', () => {
     expect(subscriptionGrantsPro({ hasSubscription: false, subscription: null })).toBe(false);
   });
 
+  it('a past_due subscription grants no Pro and flags the payment problem', () => {
+    const data = { hasSubscription: true, subscription: { effective_status: 'past_due' }, usage };
+    expect(subscriptionGrantsPro(data)).toBe(false);
+    expect(toFeatureUsage(data)).toMatchObject({ isPro: false, paymentPastDue: true });
+    expect(
+      toFeatureUsage({ hasSubscription: true, subscription: { effective_status: 'active' }, usage })
+    ).toMatchObject({ isPro: true, paymentPastDue: false });
+  });
+
   it('maps a free user at the daily limit (allowance fields default to 0)', () => {
     expect(toFeatureUsage({ hasSubscription: false, usage })).toEqual({
       isPro: false,
+      paymentPastDue: false,
       hasUnlimitedEdits: false,
       limitReached: true,
       monthlyLimitReached: false,

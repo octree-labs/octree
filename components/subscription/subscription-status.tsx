@@ -279,6 +279,8 @@ export function SubscriptionStatus() {
     const isPaused = subscription.effective_status === 'paused';
     const pauseScheduled = !isPaused && subscription.paused_until != null;
     const isActive = subscription.status === 'active' && !isPaused;
+    // Stripe is retrying a failed renewal charge; Pro is off until it clears.
+    const isPastDue = subscription.status === 'past_due' || subscription.status === 'unpaid';
     const isCancelling = subscription.cancel_at_period_end;
     const pausedUntil =
       subscription.paused_until != null ? new Date(subscription.paused_until * 1000) : null;
@@ -310,15 +312,35 @@ export function SubscriptionStatus() {
         <CardContent className="space-y-4">
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium text-neutral-700">Status</span>
-            <Badge variant={isActive ? 'default' : 'secondary'}>
+            <Badge variant={isActive ? 'default' : isPastDue ? 'destructive' : 'secondary'}>
               {isPaused
                 ? 'Paused'
                 : isActive
                 ? 'Active'
+                : isPastDue
+                ? 'Payment failed'
                 : subscription.status.charAt(0).toUpperCase() +
                   subscription.status.slice(1).toLowerCase()}
             </Badge>
           </div>
+
+          {isPastDue && (
+            <div className="flex items-center justify-between gap-2 rounded-md bg-red-50 p-3">
+              <span className="flex items-center gap-2 text-sm text-red-700">
+                <AlertCircle className="h-4 w-4 text-red-500" />
+                Your last payment failed. Update your card to keep Pro.
+              </span>
+              <Button
+                variant="link"
+                size="sm"
+                className="h-auto p-0 text-red-700"
+                onClick={handleManageSubscription}
+                disabled={isManageLoading}
+              >
+                {isManageLoading ? 'Opening...' : 'Update card'}
+              </Button>
+            </div>
+          )}
 
           {(isPaused || pauseScheduled) && (
             <div className="flex items-center justify-between gap-2 rounded-md bg-neutral-100 p-3">

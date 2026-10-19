@@ -9,6 +9,7 @@ import { getUserWalkthroughStatus } from '@/actions/get-walkthrough';
 import { DashboardWithWalkthrough } from '@/components/dashboard/dashboard-with-walkthrough';
 import { PaywallDialog } from '@/components/subscription/paywall-dialog';
 import { UpgradeParam } from '@/components/lifecycle/upgrade-param';
+import { DunningBanner } from '@/components/subscription/dunning-banner';
 
 export default async function Dashboard() {
   const supabase = await createClient();
@@ -52,6 +53,8 @@ export default async function Dashboard() {
         <UpgradeParam />
       </Suspense>
       <PaywallDialog />
+      {/* "Your last payment failed" while the subscription is past_due. */}
+      <DunningBanner location="dashboard" />
       <DashboardWithWalkthrough
         data={data}
         userName={userName}

@@ -101,7 +101,22 @@ export interface CheckoutSessionInput {
   email: string | null | undefined;
   origin: string;
   withTrial: boolean;
+  /** Unix seconds; defaults to now. Injected so the expiry is testable. */
+  nowSeconds?: number;
 }
+
+/**
+ * How long a Checkout Session stays open. Stripe rejects an `expires_at`
+ * outside 30 minutes .. 24 hours *as measured by Stripe's clock at
+ * creation*, so exactly 24h fails the whole checkout whenever this server's
+ * clock runs even a second ahead of Stripe's. Five minutes under the
+ * maximum keeps the visitor the whole day and the request valid under any
+ * realistic skew; the recovery email (`checkout.session.expired` with
+ * `after_expiration.recovery`) goes out the moment it lapses.
+ */
+export const CHECKOUT_SESSION_TTL_SECONDS = 24 * 60 * 60 - 5 * 60;
+export const CHECKOUT_SESSION_MIN_TTL_SECONDS = 30 * 60;
+export const CHECKOUT_SESSION_MAX_TTL_SECONDS = 24 * 60 * 60;
 
 /**
  * The Checkout Session parameters for a plan. Subscription plans carry the
@@ -114,6 +129,7 @@ export function buildCheckoutSessionParams(
   input: CheckoutSessionInput
 ): Stripe.Checkout.SessionCreateParams {
   const { plan, priceId, userId, customerId, email, origin, withTrial } = input;
+  const nowSeconds = input.nowSeconds ?? Math.floor(Date.now() / 1000);
 
   const params: Stripe.Checkout.SessionCreateParams = {
     line_items: [{ price: priceId, quantity: 1 }],
@@ -130,6 +146,11 @@ export function buildCheckoutSessionParams(
     allow_promotion_codes: true,
     locale: 'auto',
     metadata: { user_id: userId, plan },
+    // Abandoned-checkout recovery: when the session expires unpaid Stripe
+    // attaches a recovery URL to it and sends checkout.session.expired; the
+    // webhook emails that URL (lib/lifecycle/billing-recovery.ts).
+    expires_at: nowSeconds + CHECKOUT_SESSION_TTL_SECONDS,
+    after_expiration: { recovery: { enabled: true, allow_promotion_codes: true } },
   };
 
   if (customerId) {

@@ -80,6 +80,33 @@ export async function describeCheckoutSessionPlan(
 const DELINQUENT_STATUSES = new Set(['past_due', 'unpaid']);
 const RECOVERABLE_STATUSES = new Set(['past_due', 'unpaid', 'incomplete']);
 
+export type SubscriptionUpdatedEvent = {
+  type: string;
+  data: {
+    object: Pick<Stripe.Subscription, 'status'> & Partial<Stripe.Subscription>;
+    previous_attributes?: Partial<Stripe.Subscription> | null;
+  };
+};
+
+/**
+ * True for the one `customer.subscription.updated` that moves a subscription
+ * INTO past_due / unpaid from a status that was not delinquent: the moment a
+ * renewal charge failed and Smart Retries began. Later updates while it stays
+ * past_due (retries, metadata, the status going back to active) are not
+ * transitions. Stripe's `previous_attributes` carries the old status only
+ * when it changed, so a redelivered event answers the same as the first.
+ *
+ * The endpoint does not receive `invoice.payment_failed`, which is why the
+ * dunning email keys on this transition instead.
+ */
+export function enteredDelinquency(event: SubscriptionUpdatedEvent): boolean {
+  if (event.type !== 'customer.subscription.updated') return false;
+  const status = event.data.object.status;
+  const previous = event.data.previous_attributes?.status;
+  if (typeof previous !== 'string' || previous === status) return false;
+  return DELINQUENT_STATUSES.has(status) && !DELINQUENT_STATUSES.has(previous);
+}
+
 /**
  * Maps a `customer.subscription.*` event to the lifecycle events the funnel
  * needs (churn and recovery). Pure, so it is unit-testable; the route is

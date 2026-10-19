@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 
 import { sendLifecycleBatch, sendLifecycleEmail, unsubscribeHeaders, type LifecycleSendDeps } from '@/lib/lifecycle/send';
-import { LIFECYCLE_TEMPLATES, renderLifecycleTemplate } from '@/lib/email/lifecycle';
+import { SCHEDULED_LIFECYCLE_TEMPLATES, renderLifecycleTemplate } from '@/lib/email/lifecycle';
 
 function deps(overrides: Partial<LifecycleSendDeps> = {}) {
   const sent: Array<{ to: string; subject: string; headers: Record<string, string> }> = [];
@@ -31,6 +31,7 @@ function deps(overrides: Partial<LifecycleSendDeps> = {}) {
       async markFailed({ userId, template, error }) {
         failed.push(`${userId}:${template}:${error}`);
       },
+      async markSkipped() {},
     },
     capture,
     appUrl: 'https://app.example.com',
@@ -129,7 +130,7 @@ describe('lifecycle templates', () => {
     unsubscribeUrl: 'https://app.example.com/api/email/unsubscribe?token=abc.def',
   };
 
-  it.each(LIFECYCLE_TEMPLATES)('%s has a subject, one CTA and the unsubscribe link in both bodies', (template) => {
+  it.each(SCHEDULED_LIFECYCLE_TEMPLATES)('%s has a subject, one CTA and the unsubscribe link in both bodies', (template) => {
     const content = renderLifecycleTemplate(template, input);
     expect(content.subject.length).toBeGreaterThan(5);
     expect(content.html).toContain(input.unsubscribeUrl);

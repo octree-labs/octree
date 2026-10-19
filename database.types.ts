@@ -238,6 +238,8 @@ export type Database = {
           email: string
           error: string | null
           id: string
+          payload: Json | null
+          ref: string
           resend_id: string | null
           sent_at: string
           template: string
@@ -248,6 +250,8 @@ export type Database = {
           email: string
           error?: string | null
           id?: string
+          payload?: Json | null
+          ref?: string
           resend_id?: string | null
           sent_at?: string
           template: string
@@ -258,6 +262,8 @@ export type Database = {
           email?: string
           error?: string | null
           id?: string
+          payload?: Json | null
+          ref?: string
           resend_id?: string | null
           sent_at?: string
           template?: string
@@ -552,7 +558,7 @@ export type Database = {
         }[]
       }
       claim_lifecycle_retry: {
-        Args: { p_email: string; p_max_attempts: number; p_template: string; p_user_id: string }
+        Args: { p_email: string; p_max_attempts: number; p_ref?: string; p_template: string; p_user_id: string }
         Returns: boolean
       }
       consume_edit_credit: { Args: { p_user_id: string }; Returns: boolean }

@@ -19,7 +19,15 @@ export interface LifecycleLayoutInput {
   cta: { label: string; href: string };
   /** Lines after the CTA (e.g. the sign-off); plain strings, escaped. */
   closing?: string[];
-  unsubscribeUrl: string;
+  /**
+   * The one-click unsubscribe link in the footer. Omitted for transactional
+   * mail (a failed-payment notice): the footer then says why the email was
+   * sent and offers no opt-out, which is the CAN-SPAM / GDPR treatment of
+   * account notices.
+   */
+  unsubscribeUrl?: string;
+  /** Optional secondary link under the button, e.g. the billing portal. */
+  secondary?: { label: string; href: string };
 }
 
 export function escapeHtml(value: string): string {
@@ -63,6 +71,17 @@ export function renderLifecycleEmail(input: LifecycleLayoutInput): LifecycleEmai
     )
     .join('\n');
 
+  const secondaryHtml = input.secondary
+    ? `<p style="margin:0 0 24px;font-size:13px;line-height:1.5;color:#52525b;"><a href="${escapeHtml(input.secondary.href)}" style="color:#52525b;text-decoration:underline;">${escapeHtml(input.secondary.label)}</a></p>`
+    : '';
+
+  const footerHtml = input.unsubscribeUrl
+    ? `You get this because you have an Octree account. <a href="${escapeHtml(input.unsubscribeUrl)}" style="color:#71717a;text-decoration:underline;">Unsubscribe</a> from these emails in one click.`
+    : 'You get this because you have an Octree account and this concerns your billing.';
+  const footerText = input.unsubscribeUrl
+    ? `You get this because you have an Octree account. Unsubscribe: ${input.unsubscribeUrl}`
+    : 'You get this because you have an Octree account and this concerns your billing.';
+
   const closingHtml = closing
     .map((line) => `<p style="margin:0;font-size:15px;line-height:1.6;color:#52525b;">${escapeHtml(line)}</p>`)
     .join('\n');
@@ -81,14 +100,15 @@ ${preheader ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;c
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;font-family:${FONT};">
 <tr><td>
 ${bodyHtml}
-<p style="margin:24px 0;">
+<p style="margin:24px 0 ${input.secondary ? '8px' : '24px'};">
 <a href="${escapeHtml(input.cta.href)}" style="display:inline-block;background:#1e66ff;color:#ffffff;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:600;text-decoration:none;">${escapeHtml(input.cta.label)}</a>
 </p>
+${secondaryHtml}
 <div style="padding-top:16px;">
 ${closingHtml}
 </div>
 <p style="margin:48px 0 0;font-size:13px;line-height:1.5;color:#a1a1aa;">
-You get this because you have an Octree account. <a href="${escapeHtml(input.unsubscribeUrl)}" style="color:#71717a;text-decoration:underline;">Unsubscribe</a> from these emails in one click.
+${footerHtml}
 </p>
 </td></tr>
 </table>
@@ -100,8 +120,9 @@ You get this because you have an Octree account. <a href="${escapeHtml(input.uns
   const text = [
     ...input.paragraphs.map((para) => para.text),
     `${input.cta.label}: ${input.cta.href}`,
+    ...(input.secondary ? [`${input.secondary.label}: ${input.secondary.href}`] : []),
     closing.join('\n'),
-    `You get this because you have an Octree account. Unsubscribe: ${input.unsubscribeUrl}`,
+    footerText,
   ].join('\n\n');
 
   return { subject: input.subject, html, text };

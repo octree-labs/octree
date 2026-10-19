@@ -143,24 +143,36 @@ async function findStripeCustomerId(
   }
 }
 
+/**
+ * The customer's subscription, live first. A past_due / unpaid one is
+ * returned too (after active and trialing) so the client can show the
+ * past-due banner; it grants no Pro: `effective_status` says past_due and
+ * `buildUsageResponse` only treats `active` as Pro.
+ *
+ * One `status: 'all'` list per request, newest first, and the best status
+ * wins: this route runs on every page load, and a free user with a customer
+ * record would otherwise cost one Stripe round trip per status looked up
+ * before answering "no subscription".
+ */
+const STATUS_LOOKUP_ORDER = ['active', 'trialing', 'past_due', 'unpaid'] as const;
+
+function pickSubscription<T extends Pick<Stripe.Subscription, 'status'>>(subscriptions: T[]): T | null {
+  for (const status of STATUS_LOOKUP_ORDER) {
+    const found = subscriptions.find((sub) => sub.status === status);
+    if (found) return found;
+  }
+  return null;
+}
+
 async function findActiveSubscription(
   customerId: string
 ): Promise<Stripe.Subscription | null> {
-  const activeSubs = await stripe.subscriptions.list({
+  const subs = await stripe.subscriptions.list({
     customer: customerId,
-    status: 'active',
-    limit: 1,
+    status: 'all',
+    limit: 20,
   });
-
-  if (activeSubs.data[0]) return activeSubs.data[0];
-
-  const trialSubs = await stripe.subscriptions.list({
-    customer: customerId,
-    status: 'trialing',
-    limit: 1,
-  });
-
-  return trialSubs.data[0] || null;
+  return pickSubscription(subs.data);
 }
 
 function buildUsageResponse(

@@ -13,6 +13,11 @@ export type ProFeature = 'ai-edit' | 'export' | 'generate';
 export interface FeatureUsage {
   /** Active subscription, or `is_pro` on user_usage. */
   isPro: boolean;
+  /**
+   * The subscription's last renewal charge failed (Stripe past_due /
+   * unpaid): Pro is off until the card is updated; the dunning banner shows.
+   */
+  paymentPastDue?: boolean;
   /** Whitelisted account (lib/paywall.ts); bypasses every gate. */
   hasUnlimitedEdits?: boolean;
   /** Free-tier daily edit limit reached. */
@@ -107,11 +112,28 @@ export interface SubscriptionStatusResponse {
   } & Record<string, unknown>;
 }
 
-/** A subscription that currently grants Pro: present and not in a paused window. */
+const NON_PRO_STATUSES: ReadonlySet<string> = new Set(['paused', 'past_due', 'unpaid']);
+const PAST_DUE_STATUSES: ReadonlySet<string> = new Set(['past_due', 'unpaid']);
+
+/**
+ * A subscription that currently grants Pro: present and neither in a paused
+ * window nor in dunning. Older responses without `effective_status` count
+ * as granting.
+ */
 export function subscriptionGrantsPro(
   data: Pick<SubscriptionStatusResponse, 'hasSubscription' | 'subscription'> | null | undefined
 ): boolean {
-  return Boolean(data?.hasSubscription) && data?.subscription?.effective_status !== 'paused';
+  if (!data?.hasSubscription) return false;
+  const status = data.subscription?.effective_status;
+  return !status || !NON_PRO_STATUSES.has(status);
+}
+
+/** The subscription exists but its last payment failed (Stripe is retrying). */
+export function subscriptionPastDue(
+  data: Pick<SubscriptionStatusResponse, 'hasSubscription' | 'subscription'> | null | undefined
+): boolean {
+  const status = data?.subscription?.effective_status;
+  return Boolean(data?.hasSubscription) && !!status && PAST_DUE_STATUSES.has(status);
 }
 
 export function toFeatureUsage(
@@ -120,6 +142,7 @@ export function toFeatureUsage(
   if (!data?.usage) return null;
   return {
     isPro: Boolean(subscriptionGrantsPro(data) || data.usage.isPro),
+    paymentPastDue: subscriptionPastDue(data),
     hasUnlimitedEdits: Boolean(data.usage.hasUnlimitedEdits),
     limitReached: Boolean(data.usage.limitReached),
     monthlyLimitReached: Boolean(data.usage.monthlyLimitReached),

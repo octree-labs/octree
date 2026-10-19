@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 
 import {
+  CHECKOUT_SESSION_MAX_TTL_SECONDS,
+  CHECKOUT_SESSION_MIN_TTL_SECONDS,
+  CHECKOUT_SESSION_TTL_SECONDS,
   WEEKLY_PLAN_RETIRED_MESSAGE,
   buildCheckoutSessionParams,
   lookupKeyForPlan,
@@ -88,6 +91,40 @@ describe('buildCheckoutSessionParams', () => {
   it('adds the 3-day trial only when asked', () => {
     const params = buildCheckoutSessionParams({ ...base, plan: 'monthly', withTrial: true });
     expect(params.subscription_data?.trial_period_days).toBe(3);
+  });
+
+  describe('abandoned-checkout recovery', () => {
+    const now = 1_760_000_000;
+
+    it.each(['monthly', 'annual', 'semester', 'credits_100', 'generate_single'] as const)(
+      '%s expires just under 24h after creation, within Stripe bounds, with recovery enabled',
+      (plan) => {
+        const params = buildCheckoutSessionParams({ ...base, plan, nowSeconds: now });
+
+        expect(params.expires_at).toBe(now + CHECKOUT_SESSION_TTL_SECONDS);
+        expect(params.expires_at! - now).toBeGreaterThanOrEqual(CHECKOUT_SESSION_MIN_TTL_SECONDS);
+        // Strictly under Stripe's 24h ceiling: an exact 24h is rejected as soon
+        // as this server's clock runs ahead of Stripe's.
+        expect(params.expires_at! - now).toBeLessThanOrEqual(CHECKOUT_SESSION_MAX_TTL_SECONDS - 60);
+        expect(params.after_expiration).toEqual({ recovery: { enabled: true, allow_promotion_codes: true } });
+        // The webhook keys the recovery email on these.
+        expect(params.metadata).toMatchObject({ user_id: 'user-1', plan });
+      }
+    );
+
+    it('defaults the expiry to the current time', () => {
+      const before = Math.floor(Date.now() / 1000);
+      const params = buildCheckoutSessionParams({ ...base, plan: 'monthly' });
+      expect(params.expires_at).toBeGreaterThanOrEqual(before + CHECKOUT_SESSION_TTL_SECONDS);
+      expect(params.expires_at).toBeLessThanOrEqual(before + CHECKOUT_SESSION_TTL_SECONDS + 5);
+    });
+
+    it('passes customer_email so Stripe can address the recovery email, unless the customer is known', () => {
+      expect(buildCheckoutSessionParams({ ...base, plan: 'monthly' }).customer_email).toBe('buyer@example.com');
+      expect(buildCheckoutSessionParams({ ...base, plan: 'monthly', customerId: 'cus_9' })).not.toHaveProperty(
+        'customer_email'
+      );
+    });
   });
 
   it('uses the known Stripe customer instead of customer_email', () => {

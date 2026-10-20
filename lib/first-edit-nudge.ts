@@ -20,16 +20,72 @@ export interface NudgeSuggestion {
   prompt: string;
 }
 
-/** Any `\cite`, `\citep`, `\citet`, `\autocite`, ... or a bibliography command. */
-const CITATION_PATTERN = /\\(?:[a-zA-Z]*cite[a-zA-Z]*\s*(?:\[[^\]]*\]\s*)*\{|bibliography\s*\{|printbibliography\b)/;
+/**
+ * Any `\cite`, `\citep`, `\citet`, `\autocite`, `\parencite`, `\textcite`,
+ * `\nocite`, ... (starred or with optional arguments) or a bibliography
+ * command: `\bibliography{}`, `\addbibresource{}`, `\printbibliography`.
+ */
+const CITATION_PATTERN =
+  /\\(?:[a-zA-Z]*cite[a-zA-Z]*\*?\s*(?:\[[^\]]*\]\s*)*\{|bibliography\s*\{|addbibresource\s*(?:\[[^\]]*\]\s*)?\{|printbibliography\b)/;
 const ABSTRACT_PATTERN = /\\begin\s*\{abstract\}/;
+const DOCUMENTCLASS_PATTERN = /\\documentclass\b/;
+
+/**
+ * Drops `%` comments (to end of line) so a commented-out `\begin{abstract}`
+ * or `\cite{}` does not count. `\%` is a literal percent and is kept.
+ */
+export function stripLatexComments(latex: string): string {
+  return latex.replace(/(^|[^\\])%[^\n]*/g, '$1');
+}
 
 export function hasAbstract(latex: string): boolean {
-  return ABSTRACT_PATTERN.test(latex);
+  return ABSTRACT_PATTERN.test(stripLatexComments(latex));
 }
 
 export function hasCitations(latex: string): boolean {
-  return CITATION_PATTERN.test(latex);
+  return CITATION_PATTERN.test(stripLatexComments(latex));
+}
+
+export interface NudgeSourceFile {
+  path: string;
+  content: string;
+}
+
+const isTexPath = (path: string) => /\.tex$/i.test(path);
+
+/**
+ * The LaTeX the prompts are chosen from: the main `.tex` file first
+ * (`main.tex`, else the one `.tex` file with a `\documentclass`, else the
+ * file open in the editor), followed by the project's other `.tex` files so
+ * an abstract or `\cite` living in an `\input` section still counts. The
+ * open file's text comes from the editor (`selectedContent`), which is ahead
+ * of the saved copy.
+ */
+export function collectNudgeSource(
+  files: NudgeSourceFile[],
+  selectedPath: string | null,
+  selectedContent: string
+): string {
+  const texFiles = files
+    .filter((file) => isTexPath(file.path))
+    .map((file) => (file.path === selectedPath ? { ...file, content: selectedContent } : file));
+  if (selectedPath && isTexPath(selectedPath) && !texFiles.some((file) => file.path === selectedPath)) {
+    texFiles.push({ path: selectedPath, content: selectedContent });
+  }
+  if (texFiles.length === 0) return selectedContent ?? '';
+
+  const withDocumentClass = texFiles.filter((file) =>
+    DOCUMENTCLASS_PATTERN.test(stripLatexComments(file.content ?? ''))
+  );
+  const main =
+    texFiles.find((file) => file.path === 'main.tex') ??
+    (withDocumentClass.length === 1 ? withDocumentClass[0] : null) ??
+    texFiles.find((file) => file.path === selectedPath) ??
+    texFiles[0];
+
+  return [main, ...texFiles.filter((file) => file !== main)]
+    .map((file) => file.content ?? '')
+    .join('\n');
 }
 
 /**

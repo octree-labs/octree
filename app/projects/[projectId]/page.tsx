@@ -37,7 +37,7 @@ import { useParams } from 'next/navigation';
 import type { Project } from '@/types/project';
 import { ProjectActions } from '@/stores/project';
 import type { EditSuggestion } from '@/types/edit';
-import type { NudgeSuggestion } from '@/lib/first-edit-nudge';
+import { collectNudgeSource, type NudgeSuggestion } from '@/lib/first-edit-nudge';
 import { isImageFile, isPDFFile, isTextFile } from '@/lib/constants/file-types';
 import { ImageViewer } from '@/components/image-viewer';
 import { SimplePDFViewer } from '@/components/simple-pdf-viewer';
@@ -284,13 +284,19 @@ export default function ProjectPage() {
   // first compile that produces a PDF, for users who have never asked for an
   // AI edit (hooks/use-first-edit-nudge.ts).
   const { usage: subscriptionUsage, isLoading: isUsageLoading } = useSubscriptionUsage();
+  // The prompts are picked from the main .tex file (plus the other .tex
+  // files), not whichever file happens to be open.
+  const nudgeSource = useMemo(
+    () => collectNudgeSource(projectFileContext, selectedFile?.name ?? null, content),
+    [projectFileContext, selectedFile?.name, content]
+  );
   const {
     suggestions: nudgeSuggestions,
     choose: chooseNudgeSuggestion,
     dismiss: dismissNudge,
   } = useFirstEditNudge({
     pdfData,
-    content,
+    content: nudgeSource,
     usage: subscriptionUsage,
     usageLoading: isUsageLoading,
   });

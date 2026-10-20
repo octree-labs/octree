@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 
 import {
   aiEditRequestedKey,
+  collectNudgeSource,
   hasAbstract,
   hasCitations,
   hasRequestedAiEdit,
@@ -11,6 +12,7 @@ import {
   nudgeShownKey,
   pickNudgeSuggestions,
   shouldShowFirstEditNudge,
+  stripLatexComments,
   usageShowsEdits,
   wasNudgeShown,
 } from '@/lib/first-edit-nudge';
@@ -45,16 +47,38 @@ describe('pickNudgeSuggestions', () => {
       'add_toc',
     ]);
     expect(hasAbstract('\\begin {abstract}')).toBe(true);
-    expect(hasAbstract('% \\begin{abstract} is commented, still counts')).toBe(true);
     expect(hasAbstract('\\section{Abstract}')).toBe(false);
+  });
+
+  it('ignores commented-out abstracts and citations', () => {
+    expect(hasAbstract('% \\begin{abstract} is commented out')).toBe(false);
+    expect(hasAbstract('text % \\begin{abstract}')).toBe(false);
+    expect(hasAbstract('%\\begin{abstract}\n\\begin{abstract}')).toBe(true);
+    expect(hasCitations('% \\cite{a}\n% \\bibliography{refs}')).toBe(false);
+    expect(hasCitations('100\\% sure \\cite{a}')).toBe(true);
+    expect(stripLatexComments('a % b\nc \\% d % e')).toBe('a \nc \\% d ');
+    expect(ids('% \\begin{abstract}\n% \\cite{x}')).toEqual([
+      'fix_formatting',
+      'tighten_introduction',
+      'add_toc',
+    ]);
   });
 
   it('offers the citations prompt for \\cite and friends or a bibliography', () => {
     expect(ids('As shown in \\cite{knuth84}.')).toContain('check_citations');
     expect(ids('As shown in \\citep[p.~3]{knuth84}.')).toContain('check_citations');
     expect(ids('\\autocite{knuth84}')).toContain('check_citations');
+    expect(ids('\\citet{knuth84}')).toContain('check_citations');
+    expect(ids('\\parencite{knuth84}')).toContain('check_citations');
+    expect(ids('\\textcite{knuth84}')).toContain('check_citations');
+    expect(ids('\\cite*{knuth84}')).toContain('check_citations');
+    expect(ids('\\nocite{*}')).toContain('check_citations');
     expect(ids('\\bibliography{refs}')).toContain('check_citations');
+    expect(ids('\\addbibresource{refs.bib}')).toContain('check_citations');
+    expect(ids('\\addbibresource[datatype=bibtex]{refs.bib}')).toContain('check_citations');
     expect(ids('\\printbibliography')).toContain('check_citations');
+    expect(ids('\\printbibliography[heading=none]')).toContain('check_citations');
+    expect(hasCitations('\\usepackage{natbib} \\bibliographystyle{plain}')).toBe(false);
     expect(hasCitations('\\section{Citations} none here')).toBe(false);
     expect(hasCitations('\\printbibliographyX')).toBe(false);
   });
@@ -69,6 +93,77 @@ describe('pickNudgeSuggestions', () => {
 
   it('copes with empty content', () => {
     expect(ids('')).toEqual(['fix_formatting', 'tighten_introduction', 'add_toc']);
+  });
+});
+
+describe('collectNudgeSource', () => {
+  const main = '\\documentclass{article}\\begin{document}\\input{intro}\\end{document}';
+
+  it('leads with main.tex and takes the open file from the editor', () => {
+    const source = collectNudgeSource(
+      [
+        { path: 'intro.tex', content: 'saved intro' },
+        { path: 'main.tex', content: 'stale main' },
+        { path: 'refs.bib', content: '@article{a}' },
+      ],
+      'main.tex',
+      main
+    );
+    expect(source.startsWith(main)).toBe(true);
+    expect(source).toContain('saved intro');
+    expect(source).not.toContain('stale main');
+    expect(source).not.toContain('@article');
+  });
+
+  it('falls back to the one file with \\documentclass, then to the open file', () => {
+    expect(
+      collectNudgeSource(
+        [
+          { path: 'sections/intro.tex', content: 'intro' },
+          { path: 'paper.tex', content: main },
+        ],
+        'sections/intro.tex',
+        'edited intro'
+      ).startsWith(main)
+    ).toBe(true);
+    expect(
+      collectNudgeSource(
+        [
+          { path: 'a.tex', content: '\\documentclass{a}' },
+          { path: 'b.tex', content: '\\documentclass{b}' },
+        ],
+        'b.tex',
+        '\\documentclass{b} open b'
+      ).startsWith('\\documentclass{b} open b')
+    ).toBe(true);
+    // A commented-out \documentclass does not make a file the main one.
+    expect(
+      collectNudgeSource(
+        [
+          { path: 'notes.tex', content: '% \\documentclass{article}' },
+          { path: 'paper.tex', content: main },
+        ],
+        'notes.tex',
+        '% \\documentclass{article}'
+      ).startsWith(main)
+    ).toBe(true);
+  });
+
+  it('uses the editor content when the project has no .tex files', () => {
+    expect(collectNudgeSource([], null, 'only this')).toBe('only this');
+    expect(collectNudgeSource([{ path: 'refs.bib', content: 'x' }], 'refs.bib', 'bib')).toBe('bib');
+  });
+
+  it('counts an abstract that lives in an \\input section', () => {
+    const source = collectNudgeSource(
+      [
+        { path: 'main.tex', content: main },
+        { path: 'intro.tex', content: '\\begin{abstract}x\\end{abstract}' },
+      ],
+      'main.tex',
+      main
+    );
+    expect(ids(source)).toEqual(['fix_formatting', 'tighten_abstract', 'add_toc']);
   });
 });
 

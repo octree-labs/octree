@@ -127,7 +127,9 @@ export type GenerateErrorKind =
 /**
  * Why a compile failed (lib/analytics/compile.ts). The LaTeX buckets come
  * from the first `! ` line of the log; the rest are transport failures that
- * never reached TeX.
+ * never reached TeX (`request_rejected`: the service refused the request
+ * itself, e.g. too large or an invalid file path; `network`: no usable
+ * response at all).
  */
 export type CompileErrorKind =
   | 'missing_package'
@@ -138,6 +140,7 @@ export type CompileErrorKind =
   | 'timeout'
   | 'service_unavailable'
   | 'unauthorized'
+  | 'request_rejected'
   | 'network';
 export type CancelOffer = 'pause' | 'discount';
 /** Stripe's `cancellation_details.feedback` enum. */
@@ -226,6 +229,13 @@ export interface AnalyticsEventProperties {
      * `null` when storage is unavailable.
      */
     compile_index: number | null;
+    /**
+     * Whether the compile service reported errors. Always true on failure;
+     * true on success when a PDF came back alongside a failed TeX run (the
+     * editor shows that PDF and no error UI). The `error_*` properties below
+     * are present whenever this is true.
+     */
+    had_errors: boolean;
     error_kind?: CompileErrorKind;
     /** First `! ` line of the log (or the error message), at most 200 chars. */
     error_summary?: string;

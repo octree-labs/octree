@@ -27,26 +27,30 @@ import {
 interface CompileOutcome {
   success: boolean;
   startedAt: number;
+  /** The failure, or on success the errors a partial PDF came back with. */
   error?: CompilationError | null;
   httpStatus?: number;
 }
 
 /**
  * Failures and the browser's first few successes are always captured, later
- * successes 1 in N (lib/analytics/compile.ts). On failure the event carries
- * the first TeX error line and a coarse `error_kind`.
+ * successes 1 in N (lib/analytics/compile.ts). Whenever the service reported
+ * errors (every failure, and a success whose PDF came back from a failed TeX
+ * run) the event carries the first TeX error line and a coarse `error_kind`.
  */
 function trackCompileCompleted({ success, startedAt, error, httpStatus }: CompileOutcome) {
   const successesBefore = readSuccessfulCompileCount();
   const decision = decideCompileSampling(success, successesBefore, shouldSample);
   if (success && successesBefore !== null) writeSuccessfulCompileCount(successesBefore + 1);
   if (!decision.capture) return;
+  const hadErrors = !success || Boolean(error);
   track(AnalyticsEvents.COMPILE_COMPLETED, {
     success,
     duration_ms: Math.round(performance.now() - startedAt),
     sample_rate: decision.sample_rate,
     compile_index: decision.compile_index,
-    ...(success ? {} : describeCompileFailure(error ?? null, httpStatus)),
+    had_errors: hadErrors,
+    ...(hadErrors ? describeCompileFailure(error ?? null, httpStatus) : {}),
   });
 }
 
@@ -251,12 +255,21 @@ export function useEditorCompilation({
         projectId
       );
 
-      // A PDF produced despite errors is still shown without error UI
+      // A PDF produced despite errors is still shown without error UI; the
+      // event records that errors came with it (`had_errors`).
       if (data?.pdf) {
         setPdfData(data.pdf);
         setCompilationError(null);
         if (projectId) uploadProjectPreview(projectId, data.pdf).catch(console.error);
-        trackCompileCompleted({ success: true, startedAt });
+        const withErrors = !response.ok;
+        trackCompileCompleted({
+          success: true,
+          startedAt,
+          error: withErrors
+            ? createCompilationError(data, data?.error || 'LaTeX compilation failed')
+            : null,
+          httpStatus: withErrors ? response.status : undefined,
+        });
         return true;
       }
 

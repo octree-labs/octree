@@ -56,8 +56,13 @@ export default async function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{var w=parseInt(localStorage.getItem('sidebar_width'),10);if(w>=200&&w<=400)document.documentElement.style.setProperty('--sidebar-width-saved',w+'px')}catch(e){}`,
+          }}
+        />
         <script
           dangerouslySetInnerHTML={{
             __html: `!function(w,d){if(!w.rdt){var p=w.rdt=function(){p.sendEvent?p.sendEvent.apply(p,arguments):p.callQueue.push(arguments)};p.callQueue=[];var t=d.createElement("script");t.src="https://www.redditstatic.com/ads/pixel.js?pixel_id=a2_eqcdwpyzgy6x",t.async=!0;var s=d.getElementsByTagName("script")[0];s.parentNode.insertBefore(t,s)}}(window,document);rdt('init','a2_eqcdwpyzgy6x');rdt('track','PageVisit');`,

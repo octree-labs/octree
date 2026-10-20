@@ -43,7 +43,7 @@ type SidebarContextProps = {
   setOpenMobile: (open: boolean) => void
   isMobile: boolean
   toggleSidebar: () => void
-  sidebarWidth: number
+  sidebarWidth: number | null
   isResizing: boolean
   startResize: (e: React.MouseEvent) => void
 }
@@ -85,11 +85,12 @@ function SidebarProvider({
   const [openMobile, setOpenMobile] = React.useState(false)
   // Read the saved width during render, not in an effect: a mount after a
   // client-side navigation would otherwise render the default width first and
-  // animate to the saved one. The server snapshot keeps hydration consistent.
+  // animate to the saved one. The server can't see localStorage, so it renders
+  // var(--sidebar-width-saved), which the root layout sets before first paint.
   const storedWidth = React.useSyncExternalStore(
     subscribeToNothing,
     readStoredSidebarWidth,
-    () => SIDEBAR_WIDTH_DEFAULT
+    () => null
   )
   const [resizedWidth, setSidebarWidth] = React.useState<number | null>(null)
   const sidebarWidth = resizedWidth ?? storedWidth
@@ -100,7 +101,7 @@ function SidebarProvider({
   const startResize = React.useCallback((e: React.MouseEvent) => {
     e.preventDefault()
     startXRef.current = e.clientX
-    startWidthRef.current = sidebarWidth
+    startWidthRef.current = sidebarWidth ?? readStoredSidebarWidth()
     setIsResizing(true)
   }, [sidebarWidth])
 
@@ -118,7 +119,9 @@ function SidebarProvider({
 
     const handleMouseUp = () => {
       setIsResizing(false)
-      localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, sidebarWidth.toString())
+      if (sidebarWidth !== null) {
+        localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, sidebarWidth.toString())
+      }
     }
 
     document.addEventListener('mousemove', handleMouseMove)
@@ -194,7 +197,10 @@ function SidebarProvider({
           data-slot="sidebar-wrapper"
           style={
             {
-              "--sidebar-width": `${sidebarWidth}px`,
+              "--sidebar-width":
+                sidebarWidth === null
+                  ? `var(--sidebar-width-saved, ${SIDEBAR_WIDTH_DEFAULT}px)`
+                  : `${sidebarWidth}px`,
               "--sidebar-width-icon": SIDEBAR_WIDTH_ICON,
               ...style,
             } as React.CSSProperties
@@ -224,7 +230,7 @@ function Sidebar({
   variant?: "sidebar" | "floating" | "inset"
   collapsible?: "offcanvas" | "icon" | "none"
 }) {
-  const { isMobile, state, openMobile, setOpenMobile, isResizing, startResize, sidebarWidth } = useSidebar()
+  const { isMobile, state, openMobile, setOpenMobile, isResizing, startResize } = useSidebar()
 
   if (collapsible === "none") {
     return (
@@ -234,7 +240,7 @@ function Sidebar({
           "bg-sidebar text-sidebar-foreground flex h-full flex-col",
           className
         )}
-        style={{ width: `${sidebarWidth}px` }}
+        style={{ width: "var(--sidebar-width)" }}
         {...props}
       >
         {children}
@@ -287,7 +293,7 @@ function Sidebar({
             ? "group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)_+_1rem)]"
             : "group-data-[collapsible=icon]:w-[var(--sidebar-width-icon)]"
         )}
-        style={{ width: state === "expanded" ? `${sidebarWidth}px` : undefined }}
+        style={{ width: state === "expanded" ? "var(--sidebar-width)" : undefined }}
       />
       <div
         data-slot="sidebar-container"
@@ -302,7 +308,7 @@ function Sidebar({
             : "group-data-[collapsible=icon]:w-[var(--sidebar-width-icon)] group-data-[side=left]:border-r group-data-[side=right]:border-l",
           className
         )}
-        style={{ width: `${sidebarWidth}px` }}
+        style={{ width: "var(--sidebar-width)" }}
         {...props}
       >
         <div

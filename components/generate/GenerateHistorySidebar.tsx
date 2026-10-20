@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, Loader2, X, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Loader2, X, MoreVertical, Pencil, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -108,10 +108,10 @@ export function GenerateHistorySidebar() {
         <Sidebar collapsible="offcanvas" data-onboarding-target="generate-sidebar">
             <SidebarHeader className="flex-row items-center justify-between border-b border-gray-200 py-3">
                 <Button
-                    variant="ghost"
+                    variant="outline"
                     size="sm"
                     onClick={handleNewChat}
-                    className="flex-1 gap-1.5"
+                    className="flex-1"
                 >
                     <Plus className="h-4 w-4" />
                     New Document
@@ -125,7 +125,7 @@ export function GenerateHistorySidebar() {
                 </button>
             </SidebarHeader>
             <SidebarContent>
-                <SidebarGroup>
+                <SidebarGroup className="p-2">
                     <SidebarGroupLabel>History</SidebarGroupLabel>
                     <SidebarGroupContent>
                         {isLoading ? (
@@ -167,7 +167,7 @@ export function GenerateHistorySidebar() {
                                                 </div>
                                             </Button>
                                             
-                                            <div className="absolute right-1 top-2 opacity-0 transition-opacity group-hover/doc:opacity-100 data-[state=open]:opacity-100">
+                                            <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 transition-opacity group-hover/doc:opacity-100 data-[state=open]:opacity-100">
                                                 <DropdownMenu>
                                                     <DropdownMenuTrigger asChild>
                                                         <Button
@@ -176,7 +176,7 @@ export function GenerateHistorySidebar() {
                                                             className="h-6 w-6"
                                                             onClick={(e) => e.stopPropagation()}
                                                         >
-                                                            <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
+                                                            <MoreVertical className="h-4 w-4 text-muted-foreground" />
                                                         </Button>
                                                     </DropdownMenuTrigger>
                                                     <DropdownMenuContent align="end">

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useDebouncedCallback } from 'use-debounce';
 import { saveDocument } from '@/lib/requests/document';
 import { useSelectedFile, useFileContent } from '@/stores/file';
@@ -22,8 +22,12 @@ export function useDocumentSave(): DocumentSaveState {
 
   // Lives in a store so the project header can show it too.
   const { isSaving, lastSaved } = useSaveStatus();
-  const { setIsSaving, setLastSaved } = SaveStatusActions;
+  const { setIsSaving, setLastSaved, setHasUnsavedChanges } = SaveStatusActions;
   useEffect(() => SaveStatusActions.reset, []);
+
+  // The latest edited content, so a save that finishes after newer typing
+  // does not mark those newer edits as saved.
+  const latestEditRef = useRef<string | null>(null);
 
   const handleSaveDocument = async (
     contentToSave?: string
@@ -54,6 +58,9 @@ export function useDocumentSave(): DocumentSaveState {
       }
 
       setLastSaved(new Date());
+      if (latestEditRef.current === null || latestEditRef.current === contentToUse) {
+        setHasUnsavedChanges(false);
+      }
       return true;
     } catch (error) {
       console.error('Error saving document:', error);
@@ -63,9 +70,15 @@ export function useDocumentSave(): DocumentSaveState {
     }
   };
 
-  const debouncedSave = useDebouncedCallback((content: string) => {
+  const scheduleSave = useDebouncedCallback((content: string) => {
     handleSaveDocument(content);
   }, 1000);
+
+  const debouncedSave = (content: string) => {
+    latestEditRef.current = content;
+    setHasUnsavedChanges(true);
+    scheduleSave(content);
+  };
 
   return {
     isSaving,

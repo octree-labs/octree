@@ -2,7 +2,9 @@ import { useState, useCallback, useEffect } from 'react';
 import { Eye, Code, FileText, Download, Loader2, ExternalLink, Lock } from 'lucide-react';
 import { MonacoEditor } from '@/components/editor/monaco-editor';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { Card } from '@/components/ui/card';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
     Dialog,
     DialogContent,
@@ -34,6 +36,11 @@ interface SubscriptionData {
         stripeStatus?: string | null;
     };
 }
+
+const VIEW_TABS = [
+    { mode: 'code', label: 'LaTeX', icon: Code },
+    { mode: 'pdf', label: 'Preview', icon: Eye },
+] as const;
 
 interface DocumentPreviewProps {
     latex: string;
@@ -242,33 +249,65 @@ export function DocumentPreview({ latex, title, onOpenInOctree, isCreatingProjec
                 </DialogContent>
             </Dialog>
 
-            <Card className="flex flex-col overflow-hidden border bg-background">
-                <div className="flex items-center justify-between border-b px-4 py-2">
-                    <div className="flex items-center gap-2">
-                        <FileText className="h-4 w-4 text-muted-foreground" />
-                        <span className="text-sm font-medium">Generated Document</span>
+            {/* One compact toolbar; the card's default padding and gaps are off. */}
+            <Card className="gap-0 overflow-hidden bg-background py-0">
+                <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2">
+                    <div className="flex min-w-0 flex-1 items-center gap-2">
+                        <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span className="truncate text-sm font-medium" title={title || undefined}>
+                            {title || 'Generated document'}
+                        </span>
                     </div>
-                    <div className="flex items-center gap-2">
-                        <div className="flex rounded-md border">
-                            <Button
-                                variant={viewMode === 'code' ? 'secondary' : 'ghost'}
-                                size="sm"
-                                onClick={() => setViewMode('code')}
-                                className="rounded-r-none"
+
+                    {/* Same segmented style as the editor's Edit with AI / Code switch. */}
+                    <div role="tablist" className="flex items-center gap-0.5 rounded-lg bg-slate-100 p-0.5">
+                        {VIEW_TABS.map(({ mode, label, icon: Icon }) => (
+                            <button
+                                key={mode}
+                                type="button"
+                                role="tab"
+                                aria-selected={viewMode === mode}
+                                onClick={() => setViewMode(mode)}
+                                className={cn(
+                                    'flex h-6 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors',
+                                    viewMode === mode
+                                        ? 'bg-white text-slate-900 shadow-sm'
+                                        : 'text-slate-500 hover:text-slate-700'
+                                )}
                             >
-                                <Code className="mr-1.5 h-3.5 w-3.5" />
-                                LaTeX
-                            </Button>
-                            <Button
-                                variant={viewMode === 'pdf' ? 'secondary' : 'ghost'}
-                                size="sm"
-                                onClick={() => setViewMode('pdf')}
-                                className="rounded-l-none"
-                            >
-                                <Eye className="mr-1.5 h-3.5 w-3.5" />
-                                Preview
-                            </Button>
-                        </div>
+                                <Icon className="size-3.5" />
+                                {label}
+                            </button>
+                        ))}
+                    </div>
+
+                    <div className="flex items-center gap-1">
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button
+                                    variant="ghost"
+                                    size="xs"
+                                    onClick={handleDownload}
+                                    disabled={isCompiling}
+                                    aria-label="Download PDF"
+                                >
+                                    {isCompiling ? <Loader2 className="animate-spin" /> : <Download />}
+                                    {!canExport && <Lock className="size-3 text-amber-500" />}
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent className="bg-neutral-900 text-white [&_svg]:bg-neutral-900 [&_svg]:fill-neutral-900">
+                                {isCompiling ? 'Compiling...' : canExport ? 'Download PDF' : 'Download PDF (Pro)'}
+                            </TooltipContent>
+                        </Tooltip>
+                        <Button
+                            variant="gradient"
+                            size="xs"
+                            onClick={onOpenInOctree}
+                            disabled={isCreatingProject}
+                        >
+                            {isCreatingProject ? <Loader2 className="animate-spin" /> : <ExternalLink />}
+                            Open in Octree
+                        </Button>
                     </div>
                 </div>
 
@@ -302,34 +341,6 @@ export function DocumentPreview({ latex, title, onOpenInOctree, isCreatingProjec
                         onDismissError={() => setPdfError(null)}
                     />
                 )}
-            </div>
-
-            <div className="flex flex-wrap items-center justify-end gap-2 border-t px-4 py-3">
-                <Button
-                    variant="outline"
-                    onClick={handleDownload}
-                    disabled={isCompiling}
-                >
-                    {isCompiling ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                        <Download className="h-4 w-4" />
-                    )}
-                    {isCompiling ? 'Compiling...' : 'Download PDF'}
-                    {!canExport && <Lock className="ml-1.5 h-3 w-3 text-amber-500" />}
-                </Button>
-                <Button
-                    variant="gradient"
-                    onClick={onOpenInOctree}
-                    disabled={isCreatingProject}
-                >
-                    {isCreatingProject ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                        <ExternalLink className="h-4 w-4" />
-                    )}
-                    Open in Octree
-                </Button>
             </div>
         </Card>
         </>

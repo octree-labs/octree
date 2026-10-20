@@ -6,6 +6,7 @@ import { PENDING_DRAFT_COOKIE, isDraftId } from '@/lib/import/pending-draft';
 import { getAllProjects } from '@/actions/get-projects';
 import { getUserUsageStatus } from '@/actions/get-user';
 import { getUserWalkthroughStatus } from '@/actions/get-walkthrough';
+import { DashboardShell } from '@/components/dashboard/dashboard-shell';
 import { DashboardWithWalkthrough } from '@/components/dashboard/dashboard-with-walkthrough';
 import { PaywallDialog } from '@/components/subscription/paywall-dialog';
 import { UpgradeParam } from '@/components/lifecycle/upgrade-param';
@@ -47,7 +48,7 @@ export default async function Dashboard() {
   }
 
   return (
-    <>
+    <DashboardShell userName={userName}>
       {/* `?upgrade=1` from the lifecycle emails opens the paywall here. */}
       <Suspense fallback={null}>
         <UpgradeParam />
@@ -57,11 +58,10 @@ export default async function Dashboard() {
       <DunningBanner location="dashboard" />
       <DashboardWithWalkthrough
         data={data}
-        userName={userName}
         userId={user.id}
         shouldShowWalkthrough={shouldShowWalkthrough}
         generateWalkthroughCompleted={generateWalkthroughCompleted}
       />
-    </>
+    </DashboardShell>
   );
 }

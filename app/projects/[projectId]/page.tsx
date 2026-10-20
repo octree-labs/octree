@@ -290,7 +290,8 @@ export default function ProjectPage() {
     onEditSuggestion: handleSuggestionFromChat,
     onAcceptEdit: handleAcceptEdit,
     onRejectEdit: handleRejectEdit,
-    onRestoreCheckpoint: (snapshot: string) => FileActions.setContent(snapshot),
+    // Same path as typing, so the restored content is autosaved.
+    onRestoreCheckpoint: handleEditorChange,
     editSuggestions,
     fileContent: selectedFile && isText ? content : '',
     textFromEditor,

@@ -1,70 +1,50 @@
-import { createClient } from '@/lib/supabase/server';
+import { getCurrentUser } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import { EditorSettings } from '@/components/settings/editor-settings';
+import { SettingsCard, SettingsRow } from '@/components/settings/settings-card';
 import { ChangePasswordDialog } from '@/components/user/change-password-dialog';
 import { EditProfileDialog } from '@/components/user/edit-profile-dialog';
 import { DeleteAccountDialog } from '@/components/user/delete-account-dialog';
 
 export default async function AccountSettingsPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
 
   if (!user) {
     redirect('/auth/login');
   }
 
   return (
-    <div>
-      {/* Account section */}
-      <div className="mb-10">
-        <h2 className="text-2xl font-bold tracking-tight text-neutral-900">
-          Account
-        </h2>
-        <p className="mt-1 text-sm text-neutral-500">
-          Manage your account information and preferences
-        </p>
-      </div>
-
-      <div className="space-y-5">
-        <div className="rounded-xl border border-neutral-300 px-4 pb-3 pt-2">
-          <label className="text-xs font-medium text-neutral-500">
-            Email
-          </label>
-          <p className="text-[15px] text-neutral-900">{user.email}</p>
-        </div>
-        <div className="rounded-xl border border-neutral-300 px-4 pb-3 pt-2">
-          <label className="text-xs font-medium text-neutral-500">
-            Name
-          </label>
-          {user.user_metadata.name ? (
-            <p className="text-[15px] text-neutral-900">
-              {user.user_metadata.name}
-            </p>
-          ) : (
-            <p className="text-[15px] italic text-neutral-400">
-              Add your name
-            </p>
+    <div className="space-y-6">
+      <SettingsCard
+        title="Profile"
+        description="Manage your account information."
+        action={
+          <>
+            <ChangePasswordDialog />
+            <EditProfileDialog currentName={user.user_metadata.name || ''} />
+          </>
+        }
+      >
+        <SettingsRow label="Email">{user.email}</SettingsRow>
+        <SettingsRow label="Name">
+          {user.user_metadata.name || (
+            <span className="italic text-neutral-400">Add your name</span>
           )}
-        </div>
-        <div className="flex gap-3">
-          <EditProfileDialog
-            currentName={user.user_metadata.name || ''}
-          />
-          <ChangePasswordDialog />
-        </div>
-      </div>
+        </SettingsRow>
+      </SettingsCard>
 
-      <hr className="my-10 border-neutral-200" />
+      <SettingsCard title="Editor" description="Customize how the LaTeX editor looks.">
+        <SettingsRow label="Theme" description="Saved automatically.">
+          <EditorSettings />
+        </SettingsRow>
+      </SettingsCard>
 
-      {/* Editor settings section */}
-      <EditorSettings />
-
-      <hr className="my-10 border-neutral-200" />
-
-      {/* Danger zone */}
-      <DeleteAccountDialog />
+      <SettingsCard
+        title="Danger zone"
+        description="Permanently delete your account and all of its projects. This cannot be undone."
+        action={<DeleteAccountDialog />}
+        className="border-red-200"
+      />
     </div>
   );
 }

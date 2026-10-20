@@ -37,7 +37,7 @@ echo ""
 
 # ── Validate local files ────────────────────────────────────────────────────
 
-for f in Dockerfile docker-compose.yml agent-service.ts; do
+for f in Dockerfile docker-compose.yml vector.yaml agent-service.ts; do
     if [ ! -f "$AGENT_SERVER_DIR/$f" ]; then
         echo -e "${RED}Error: $f not found in $AGENT_SERVER_DIR${NC}"
         exit 1
@@ -56,6 +56,7 @@ ssh "$SERVER_HOST" "mkdir -p $SERVER_PATH/lib"
 
 scp "$AGENT_SERVER_DIR/Dockerfile" "$SERVER_HOST:$SERVER_PATH/"
 scp "$AGENT_SERVER_DIR/docker-compose.yml" "$SERVER_HOST:$SERVER_PATH/"
+scp "$AGENT_SERVER_DIR/vector.yaml" "$SERVER_HOST:$SERVER_PATH/"
 scp "$AGENT_SERVER_DIR/package.json" "$SERVER_HOST:$SERVER_PATH/"
 scp "$AGENT_SERVER_DIR/package-lock.json" "$SERVER_HOST:$SERVER_PATH/"
 scp "$AGENT_SERVER_DIR/tsconfig.json" "$SERVER_HOST:$SERVER_PATH/"

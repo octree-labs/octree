@@ -36,10 +36,12 @@ export function RedesignProgress({
   progress: RedesignProgressEvent | null;
   template?: ResumeTemplateOption;
 }) {
-  const current = progress ? stepIndex(progress.step) : -1;
+  // Reading is always first, so show it in progress before the first server
+  // event arrives instead of rendering every step as pending.
+  const current = progress ? stepIndex(progress.step) : 0;
   const elapsed = useElapsedSeconds();
   // Count the active step as half done so the bar moves as soon as work starts.
-  const percent = Math.round(((Math.max(current, 0) + 0.5) / STEPS.length) * 100);
+  const percent = Math.round(((current + 0.5) / STEPS.length) * 100);
 
   return (
     <div className="grid h-full items-center gap-10 md:grid-cols-2">

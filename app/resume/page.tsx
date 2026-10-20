@@ -11,12 +11,13 @@ export default async function ResumePage() {
 
   const userName = user.user_metadata?.name ?? user.email ?? null;
 
+  // Full-height on desktop: the review panes fill the screen under the navbar.
   return (
-    <>
+    <div className="flex min-h-screen flex-col lg:h-screen">
       <Navbar userName={userName} />
-      <main className="container mx-auto min-h-0 px-4 py-8">
+      <main className="flex min-h-0 flex-1 flex-col">
         <ResumeReviewScreen />
       </main>
-    </>
+    </div>
   );
 }

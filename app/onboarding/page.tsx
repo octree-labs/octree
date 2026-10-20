@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
+import { Check } from 'lucide-react';
 
 import { createClient } from '@/lib/supabase/client';
 import { resetAnalytics } from '@/lib/analytics/track';
@@ -25,7 +26,6 @@ import {
 } from '@/components/ui/select';
 
 import { ProgressDots } from './components/progress-dots';
-import { FeatureList } from './components/feature-list';
 import {
   REFERRAL_OPTIONS,
   ROLE_OPTIONS,
@@ -39,9 +39,17 @@ import { FREE_DAILY_EDIT_LIMIT } from '@/data/constants';
 import { PlanPicker, type PickerPlan } from '@/components/subscription/plan-picker';
 import { createCheckoutSession } from '@/lib/requests/subscription';
 import { getUserUsageStatus, upsertUserUsage } from '@/lib/requests/user';
+import { Skeleton } from '@/components/ui/skeleton';
 import { completeFreeOnboarding } from '@/lib/requests/onboarding';
 import { AuthMarketingSection } from '@/components/auth/auth-marketing-section';
 import { StartWithDocument } from '@/components/onboarding/start-with-document';
+
+// What Pro adds over the free plan, kept to three lines (see app/onboarding/components/feature-list.tsx for the full list).
+const PRO_HIGHLIGHTS = [
+  'AI writes and edits your LaTeX from a prompt',
+  'Catches errors and suggests one-click fixes',
+  'Finds and inserts citations from your references',
+];
 
 export default function OnboardingPage() {
   const [currentStep, setCurrentStep] = useState(0);
@@ -272,7 +280,7 @@ export default function OnboardingPage() {
                 Stop wrestling with LaTeX. Let AI handle the formatting.
               </p>
             </div>
-            <div className="relative rounded-lg border border-border bg-blue-50/50 p-4 space-y-4 mt-4">
+            <div className="relative mt-4 space-y-4 rounded-lg border border-border bg-blue-50/50 p-4">
               <PlanPicker
                 plan={plan}
                 onPlanChange={setPlan}
@@ -281,14 +289,15 @@ export default function OnboardingPage() {
                 disabled={isSubmitting}
               />
 
-              <div>
-                <p className="mb-4 text-sm font-semibold">What you get with Pro</p>
-                <FeatureList />
-              </div>
-
-              <p className="text-xs text-muted-foreground">
-                Trusted by researchers at Harvard, NYU, Johns Hopkins, and more.
-              </p>
+              {/* Short on purpose: the free-plan button below must stay in view. */}
+              <ul className="space-y-2">
+                {PRO_HIGHLIGHTS.map((text) => (
+                  <li key={text} className="flex gap-2 text-sm text-muted-foreground">
+                    <Check className="mt-0.5 size-4 shrink-0 text-primary" />
+                    {text}
+                  </li>
+                ))}
+              </ul>
             </div>
           </>
         );
@@ -357,23 +366,19 @@ export default function OnboardingPage() {
                         : 'Continue'}
                   </Button>
                   {currentStep === PLAN_STEP && (
-                    <>
-                      <p className="text-center text-xs text-muted-foreground">
-                        Cancel anytime. No questions asked.
-                      </p>
+                    <div className="space-y-2">
                       <Button
                         className="w-full"
-                        variant="ghost"
+                        variant="outline"
                         onClick={handleContinueFree}
                         disabled={isSubmitting}
                       >
                         Continue with the free plan
                       </Button>
                       <p className="text-center text-xs text-muted-foreground">
-                        Free includes {FREE_DAILY_EDIT_LIMIT} AI edits a day, unlimited projects and PDF
-                        preview. Upgrade any time from the editor.
+                        Free includes {FREE_DAILY_EDIT_LIMIT} AI edits a day. Upgrade anytime.
                       </p>
-                    </>
+                    </div>
                   )}
                 </div>
               )}
@@ -398,7 +403,7 @@ export default function OnboardingPage() {
                 )}
               </div>
               <div className="flex items-center gap-3">
-                {userEmail && (
+                {userEmail ? (
                   <>
                     <span className="text-xs text-muted-foreground">
                       {userEmail}
@@ -411,6 +416,9 @@ export default function OnboardingPage() {
                       Logout
                     </Button>
                   </>
+                ) : (
+                  // Same height as the email line, so the row doesn't shift when it loads.
+                  <Skeleton className="h-4 w-48" />
                 )}
               </div>
             </div>

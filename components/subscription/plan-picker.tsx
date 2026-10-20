@@ -4,7 +4,8 @@ import { useState } from 'react';
 import { GraduationCap, Zap } from 'lucide-react';
 import { toast } from 'sonner';
 
-import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Button, primaryClasses } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { CREDIT_PACKS, PRO_PLANS, type ProPlanId } from '@/data/constants';
 import { createCheckoutSession } from '@/lib/requests/subscription';
@@ -103,11 +104,6 @@ export function PlanPicker({
             <div className="flex items-baseline gap-2">
               <p className="text-3xl font-bold">{selected.price}</p>
               <p className="text-sm text-muted-foreground">{selected.intervalLabel}</p>
-              {plan === 'annual' && (
-                <p className="text-sm text-muted-foreground">
-                  {PRO_PLANS.annual.monthlyEquivalent}/mo
-                </p>
-              )}
             </div>
             <p className="text-xs text-muted-foreground">{selected.billingNote}</p>
           </div>
@@ -120,13 +116,28 @@ export function PlanPicker({
             disabled={disabled}
             onClick={() => onPlanChange('semester')}
             className={cn(
-              'flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-colors',
+              // Same surface as the outline button variant: white, bordered, small shadow.
+              'relative flex w-full cursor-pointer items-center gap-3 rounded-lg border p-3 text-left shadow-xs transition-colors disabled:cursor-not-allowed',
               plan === 'semester'
-                ? 'border-primary bg-primary/5'
-                : 'border-border hover:border-foreground/30'
+                ? 'border-primary bg-background ring-1 ring-primary'
+                : 'border-primary/30 bg-background hover:border-primary/60 hover:shadow-sm'
             )}
           >
-            <GraduationCap className="h-5 w-5 shrink-0 text-muted-foreground" />
+            {/* Same corner badge as the dashboard's "Redesign your resume" card. */}
+            <Badge
+              className={cn(
+                primaryClasses,
+                'absolute -top-2 right-3 rounded-sm px-1.5 py-0 text-[10px] leading-4 shadow-sm'
+              )}
+            >
+              {PRO_PLANS.semester.badge}
+            </Badge>
+            <GraduationCap
+              className={cn(
+                'h-5 w-5 shrink-0',
+                plan === 'semester' ? 'text-primary' : 'text-muted-foreground'
+              )}
+            />
             <span className="flex-1">
               <span className="block text-sm font-medium">
                 {PRO_PLANS.semester.label}

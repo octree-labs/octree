@@ -147,16 +147,6 @@ export function DashboardWithWalkthrough({
                   }}
                 />
               </div>
-              <p className="mt-6 text-xs text-neutral-500">
-                Have a resume as a PDF?{' '}
-                <button
-                  type="button"
-                  onClick={() => setResumeDialogOpen(true)}
-                  className="font-medium text-primary underline-offset-4 hover:underline"
-                >
-                  Redesign it into LaTeX
-                </button>
-              </p>
             </div>
           </div>
         </div>

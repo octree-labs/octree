@@ -16,7 +16,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import Link from 'next/link';
 import { useState } from 'react';
-import { CheckCircle2 } from 'lucide-react';
+import { MailCheck } from 'lucide-react';
 
 interface SignUpFormProps extends React.ComponentPropsWithoutRef<'div'> {
   onboardingRedirect?: string;
@@ -83,23 +83,51 @@ export function SignUpForm({
     }
   };
 
+  const loginHref = `/auth/login${nextPath ? `?next=${encodeURIComponent(nextPath)}` : ''}`;
+
+  if (signupSuccess) {
+    return (
+      <div className={cn('flex flex-col gap-6', className)} {...props}>
+        <Card>
+          <CardContent className="flex flex-col items-center gap-6 text-center">
+            <div className="flex size-12 items-center justify-center rounded-full bg-primary/10">
+              <MailCheck className="size-6 text-primary" />
+            </div>
+            <div className="space-y-3">
+              <h1 className="text-xl font-semibold text-neutral-900">Verify your email</h1>
+              <p className="text-sm text-neutral-600">
+                We sent a link to
+                <span className="mt-1 block break-all font-medium text-neutral-900">{email}</span>
+              </p>
+              <p className="text-xs text-neutral-500">Not there? Check spam.</p>
+            </div>
+            <div className="flex flex-col items-center gap-2 text-sm">
+              <button
+                type="button"
+                onClick={() => {
+                  setSignupSuccess(false);
+                  setPassword('');
+                  setRepeatPassword('');
+                }}
+                className="text-neutral-600 underline underline-offset-4 hover:text-neutral-900"
+              >
+                Use a different email
+              </button>
+              <p className="text-neutral-600">
+                Already confirmed?{' '}
+                <Link href={loginHref} className="text-neutral-900 underline underline-offset-4">
+                  Log in
+                </Link>
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className={cn('flex flex-col gap-6', className)} {...props}>
-      {signupSuccess && (
-        <div className="flex flex-col items-start gap-1 rounded-lg border border-green-200 bg-green-50 p-4 shadow-sm">
-          <div className="flex gap-2">
-            <CheckCircle2 className="mt-0.5 h-5 w-5 flex-shrink-0 text-green-900" />
-            <p className="font-medium text-green-900">
-              Account created successfully!
-            </p>
-          </div>
-
-          <p className="text-sm text-green-700">
-            Please check your email ({email}) to verify your account before
-            signing in. Be sure to check your spam folder.
-          </p>
-        </div>
-      )}
       <Card>
         <CardHeader>
           <CardTitle className="text-2xl">Sign up</CardTitle>
@@ -117,55 +145,45 @@ export function SignUpForm({
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  disabled={signupSuccess}
                 />
               </div>
-              {!signupSuccess && (
-                <>
-                  <div className="grid gap-2">
-                    <div className="flex items-center">
-                      <Label htmlFor="password">Password</Label>
-                    </div>
-                    <Input
-                      id="password"
-                      type="password"
-                      required
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <div className="flex items-center">
-                      <Label htmlFor="repeat-password">Repeat Password</Label>
-                    </div>
-                    <Input
-                      id="repeat-password"
-                      type="password"
-                      required
-                      value={repeatPassword}
-                      onChange={(e) => setRepeatPassword(e.target.value)}
-                    />
-                  </div>
-                </>
-              )}
+              <div className="grid gap-2">
+                <div className="flex items-center">
+                  <Label htmlFor="password">Password</Label>
+                </div>
+                <Input
+                  id="password"
+                  type="password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+              </div>
+              <div className="grid gap-2">
+                <div className="flex items-center">
+                  <Label htmlFor="repeat-password">Repeat Password</Label>
+                </div>
+                <Input
+                  id="repeat-password"
+                  type="password"
+                  required
+                  value={repeatPassword}
+                  onChange={(e) => setRepeatPassword(e.target.value)}
+                />
+              </div>
               {error && <p className="text-sm text-red-500">{error}</p>}
-              {!signupSuccess && (
-                <Button
-                  type="submit"
-                  className="w-full"
-                  variant="gradient"
-                  disabled={isLoading}
-                >
-                  {isLoading ? 'Creating an account...' : 'Sign up'}
-                </Button>
-              )}
+              <Button
+                type="submit"
+                className="w-full"
+                variant="gradient"
+                disabled={isLoading}
+              >
+                {isLoading ? 'Creating an account...' : 'Sign up'}
+              </Button>
             </div>
             <div className="mt-4 text-center text-sm">
               Already have an account?{' '}
-              <Link
-                href={`/auth/login${nextPath ? `?next=${encodeURIComponent(nextPath)}` : ''}`}
-                className="underline underline-offset-4"
-              >
+              <Link href={loginHref} className="underline underline-offset-4">
                 Login
               </Link>
             </div>

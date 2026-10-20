@@ -19,20 +19,24 @@ export function ProjectGrid({
   const visible = data.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
   return (
-    <div className="space-y-4">
-      {visible.length ? (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {visible.map((project) => (
-            <ProjectCard key={project.id} project={project} {...actions} />
-          ))}
-        </div>
-      ) : (
-        <p className="rounded-md border py-12 text-center text-sm text-muted-foreground">
-          No results.
-        </p>
-      )}
+    <div className="flex min-h-0 flex-1 flex-col">
+      {/* Only the cards scroll; the pagination row below stays at the bottom.
+          The -m-1/p-1 pair keeps card shadows from being clipped. */}
+      <div className="-m-1 min-h-0 flex-1 overflow-y-auto p-1 pb-4">
+        {visible.length ? (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {visible.map((project) => (
+              <ProjectCard key={project.id} project={project} {...actions} />
+            ))}
+          </div>
+        ) : (
+          <p className="rounded-md border py-12 text-center text-sm text-muted-foreground">
+            No results.
+          </p>
+        )}
+      </div>
 
-      <div className="flex flex-col gap-4 px-2 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex shrink-0 flex-col gap-4 border-t border-gray-200 px-2 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="text-sm text-neutral-500">
           Page {page + 1} of {pageCount} ({data.length} total projects)
         </div>

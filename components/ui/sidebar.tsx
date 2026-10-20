@@ -59,6 +59,15 @@ function useSidebar() {
   return context
 }
 
+function readStoredSidebarWidth() {
+  const parsed = parseInt(localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY) ?? "", 10)
+  return !isNaN(parsed) && parsed >= SIDEBAR_WIDTH_MIN && parsed <= SIDEBAR_WIDTH_MAX
+    ? parsed
+    : SIDEBAR_WIDTH_DEFAULT
+}
+
+const subscribeToNothing = () => () => {}
+
 function SidebarProvider({
   defaultOpen = true,
   open: openProp,
@@ -74,20 +83,19 @@ function SidebarProvider({
 }) {
   const isMobile = useIsMobile()
   const [openMobile, setOpenMobile] = React.useState(false)
-  const [sidebarWidth, setSidebarWidth] = React.useState(SIDEBAR_WIDTH_DEFAULT)
+  // Read the saved width during render, not in an effect: a mount after a
+  // client-side navigation would otherwise render the default width first and
+  // animate to the saved one. The server snapshot keeps hydration consistent.
+  const storedWidth = React.useSyncExternalStore(
+    subscribeToNothing,
+    readStoredSidebarWidth,
+    () => SIDEBAR_WIDTH_DEFAULT
+  )
+  const [resizedWidth, setSidebarWidth] = React.useState<number | null>(null)
+  const sidebarWidth = resizedWidth ?? storedWidth
   const [isResizing, setIsResizing] = React.useState(false)
   const startXRef = React.useRef(0)
   const startWidthRef = React.useRef(0)
-
-  React.useEffect(() => {
-    const stored = localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY)
-    if (stored) {
-      const parsed = parseInt(stored, 10)
-      if (!isNaN(parsed) && parsed >= SIDEBAR_WIDTH_MIN && parsed <= SIDEBAR_WIDTH_MAX) {
-        setSidebarWidth(parsed)
-      }
-    }
-  }, [])
 
   const startResize = React.useCallback((e: React.MouseEvent) => {
     e.preventDefault()

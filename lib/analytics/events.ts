@@ -97,7 +97,7 @@ export type ProjectSource = 'upload' | 'paste' | 'sample' | 'blank' | 'generate'
  * cards map 1:1 onto a ProjectSource; `generate` is the small text link and
  * `later` is "I'll do this later".
  */
-export type StartOptionChoice = 'upload' | 'paste' | 'sample' | 'blank' | 'generate' | 'later';
+export type StartOptionChoice = 'upload' | 'paste' | 'sample' | 'blank' | 'resume' | 'generate' | 'later';
 export type StartOptionContext = 'onboarding' | 'dashboard';
 /** `?from=` on /generate; anything else (deep link, sidebar, bookmark) is `direct`. */
 export type GenerateEntry = StartOptionContext | 'direct';

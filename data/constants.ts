@@ -30,7 +30,7 @@ export const PRO_PLANS = {
     price: '$9.99',
     interval: 'month',
     intervalLabel: 'per month',
-    billingNote: 'Billed monthly at $9.99/month. Cancel anytime.',
+    billingNote: 'Billed monthly. Cancel anytime.',
   },
   annual: {
     id: 'annual',
@@ -39,9 +39,8 @@ export const PRO_PLANS = {
     price: '$79',
     interval: 'year',
     intervalLabel: 'per year',
-    monthlyEquivalent: '$6.58',
     badge: 'Save 34%',
-    billingNote: 'Billed yearly at $79 ($6.58/mo, 34% less than monthly). Cancel anytime.',
+    billingNote: 'Just $6.58 a month, billed yearly. Cancel anytime.',
   },
   semester: {
     id: 'semester',
@@ -51,7 +50,8 @@ export const PRO_PLANS = {
     interval: '4 months',
     intervalLabel: 'per 4 months',
     tagline: '4 months of Pro for the term',
-    billingNote: 'Billed every 4 months at $29. Cancel anytime.',
+    badge: 'Student offer',
+    billingNote: 'Billed every 4 months. Cancel anytime.',
   },
 } as const;
 

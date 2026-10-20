@@ -13,17 +13,17 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import {
-  CreateProjectTabs,
-  type CreateProjectTab,
-} from '@/components/projects/create-project-tabs';
+  CreateProjectForm,
+  ImportProjectForm,
+} from '@/components/projects/create-project-forms';
 
 interface CreateProjectDialogProps {
   /**
-   * `create` (default): the "New Project" trigger, opening on the blank tab.
-   * `import`: an "Import" trigger opening straight on the ZIP tab, so
-   * bringing an existing document is a first-class dashboard action.
+   * `create` (default): the "New Project" trigger and a blank-project form.
+   * `import`: an "Import" trigger and a ZIP upload, so bringing an existing
+   * document is a first-class dashboard action.
    */
-  mode?: CreateProjectTab;
+  mode?: 'create' | 'import';
 }
 
 export function CreateProjectDialog({ mode = 'create' }: CreateProjectDialogProps) {
@@ -60,11 +60,15 @@ export function CreateProjectDialog({ mode = 'create' }: CreateProjectDialogProp
           <DialogDescription>
             {mode === 'import'
               ? 'Upload a ZIP of your LaTeX project, for example an Overleaf export.'
-              : 'Create a new project or import from a ZIP file.'}
+              : 'Start a blank LaTeX project.'}
           </DialogDescription>
         </DialogHeader>
 
-        <CreateProjectTabs onSuccess={handleSuccess} defaultTab={mode} />
+        {mode === 'import' ? (
+          <ImportProjectForm onSuccess={handleSuccess} />
+        ) : (
+          <CreateProjectForm onSuccess={handleSuccess} />
+        )}
       </DialogContent>
     </Dialog>
   );

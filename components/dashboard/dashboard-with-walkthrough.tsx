@@ -9,7 +9,6 @@ import { Sparkles } from '@/components/icons/sparkles';
 import { Badge } from '@/components/ui/badge';
 import { primaryClasses } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import Navbar from '@/components/navbar';
 import { CreateProjectDialog } from '@/components/projects/create-project-dialog';
 import { ProjectsTable } from '@/components/projects/projects-table';
 import { DashboardOnboarding } from '@/components/dashboard/dashboard-onboarding';
@@ -74,7 +73,6 @@ function ActionCard({
 
 interface DashboardWithWalkthroughProps {
   data: Project[];
-  userName: string | null;
   userId: string;
   shouldShowWalkthrough: boolean;
   generateWalkthroughCompleted?: boolean;
@@ -82,7 +80,6 @@ interface DashboardWithWalkthroughProps {
 
 export function DashboardWithWalkthrough({
   data,
-  userName,
   userId,
   shouldShowWalkthrough,
   generateWalkthroughCompleted = false,
@@ -128,96 +125,88 @@ export function DashboardWithWalkthrough({
 
   return (
     <>
-      <Navbar userName={userName} />
-
-      <main className="container mx-auto min-h-0 px-4 py-8">
-        {isEmpty ? (
-          // First session: the user's own document is the default path. The
-          // walkthrough targets are kept so its spotlight still lands.
-          <div className="mx-auto max-w-2xl">
-            <div className="mb-6" data-onboarding-target="dashboard-header">
-              <h1 className="text-xl font-semibold text-neutral-900">Start with your document</h1>
-              <p className="text-sm text-neutral-500">
-                Bring the LaTeX you are already working on. It opens in the editor and compiles
-                right away.
-              </p>
-            </div>
-            <div data-onboarding-target="dashboard-projects">
-              <StartWithDocument
-                context="dashboard"
-                targets={{
-                  blank: 'dashboard-new-project',
-                  generate: 'dashboard-generate-button',
-                }}
-              />
-            </div>
-            <p className="mt-6 text-xs text-neutral-500">
-              Have a resume as a PDF?{' '}
-              <button
-                type="button"
-                onClick={() => setResumeDialogOpen(true)}
-                className="font-medium text-primary underline-offset-4 hover:underline"
-              >
-                Redesign it into LaTeX
-              </button>
-            </p>
-          </div>
-        ) : (
-          <>
-            <div className="mb-8 grid gap-3 sm:grid-cols-2 lg:max-w-3xl">
-              <div data-onboarding-target="dashboard-generate-button">
-                <ActionCard
-                  href="/generate?from=dashboard"
-                  onClick={handleGenerateClick}
-                  icon={<Sparkles className="h-4 w-4 shrink-0 text-primary" />}
-                  title="Generate with AI"
-                  description="Describe a document and get a compiled LaTeX draft"
-                />
-              </div>
-              <ActionCard
-                onClick={() => setResumeDialogOpen(true)}
-                icon={<FileText className="size-4 shrink-0 text-neutral-500" />}
-                title="Redesign your resume"
-                description="Upload a PDF and get a clean, editable LaTeX version"
-                isNew
-              />
-            </div>
-
-            <div
-              className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"
-              data-onboarding-target="dashboard-header"
-            >
-              <div>
-                <h1 className="text-lg font-semibold text-neutral-900">Projects</h1>
+      {isEmpty ? (
+        // First session: the user's own document is the default path. The
+        // walkthrough targets are kept so its spotlight still lands.
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="container mx-auto px-4 py-8">
+            <div className="mx-auto max-w-2xl">
+              <div className="mb-6" data-onboarding-target="dashboard-header">
+                <h1 className="text-xl font-semibold text-neutral-900">Start with your document</h1>
                 <p className="text-sm text-neutral-500">
-                  Manage and edit your projects
+                  Bring the LaTeX you are already working on. It opens in the editor and compiles
+                  right away.
                 </p>
               </div>
-
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <div className="relative w-full sm:w-64">
-                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
-                  <Input
-                    type="text"
-                    placeholder="Search projects..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full pl-10"
-                  />
-                </div>
-                <span data-onboarding-target="dashboard-new-project" className="flex items-center gap-2">
-                  <CreateProjectDialog mode="import" />
-                  <CreateProjectDialog />
-                </span>
+              <div data-onboarding-target="dashboard-projects">
+                <StartWithDocument
+                  context="dashboard"
+                  targets={{
+                    blank: 'dashboard-new-project',
+                    generate: 'dashboard-generate-button',
+                  }}
+                />
               </div>
             </div>
-
-            <div data-onboarding-target="dashboard-projects">
-              <ProjectsTable data={data} searchQuery={searchQuery} />
+          </div>
+        </div>
+      ) : (
+        <div className="container mx-auto flex min-h-0 flex-1 flex-col px-4 pt-8">
+          <div className="mb-8 grid gap-3 sm:grid-cols-2 lg:max-w-3xl">
+            <div data-onboarding-target="dashboard-generate-button">
+              <ActionCard
+                href="/generate?from=dashboard"
+                onClick={handleGenerateClick}
+                icon={<Sparkles className="h-4 w-4 shrink-0 text-primary" />}
+                title="Generate with AI"
+                description="Describe a document and get a compiled LaTeX draft"
+              />
             </div>
-          </>
-        )}
-      </main>
+            <ActionCard
+              onClick={() => setResumeDialogOpen(true)}
+              icon={<FileText className="size-4 shrink-0 text-neutral-500" />}
+              title="Redesign your resume"
+              description="Upload a PDF and get a clean, editable LaTeX version"
+              isNew
+            />
+          </div>
+
+          <div
+            className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"
+            data-onboarding-target="dashboard-header"
+          >
+            <div>
+              <h1 className="text-lg font-semibold text-neutral-900">Projects</h1>
+              <p className="text-sm text-neutral-500">
+                Manage and edit your projects
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <div className="relative w-full sm:w-64">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
+                <Input
+                  type="text"
+                  placeholder="Search projects..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-10"
+                />
+              </div>
+              <span data-onboarding-target="dashboard-new-project" className="flex items-center gap-2">
+                <CreateProjectDialog mode="import" />
+                <CreateProjectDialog />
+              </span>
+            </div>
+          </div>
+
+          {/* Fills the rest of the screen; ProjectGrid scrolls the cards and pins
+              the pagination row to the bottom. */}
+          <div data-onboarding-target="dashboard-projects" className="flex min-h-0 flex-1 flex-col">
+            <ProjectsTable data={data} searchQuery={searchQuery} />
+          </div>
+        </div>
+      )}
 
       <ResumeRedesignDialog
         open={resumeDialogOpen}

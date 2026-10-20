@@ -4,22 +4,22 @@ import { Button } from '@/components/ui/button';
 export const SUGGESTIONS = [
     {
         title: 'Research paper on ML',
-        description: 'machine learning fundamentals',
+        description: 'Machine learning fundamentals',
         prompt: 'Write a research paper on the fundamentals of machine learning, covering supervised learning, unsupervised learning, and neural networks.',
     },
     {
         title: 'Technical report',
-        description: 'system architecture overview',
+        description: 'System architecture overview',
         prompt: 'Write a technical report documenting a microservices architecture, including system design, API specifications, and deployment considerations.',
     },
     {
         title: 'Literature review',
-        description: 'climate change impacts',
+        description: 'Climate change impacts',
         prompt: 'Write a literature review examining recent research on climate change impacts on global biodiversity and ecosystem services.',
     },
     {
         title: 'Conference paper',
-        description: 'distributed systems',
+        description: 'Distributed systems',
         prompt: 'Write a conference paper on consensus algorithms in distributed systems, comparing Raft, Paxos, and Byzantine fault-tolerant approaches.',
     },
 ];

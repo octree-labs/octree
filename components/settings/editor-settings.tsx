@@ -48,58 +48,39 @@ export function EditorSettings() {
   const currentTheme = EDITOR_THEMES.find((t) => t.id === theme);
 
   return (
-    <div>
-      <h3 className="text-lg font-bold tracking-tight text-neutral-900">
-        Editor Settings
-      </h3>
-      <p className="mt-1 text-sm text-neutral-500">
-        Customize your code editor appearance
-      </p>
-
-      <div className="mt-6 space-y-2">
-        <div className="rounded-xl border border-neutral-300 px-4 pb-3 pt-2">
-          <label className="text-xs font-medium text-neutral-500">
-            Editor Theme
-          </label>
-        <Select value={theme} onValueChange={(value) => setTheme(value as typeof theme)}>
-          <SelectTrigger className="w-full border-0 h-auto p-0 text-[15px] ring-0 ring-offset-0 focus:ring-0 focus:ring-offset-0">
-            <SelectValue placeholder="Select a theme">
+    <Select value={theme} onValueChange={(value) => setTheme(value as typeof theme)}>
+      <SelectTrigger className="w-full sm:w-72">
+        <SelectValue placeholder="Select a theme">
+          <span className="flex items-center gap-2">
+            <ThemePreview themeId={theme} />
+            {currentTheme?.name || 'Select a theme'}
+          </span>
+        </SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        <SelectGroup>
+          <SelectLabel>Light Themes</SelectLabel>
+          {lightThemes.map((t) => (
+            <SelectItem key={t.id} value={t.id}>
               <span className="flex items-center gap-2">
-                <ThemePreview themeId={theme} />
-                {currentTheme?.name || 'Select a theme'}
+                <ThemePreview themeId={t.id} />
+                {t.name}
               </span>
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              <SelectLabel>Light Themes</SelectLabel>
-              {lightThemes.map((t) => (
-                <SelectItem key={t.id} value={t.id}>
-                  <span className="flex items-center gap-2">
-                    <ThemePreview themeId={t.id} />
-                    {t.name}
-                  </span>
-                </SelectItem>
-              ))}
-            </SelectGroup>
-            <SelectGroup>
-              <SelectLabel>Dark Themes</SelectLabel>
-              {darkThemes.map((t) => (
-                <SelectItem key={t.id} value={t.id}>
-                  <span className="flex items-center gap-2">
-                    <ThemePreview themeId={t.id} />
-                    {t.name}
-                  </span>
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-        </div>
-        <p className="text-xs text-neutral-500">
-          Choose a color theme for the LaTeX editor. Your preference is saved automatically.
-        </p>
-      </div>
-    </div>
+            </SelectItem>
+          ))}
+        </SelectGroup>
+        <SelectGroup>
+          <SelectLabel>Dark Themes</SelectLabel>
+          {darkThemes.map((t) => (
+            <SelectItem key={t.id} value={t.id}>
+              <span className="flex items-center gap-2">
+                <ThemePreview themeId={t.id} />
+                {t.name}
+              </span>
+            </SelectItem>
+          ))}
+        </SelectGroup>
+      </SelectContent>
+    </Select>
   );
 }

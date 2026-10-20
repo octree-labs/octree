@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { SaveStatusActions } from '@/stores/save-status';
 import {
   Dialog,
   DialogContent,
@@ -26,6 +27,11 @@ export function BackButton() {
     pushHistoryState();
 
     const handlePopState = () => {
+      if (!SaveStatusActions.hasUnsavedChanges()) {
+        // Nothing to lose: step past the guard entry and really go back.
+        window.history.back();
+        return;
+      }
       setOpen(true);
       pushHistoryState();
     };
@@ -34,15 +40,23 @@ export function BackButton() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
+  const goBack = () => {
+    router.push('/');
+    router.refresh();
+  };
+
   const handleBackClick = (e: React.MouseEvent) => {
     e.preventDefault();
-    setOpen(true);
+    if (SaveStatusActions.hasUnsavedChanges()) {
+      setOpen(true);
+    } else {
+      goBack();
+    }
   };
 
   const handleConfirmBack = () => {
     setOpen(false);
-    router.push('/');
-    router.refresh();
+    goBack();
   };
 
   const handleCancel = () => {
@@ -64,10 +78,10 @@ export function BackButton() {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent showCloseButton={true}>
           <DialogHeader>
-            <DialogTitle>Are you sure you want to go back?</DialogTitle>
+            <DialogTitle>You have unsaved changes</DialogTitle>
             <DialogDescription>
-              You will leave the editor and return to the dashboard. Any unsaved
-              changes will be lost.
+              If you go back to the dashboard now, your unsaved changes will be
+              lost.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

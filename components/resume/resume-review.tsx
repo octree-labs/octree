@@ -17,18 +17,13 @@ function PdfFrame({
   isLoading?: boolean;
 }) {
   return (
-    <div className="flex min-w-0 flex-col">
-      <p className="mb-2 flex h-7 items-center text-sm font-medium text-neutral-700">
-        Redesigned
-      </p>
-      <div className="relative h-[75vh] overflow-hidden rounded-xl border bg-white">
-        <PDFViewer pdfData={pdfData} />
-        {isLoading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-white/70">
-            <Loader2 className="size-6 animate-spin text-primary" />
-          </div>
-        )}
-      </div>
+    <div className="relative min-h-[70vh] flex-1 overflow-hidden rounded-xl border bg-white lg:min-h-0">
+      <PDFViewer pdfData={pdfData} />
+      {isLoading && (
+        <div className="absolute inset-0 flex items-center justify-center bg-white/70">
+          <Loader2 className="size-6 animate-spin text-primary" />
+        </div>
+      )}
     </div>
   );
 }
@@ -38,7 +33,7 @@ function CoverageLine({ coverage }: { coverage: CoverageReport }) {
   const { missing } = coverage;
   if (missing.length === 0) {
     return (
-      <p className="mt-4 flex items-center gap-1.5 text-sm text-green-700">
+      <p className="flex shrink-0 items-center gap-1.5 text-sm text-green-700">
         <CircleCheck className="size-4 shrink-0" />
         All of your original content made it into the new version.
       </p>
@@ -46,7 +41,7 @@ function CoverageLine({ coverage }: { coverage: CoverageReport }) {
   }
   return (
     <p
-      className="mt-4 flex items-center gap-1.5 text-sm text-amber-700"
+      className="flex shrink-0 items-center gap-1.5 text-sm text-amber-700"
       title={missing.join(', ')}
     >
       <TriangleAlert className="size-4 shrink-0" />
@@ -137,33 +132,36 @@ export function ResumeReview({
   const busy = isRecompiling || isOpening;
 
   return (
-    <div>
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-lg font-semibold text-neutral-900">Review your new resume</h1>
-          <p className="text-sm text-neutral-500">
-            Apply any fixes you want, then open it in the editor to keep working.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={onDiscard} disabled={busy}>
-            Discard
-          </Button>
-          <Button size="sm" onClick={onOpenInEditor} disabled={busy}>
-            {isOpening && <Loader2 className="size-4 animate-spin" />}
-            Open in editor
-          </Button>
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div>
+        <div className="container mx-auto flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h1 className="text-lg font-semibold text-neutral-900">Review your new resume</h1>
+            <p className="text-sm text-neutral-500">
+              Apply any fixes you want, then open it in the editor to keep working.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={onDiscard} disabled={busy}>
+              Discard
+            </Button>
+            <Button size="sm" onClick={onOpenInEditor} disabled={busy}>
+              {isOpening && <Loader2 className="size-4 animate-spin" />}
+              Open in editor
+            </Button>
+          </div>
         </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
-        <div className="min-w-0">
+      {/* Both panes fill the height left under the header (see app/resume/page.tsx). */}
+      <div className="container mx-auto grid min-h-0 flex-1 gap-4 px-4 py-4 lg:grid-cols-[1fr_340px]">
+        <div className="flex min-h-0 min-w-0 flex-col gap-2">
           <PdfFrame pdfData={pdfData} isLoading={isRecompiling} />
           <CoverageLine coverage={coverage} />
         </div>
 
-        <aside className="flex min-w-0 flex-col">
-          <div className="mb-2 flex h-7 items-center justify-between">
+        <aside className="flex min-h-[40vh] min-w-0 flex-col overflow-hidden rounded-xl border bg-white lg:min-h-0">
+          <div className="flex h-11 shrink-0 items-center justify-between border-b px-3">
             <p className="text-sm font-medium text-neutral-700">
               Suggested fixes{suggestions.length > 0 && ` (${suggestions.length})`}
             </p>
@@ -173,7 +171,7 @@ export function ResumeReview({
               </Button>
             )}
           </div>
-          <div className="h-[75vh] overflow-y-auto rounded-xl border bg-white p-2">
+          <div className="min-h-0 flex-1 overflow-y-auto p-2">
             {suggestions.length === 0 ? (
               <p className="p-2 text-sm text-neutral-500">No obvious mistakes found.</p>
             ) : (

@@ -11,8 +11,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Project } from '@/types/project';
@@ -80,7 +78,7 @@ export function ProjectCard({
       onClick={() => router.push(`/projects/${project.id}`)}
     >
       <ProjectThumbnail projectId={project.id} />
-      <div className="flex items-center justify-between gap-2 border-t p-4">
+      <div className="flex items-center justify-between gap-1 border-t py-4 pl-4 pr-2">
         <div className="min-w-0">
           <p className="truncate font-medium" title={project.title}>
             {project.title}
@@ -93,7 +91,7 @@ export function ProjectCard({
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
-              className="h-8 w-8 shrink-0 p-0"
+              className="h-8 w-6 shrink-0 p-0"
               onClick={(e) => e.stopPropagation()}
             >
               <span className="sr-only">Open menu</span>
@@ -101,8 +99,6 @@ export function ProjectCard({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-            <DropdownMenuLabel>Actions</DropdownMenuLabel>
-            <DropdownMenuSeparator />
             <DropdownMenuItem
               className="cursor-pointer"
               onClick={() => onRename(project.id, project.title)}

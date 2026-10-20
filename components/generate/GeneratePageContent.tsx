@@ -440,7 +440,8 @@ export function GeneratePageContent({
           </div>
         </main>
 
-        <div className="shrink-0 border-t bg-background p-2 md:p-4">
+        {/* Same background as the messages above, with a divider between them. */}
+        <div className="shrink-0 border-t bg-muted/30 p-2 md:p-4">
           <form
             onSubmit={(e) => {
               e.preventDefault();

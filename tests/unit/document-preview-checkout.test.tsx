@@ -114,7 +114,7 @@ describe('DocumentPreview checkout plan', () => {
 
     expect(screen.getByText('$79')).toBeInTheDocument();
     expect(screen.getByText(/per year/)).toBeInTheDocument();
-    expect(screen.getAllByText(/\$6\.58\/mo/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/\$6\.58 a month, billed yearly/)).toBeInTheDocument();
     expect(screen.queryByText(/4\.99/)).not.toBeInTheDocument();
     expect(screen.queryByText(/per week/)).not.toBeInTheDocument();
   });
@@ -143,7 +143,7 @@ describe('DocumentPreview checkout plan', () => {
     expect(single).toBeGreaterThanOrEqual(0);
     expect(single).toBeLessThan(pro);
     expect(pro).toBeLessThan(notNow);
-    expect(screen.getByText(/billed monthly at \$9\.99/i)).toBeInTheDocument();
+    expect(screen.getByText(/billed monthly\. cancel anytime/i)).toBeInTheDocument();
     expect(screen.queryByRole('radio')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /generate this one/i }));

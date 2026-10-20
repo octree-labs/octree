@@ -1,15 +1,10 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { FileText, Calendar, CreditCard, Loader2 } from 'lucide-react';
+import { SettingsCard, SettingsRow } from '@/components/settings/settings-card';
+import { SettingsCardSkeleton } from '@/components/settings/settings-card-skeleton';
 
 interface BillingSummary {
   totalPaid: number;
@@ -45,6 +40,7 @@ export function BillingSection() {
   } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isPortalLoading, setIsPortalLoading] = useState(false);
 
   useEffect(() => {
     const fetchBillingData = async () => {
@@ -70,7 +66,7 @@ export function BillingSection() {
   const formatDate = (timestamp: number) => {
     return new Date(timestamp * 1000).toLocaleDateString('en-US', {
       year: 'numeric',
-      month: 'long',
+      month: 'short',
       day: 'numeric',
     });
   };
@@ -82,185 +78,97 @@ export function BillingSection() {
     }).format(amount / 100);
   };
 
-  const getCardBrandIcon = (brand: string) => {
-    switch (brand.toLowerCase()) {
-      case 'visa':
-        return 'V';
-      case 'mastercard':
-        return 'M';
-      case 'amex':
-        return 'A';
-      case 'discover':
-        return 'D';
-      default:
-        return '•';
+  const openBillingPortal = async () => {
+    setIsPortalLoading(true);
+    try {
+      const response = await fetch('/api/billing-portal', { method: 'POST' });
+      const data = await response.json();
+      if (!response.ok || !data.url) {
+        throw new Error(data.error || 'Could not open the billing portal');
+      }
+      window.location.href = data.url;
+    } catch (error) {
+      console.error('Error opening billing portal:', error);
+      toast.error('Could not open billing. Please try again.');
+      setIsPortalLoading(false);
     }
   };
 
   if (isLoading) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <CreditCard className="h-5 w-5" />
-            Billing & Invoices
-          </CardTitle>
-          <CardDescription>
-            View your billing activity and payment methods
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex h-32 items-center justify-center">
-            <Loader2 className="h-6 w-6 animate-spin text-neutral-400" />
-          </div>
-        </CardContent>
-      </Card>
-    );
+    return <SettingsCardSkeleton rows={3} />;
   }
 
   if (error) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <CreditCard className="h-5 w-5" />
-            Billing & Invoices
-          </CardTitle>
-          <CardDescription>
-            View your billing activity and payment methods
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="text-center text-sm text-red-600">Error: {error}</div>
-        </CardContent>
-      </Card>
-    );
+    return <SettingsCard title="Billing" description={`Could not load billing details: ${error}`} />;
+  }
+
+  const invoices = billingData?.invoices ?? [];
+  const paymentMethods = billingData?.paymentMethods ?? [];
+  const nextBilling = billingData?.billingSummary.nextBilling ?? null;
+
+  // Nothing to show for someone who has never paid.
+  if (invoices.length === 0 && paymentMethods.length === 0) {
+    return null;
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <CreditCard className="h-5 w-5" />
-          Billing & Invoices
-        </CardTitle>
-        <CardDescription>
-          View your billing activity and payment methods
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        {/* Billing Summary */}
-        <div>
-          <h3 className="mb-3 text-sm font-medium text-neutral-700">
-            <Calendar className="mb-1 inline h-4 w-4" /> Billing Summary
-          </h3>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <div className="rounded-lg border p-3">
-              <p className="text-xs text-neutral-500">Total Paid</p>
-              <p className="text-lg font-bold text-neutral-900">
-                {formatAmount(billingData?.billingSummary.totalPaid || 0)}
-              </p>
-            </div>
-            <div className="rounded-lg border p-3">
-              <p className="text-xs text-neutral-500">Invoices</p>
-              <p className="text-lg font-bold text-neutral-900">
-                {billingData?.billingSummary.invoiceCount || 0}
-              </p>
-            </div>
-            <div className="rounded-lg border p-3">
-              <p className="text-xs text-neutral-500">Next Billing</p>
-              <p className="text-sm font-bold text-neutral-900">
-                {billingData?.billingSummary.nextBilling
-                  ? formatDate(billingData.billingSummary.nextBilling)
-                  : 'No subscription'}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Recent Invoices */}
-        <div>
-          <h3 className="mb-3 text-sm font-medium text-neutral-700">
-            <FileText className="mb-1 inline h-4 w-4" /> Recent Invoices
-          </h3>
-          {billingData?.invoices && billingData.invoices.length > 0 ? (
-            <div className="space-y-2">
-              {billingData.invoices.slice(0, 3).map((invoice) => (
-                <div
-                  key={invoice.id}
-                  className="flex items-center justify-between rounded-lg border p-3"
-                >
-                  <div>
-                    <p className="text-sm font-medium text-neutral-900">
-                      {invoice.description}
-                    </p>
-                    <p className="text-xs text-neutral-500">
-                      {formatDate(invoice.date)}
-                    </p>
-                  </div>
-                  <p className="text-sm font-medium text-neutral-900">
-                    {formatAmount(invoice.amount, invoice.currency)}
-                  </p>
-                </div>
-              ))}
-              {billingData.invoices.length > 3 && (
-                <Button variant="outline" size="sm" className="w-full">
-                  View All Invoices
-                </Button>
-              )}
-            </div>
+    <SettingsCard
+      title="Billing"
+      description="Payment method and invoices."
+      action={
+        <Button variant="outline" size="sm" onClick={openBillingPortal} disabled={isPortalLoading}>
+          {isPortalLoading ? 'Opening...' : 'Manage billing'}
+        </Button>
+      }
+    >
+      {paymentMethods.map((pm) => (
+        <SettingsRow key={pm.id} label="Payment method">
+          {pm.card ? (
+            <span>
+              <span className="capitalize">{pm.card.brand}</span> ending in {pm.card.last4}
+              <span className="text-neutral-500">
+                {' '}
+                · Expires {pm.card.expMonth}/{pm.card.expYear}
+              </span>
+            </span>
           ) : (
-            <div className="rounded-lg border p-4 text-center text-sm text-neutral-500">
-              No invoices found
-            </div>
+            'Payment method on file'
           )}
-        </div>
+        </SettingsRow>
+      ))}
 
-        {/* Payment Methods */}
-        <div>
-          <h3 className="mb-3 text-sm font-medium text-neutral-700">
-            <CreditCard className="mb-1 inline h-4 w-4" /> Payment Methods
-          </h3>
-          {billingData?.paymentMethods &&
-          billingData.paymentMethods.length > 0 ? (
-            <div className="space-y-2">
-              {billingData.paymentMethods.map((pm) => (
-                <div
-                  key={pm.id}
-                  className="flex items-center justify-between rounded-lg border p-3"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-100">
-                      <span className="text-sm font-medium text-blue-600">
-                        {pm.card ? getCardBrandIcon(pm.card.brand) : '•'}
-                      </span>
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-neutral-900">
-                        {pm.card
-                          ? `${pm.card.brand} ending in ${pm.card.last4}`
-                          : 'Payment method'}
-                      </p>
-                      {pm.card && (
-                        <p className="text-xs text-neutral-500">
-                          Expires {pm.card.expMonth}/{pm.card.expYear}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  <Button variant="outline" size="sm">
-                    Update
-                  </Button>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="rounded-lg border p-4 text-center text-sm text-neutral-500">
-              No payment methods found
-            </div>
+      {nextBilling && (
+        <SettingsRow label="Next payment">{formatDate(nextBilling)}</SettingsRow>
+      )}
+
+      {invoices.length > 0 && (
+        <SettingsRow label="Invoices">
+          <ul className="space-y-2">
+            {invoices.slice(0, 3).map((invoice) => (
+              <li key={invoice.id} className="flex items-center justify-between gap-4">
+                <span className="min-w-0 truncate">
+                  {formatDate(invoice.date)}
+                  <span className="text-neutral-500"> · {invoice.description}</span>
+                </span>
+                <span className="shrink-0 tabular-nums">
+                  {formatAmount(invoice.amount, invoice.currency)}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {invoices.length > 3 && (
+            <Button
+              variant="link"
+              size="sm"
+              className="mt-2 h-auto p-0"
+              onClick={openBillingPortal}
+              disabled={isPortalLoading}
+            >
+              View all invoices
+            </Button>
           )}
-        </div>
-      </CardContent>
-    </Card>
+        </SettingsRow>
+      )}
+    </SettingsCard>
   );
 }

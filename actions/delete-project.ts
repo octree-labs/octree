@@ -76,16 +76,6 @@ export async function deleteProject(projectId: string) {
       throw new Error('Failed to delete project files from storage');
     }
 
-    const { error: documentsError } = await supabase
-      .from('documents')
-      .delete()
-      .eq('project_id', validatedProjectId);
-
-    if (documentsError) {
-      console.error('Error deleting project documents:', documentsError);
-      throw new Error('Failed to delete project documents');
-    }
-
     const { error: filesError } = await supabase
       .from('files')
       .delete()

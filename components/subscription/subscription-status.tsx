@@ -1,22 +1,17 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { CreditCard, AlertCircle, CheckCircle, PauseCircle, Zap } from 'lucide-react';
+import { AlertCircle, PauseCircle } from 'lucide-react';
 import { CREDIT_PACKS, FREE_DAILY_EDIT_LIMIT, PRO_MONTHLY_EDIT_LIMIT } from '@/data/constants';
 import { CancelDialog } from '@/components/subscription/cancel-dialog';
 import { PlanPicker, type PickerPlan } from '@/components/subscription/plan-picker';
-import { FeatureList } from '@/app/onboarding/components/feature-list';
+import { SettingsCard, SettingsRow } from '@/components/settings/settings-card';
+import { SettingsCardSkeleton } from '@/components/settings/settings-card-skeleton';
 import { createCheckoutSession, resumeSubscription } from '@/lib/requests/subscription';
 import { describePlanPeriod } from '@/lib/stripe-subscription';
+import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
 interface SubscriptionData {
@@ -124,10 +119,9 @@ export function SubscriptionStatus() {
   };
 
   const creditsRow = (credits: number) => (
-    <div className="flex items-center justify-between gap-2">
-      <span className="text-sm font-medium text-neutral-700">Purchased edits</span>
-      <div className="flex items-center gap-2">
-        <span className="text-sm text-neutral-500">
+    <SettingsRow label="Purchased edits" description="Never expire.">
+      <div className="flex items-center gap-3">
+        <span>
           {credits} {credits === 1 ? 'credit' : 'credits'} left
         </span>
         <Button
@@ -140,7 +134,7 @@ export function SubscriptionStatus() {
           {isCreditsLoading ? 'Loading...' : `Buy ${CREDIT_PACKS.credits_100.credits} for ${CREDIT_PACKS.credits_100.price}`}
         </Button>
       </div>
-    </div>
+    </SettingsRow>
   );
 
   const handleManageSubscription = async () => {
@@ -188,41 +182,15 @@ export function SubscriptionStatus() {
   };
 
   if (isLoading) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <CreditCard className="h-5 w-5" />
-            Subscription Status
-          </CardTitle>
-          <CardDescription>Loading subscription information...</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="animate-pulse space-y-2">
-            <div className="h-4 w-3/4 rounded bg-neutral-200"></div>
-            <div className="h-4 w-1/2 rounded bg-neutral-200"></div>
-          </div>
-        </CardContent>
-      </Card>
-    );
+    return <SettingsCardSkeleton rows={3} />;
   }
 
   if (!subscriptionData) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <CreditCard className="h-5 w-5" />
-            Subscription Status
-          </CardTitle>
-          <CardDescription>
-            Unable to load subscription information
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-neutral-600">Please try again later.</p>
-        </CardContent>
-      </Card>
+      <SettingsCard
+        title="Plan"
+        description="Unable to load your plan. Please try again later."
+      />
     );
   }
 
@@ -230,47 +198,14 @@ export function SubscriptionStatus() {
 
   if (usage.hasUnlimitedEdits && !hasSubscription) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Zap className="h-5 w-5 text-blue-500" />
-            Unlimited AI Edits
-          </CardTitle>
-          <CardDescription>
-            Your account has been granted unlimited AI edit credits.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-neutral-700">Status</span>
-            <Badge variant="secondary">Unlimited Access</Badge>
-          </div>
-
-          <div className="space-y-2 rounded-lg bg-neutral-50 p-4">
-            <p className="text-sm text-neutral-600">
-              You can continue using AI-powered edits without any usage limits.
-            </p>
-            <div className="text-xs text-neutral-500">
-              Lifetime edits used:{' '}
-              <span className="font-medium text-neutral-700">
-                {usage.editCount}
-              </span>
-            </div>
-            <div className="text-xs text-neutral-500">
-              Monthly edits used:{' '}
-              <span className="font-medium text-neutral-700">
-                {usage.monthlyEditCount}
-              </span>
-            </div>
-            {usage.monthlyResetDate && (
-              <p className="text-xs text-neutral-500">
-                Monthly usage resets on{' '}
-                {new Date(usage.monthlyResetDate).toLocaleDateString()}
-              </p>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+      <SettingsCard
+        title="Unlimited AI edits"
+        description="Your account has been granted unlimited AI edits."
+        action={<Badge variant="secondary">Unlimited</Badge>}
+      >
+        <SettingsRow label="Edits this month">{usage.monthlyEditCount}</SettingsRow>
+        <SettingsRow label="Lifetime edits">{usage.editCount}</SettingsRow>
+      </SettingsCard>
     );
   }
 
@@ -298,253 +233,180 @@ export function SubscriptionStatus() {
     const planPeriod = describePlanPeriod(price?.recurring, periodEnd, isCancelling);
     const editCredits = usage.editCredits ?? 0;
 
+    const statusLabel = isPaused
+      ? 'Paused'
+      : isActive
+        ? 'Active'
+        : isPastDue
+          ? 'Payment failed'
+          : subscription.status.charAt(0).toUpperCase() +
+            subscription.status.slice(1).toLowerCase();
+
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <CreditCard className="h-5 w-5" />
-            Subscription Status
-          </CardTitle>
-          <CardDescription>
-            Manage your subscription and billing
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-neutral-700">Status</span>
-            <Badge variant={isActive ? 'default' : isPastDue ? 'destructive' : 'secondary'}>
-              {isPaused
-                ? 'Paused'
-                : isActive
-                ? 'Active'
-                : isPastDue
-                ? 'Payment failed'
-                : subscription.status.charAt(0).toUpperCase() +
-                  subscription.status.slice(1).toLowerCase()}
-            </Badge>
-          </div>
-
-          {isPastDue && (
-            <div className="flex items-center justify-between gap-2 rounded-md bg-red-50 p-3">
-              <span className="flex items-center gap-2 text-sm text-red-700">
-                <AlertCircle className="h-4 w-4 text-red-500" />
-                Your last payment failed. Update your card to keep Pro.
-              </span>
-              <Button
-                variant="link"
-                size="sm"
-                className="h-auto p-0 text-red-700"
-                onClick={handleManageSubscription}
-                disabled={isManageLoading}
-              >
-                {isManageLoading ? 'Opening...' : 'Update card'}
-              </Button>
-            </div>
-          )}
-
-          {(isPaused || pauseScheduled) && (
-            <div className="flex items-center justify-between gap-2 rounded-md bg-neutral-100 p-3">
-              <span className="flex items-center gap-2 text-sm text-neutral-700">
-                <PauseCircle className="h-4 w-4 text-neutral-500" />
-                {isPaused
-                  ? pausedUntil
-                    ? `Paused until ${pausedUntil.toLocaleDateString()} · free plan until then`
-                    : 'Paused · free plan until you resume'
-                  : `Pro until ${(pausePaidThrough ?? periodEnd).toLocaleDateString()}, then paused${
-                      pausedUntil ? ` until ${pausedUntil.toLocaleDateString()}` : ''
-                    }`}
-              </span>
-              <Button
-                variant="link"
-                size="sm"
-                className="h-auto p-0"
-                onClick={handleResume}
-                disabled={isResumeLoading}
-              >
-                {isResumeLoading ? 'Resuming...' : 'Resume'}
-              </Button>
-            </div>
-          )}
-
-          {isCancelling && (
-            <div className="flex items-center gap-2 rounded-md bg-orange-50 p-3">
-              <AlertCircle className="h-4 w-4 text-orange-500" />
-              <span className="text-sm text-orange-700">
-                Your subscription will end on {periodEnd.toLocaleDateString()}
-              </span>
-            </div>
-          )}
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-sm font-medium text-neutral-700">
-                Current Plan
-              </label>
-              <p className="text-sm text-neutral-500">
-                {amount} {currency} · {planPeriod}
-              </p>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-neutral-700">
-                Billing Period
-              </label>
-              <p className="text-sm text-neutral-500">
-                {periodStart.toLocaleDateString()} -{' '}
-                {periodEnd.toLocaleDateString()}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-neutral-700">
-              AI Edits Used
-            </span>
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-neutral-500">
-                {hasUnlimitedAccess
-                  ? 'Unlimited edits enabled'
-                  : isActive
-                    ? `${usage.monthlyEditCount}/${PRO_MONTHLY_EDIT_LIMIT} monthly edits`
-                    : `${usage.editCount} edits`}
-              </span>
-              {hasUnlimitedAccess ? (
-                <Zap className="h-4 w-4 text-blue-500" />
-              ) : (
-                <CheckCircle className="h-4 w-4 text-green-500" />
-              )}
-            </div>
-          </div>
-
-          {isActive &&
-            (hasUnlimitedAccess ? (
-              <div className="rounded-lg bg-blue-50 p-3">
-                <p className="text-sm text-blue-700">
-                  Unlimited AI edits have been granted to your account. We'll
-                  still track usage, but no limits apply this billing cycle.
-                </p>
-                {usage.monthlyResetDate && (
-                  <p className="mt-2 text-xs text-blue-600">
-                    Tracking resets on{' '}
-                    {new Date(usage.monthlyResetDate).toLocaleDateString()}
-                  </p>
-                )}
-              </div>
-            ) : (
-              <div className="rounded-lg bg-blue-50 p-3">
-                <div className="mb-2 flex items-center justify-between">
-                  <span className="text-sm font-medium text-blue-700">
-                    Monthly Usage
-                  </span>
-                  <Badge variant="outline" className="text-xs">
-                    {usage.remainingMonthlyEdits} remaining
-                  </Badge>
-                </div>
-                <div className="h-2 w-full rounded-full bg-blue-200">
-                  <div
-                    className="h-2 rounded-full bg-blue-500 transition-all duration-300"
-                    style={{ width: `${Math.min(100, (usage.monthlyEditCount / PRO_MONTHLY_EDIT_LIMIT) * 100)}%` }}
-                  />
-                </div>
-                {usage.monthlyResetDate && (
-                  <p className="mt-2 text-xs text-blue-600">
-                    Resets on{' '}
-                    {new Date(usage.monthlyResetDate).toLocaleDateString()}
-                  </p>
-                )}
-              </div>
-            ))}
-
-          {!hasUnlimitedAccess && creditsRow(editCredits)}
-
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              onClick={handleManageSubscription}
-              disabled={isManageLoading}
-            >
-              {isManageLoading ? 'Loading...' : 'Manage Plan'}
-            </Button>
+      <SettingsCard
+        title="Pro"
+        badge={
+          <Badge variant={isActive ? 'default' : isPastDue ? 'destructive' : 'secondary'}>
+            {statusLabel}
+          </Badge>
+        }
+        description={`${amount} ${currency} · ${planPeriod}`}
+        action={
+          <>
             {(isActive || isPaused || pauseScheduled) && !isCancelling && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowCancelDialog(true)}
-              >
-                Cancel Subscription
+              <Button variant="outline" size="sm" onClick={() => setShowCancelDialog(true)}>
+                Cancel subscription
               </Button>
             )}
-          </div>
+            <Button size="sm" onClick={handleManageSubscription} disabled={isManageLoading}>
+              {isManageLoading ? 'Loading...' : 'Manage plan'}
+            </Button>
+          </>
+        }
+      >
+        {isPastDue && (
+          <Notice tone="red" icon={<AlertCircle />}>
+            Your last payment failed. Update your card to keep Pro.
+            <NoticeAction onClick={handleManageSubscription} disabled={isManageLoading}>
+              {isManageLoading ? 'Opening...' : 'Update card'}
+            </NoticeAction>
+          </Notice>
+        )}
 
-          <CancelDialog
-            open={showCancelDialog}
-            onOpenChange={handleCancelDialogChange}
-          />
-        </CardContent>
-      </Card>
+        {(isPaused || pauseScheduled) && (
+          <Notice tone="neutral" icon={<PauseCircle />}>
+            {isPaused
+              ? pausedUntil
+                ? `Paused until ${pausedUntil.toLocaleDateString()} · free plan until then`
+                : 'Paused · free plan until you resume'
+              : `Pro until ${(pausePaidThrough ?? periodEnd).toLocaleDateString()}, then paused${
+                  pausedUntil ? ` until ${pausedUntil.toLocaleDateString()}` : ''
+                }`}
+            <NoticeAction onClick={handleResume} disabled={isResumeLoading}>
+              {isResumeLoading ? 'Resuming...' : 'Resume'}
+            </NoticeAction>
+          </Notice>
+        )}
+
+        {isCancelling && (
+          <Notice tone="orange" icon={<AlertCircle />}>
+            Your subscription ends on {periodEnd.toLocaleDateString()}.
+          </Notice>
+        )}
+
+        <SettingsRow label="Billing period">
+          {periodStart.toLocaleDateString()} – {periodEnd.toLocaleDateString()}
+        </SettingsRow>
+
+        <SettingsRow
+          label="AI edits"
+          description={
+            usage.monthlyResetDate
+              ? `Resets on ${new Date(usage.monthlyResetDate).toLocaleDateString()}`
+              : undefined
+          }
+        >
+          {hasUnlimitedAccess ? (
+            'Unlimited'
+          ) : isActive ? (
+            <UsageMeter used={usage.monthlyEditCount} limit={PRO_MONTHLY_EDIT_LIMIT} />
+          ) : (
+            `${usage.editCount} used`
+          )}
+        </SettingsRow>
+
+        {!hasUnlimitedAccess && creditsRow(editCredits)}
+
+        <CancelDialog open={showCancelDialog} onOpenChange={handleCancelDialogChange} />
+      </SettingsCard>
     );
   }
 
-  // No subscription - show usage and upgrade options
+  // No subscription: today's usage, then the upgrade options.
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <CreditCard className="h-5 w-5" />
-          Subscription Status
-        </CardTitle>
-        <CardDescription>You don't have an active subscription</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        {/* Usage Summary */}
-        <div className="rounded-lg bg-neutral-50 p-4">
-          <div className="mb-2 flex items-center justify-between">
-            <span className="text-sm font-medium text-neutral-700">
-              Your Usage
-            </span>
-            <Badge variant={usage.limitReached ? 'destructive' : 'secondary'}>
-              {usage.editCount}/{FREE_DAILY_EDIT_LIMIT} edits used
-            </Badge>
-          </div>
-          <div className="h-2 w-full rounded-full bg-neutral-200">
-            <div
-              className="h-2 rounded-full bg-amber-500 transition-all duration-300"
-              style={{ width: `${Math.min(100, (usage.editCount / FREE_DAILY_EDIT_LIMIT) * 100)}%` }}
-            />
-          </div>
-          <p className="mt-2 text-xs text-neutral-500">
-            {usage.remainingEdits && usage.remainingEdits > 0
-              ? `${usage.remainingEdits} free edits remaining today`
-              : 'No free edits remaining today'}
-            {(usage.editCredits ?? 0) > 0 && ` · ${usage.editCredits} purchased credits left`}
-          </p>
-        </div>
+    <div className="space-y-6">
+      <SettingsCard
+        title="Free"
+        description={`${FREE_DAILY_EDIT_LIMIT} AI edits a day.`}
+      >
+        <SettingsRow label="AI edits today">
+          <UsageMeter used={usage.editCount} limit={FREE_DAILY_EDIT_LIMIT} />
+        </SettingsRow>
+        {creditsRow(usage.editCredits ?? 0)}
+      </SettingsCard>
 
-        {/* Plans */}
-        <PlanPicker
-          plan={plan}
-          onPlanChange={setPlan}
-          source="settings"
-          disabled={isCheckoutLoading}
-        />
-
-        {/* Features */}
-        <div>
-          <p className="mb-4 text-sm font-semibold">Octree Pro includes</p>
-          <FeatureList />
-        </div>
-
-        {/* Subscribe Button */}
-        <form onSubmit={handleCheckout}>
-          <Button
-            type="submit"
-            className="w-full"
-            variant="gradient"
+      <SettingsCard
+        title="Upgrade to Pro"
+        description="More AI edits every month, unlimited projects and citations."
+      >
+        <form onSubmit={handleCheckout} className="space-y-4 px-6 py-5">
+          <PlanPicker
+            plan={plan}
+            onPlanChange={setPlan}
+            source="settings"
+            hideCredits
             disabled={isCheckoutLoading}
-          >
-            {isCheckoutLoading ? 'Loading...' : 'Subscribe Now'}
+          />
+          <Button type="submit" variant="gradient" size="sm" disabled={isCheckoutLoading}>
+            {isCheckoutLoading ? 'Loading...' : 'Subscribe'}
           </Button>
         </form>
-      </CardContent>
-    </Card>
+      </SettingsCard>
+    </div>
+  );
+}
+
+function UsageMeter({ used, limit }: { used: number; limit: number }) {
+  return (
+    <div className="flex items-center gap-3">
+      <div className="h-1.5 w-32 rounded-full bg-neutral-200">
+        <div
+          className="h-1.5 rounded-full bg-primary transition-all duration-300"
+          style={{ width: `${Math.min(100, (used / limit) * 100)}%` }}
+        />
+      </div>
+      <span className="text-neutral-500">
+        {used} of {limit} used
+      </span>
+    </div>
+  );
+}
+
+const NOTICE_TONES = {
+  red: 'bg-red-50 text-red-700 [&>svg]:text-red-500',
+  orange: 'bg-orange-50 text-orange-700 [&>svg]:text-orange-500',
+  neutral: 'bg-neutral-50 text-neutral-700 [&>svg]:text-neutral-500',
+};
+
+function Notice({
+  tone,
+  icon,
+  children,
+}: {
+  tone: keyof typeof NOTICE_TONES;
+  icon: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className={cn(
+        'flex items-center gap-2 px-6 py-3 text-sm [&>svg]:size-4 [&>svg]:shrink-0',
+        NOTICE_TONES[tone]
+      )}
+    >
+      {icon}
+      {children}
+    </div>
+  );
+}
+
+function NoticeAction(props: React.ComponentProps<typeof Button>) {
+  return (
+    <Button
+      variant="link"
+      size="sm"
+      className="ml-auto h-auto shrink-0 p-0 text-inherit"
+      {...props}
+    />
   );
 }

@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { createClient } from '@/lib/supabase/server';
+import { getCurrentUser } from '@/lib/supabase/server';
 import { SubscriptionStatus } from '@/components/subscription/subscription-status';
 import { BillingSection } from '@/components/subscription/billing-section';
 import { XCircle, AlertCircle } from 'lucide-react';
@@ -11,10 +11,7 @@ interface BillingSettingsPageProps {
 export default async function BillingSettingsPage({
   searchParams,
 }: BillingSettingsPageProps) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
 
   if (!user) {
     redirect('/auth/login');
@@ -24,15 +21,6 @@ export default async function BillingSettingsPage({
 
   return (
     <div>
-      <div className="mb-10">
-        <h2 className="text-2xl font-bold tracking-tight text-neutral-900">
-          Billing
-        </h2>
-        <p className="mt-1 text-sm text-neutral-500">
-          Manage your subscription and payment details
-        </p>
-      </div>
-
       <div className="space-y-6">
       {canceled && (
         <div className="mb-6 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
@@ -50,7 +38,7 @@ export default async function BillingSettingsPage({
         </div>
       )}
 
-      <div className="grid gap-6">
+      <div className="space-y-6">
         <SubscriptionStatus />
         <BillingSection />
       </div>

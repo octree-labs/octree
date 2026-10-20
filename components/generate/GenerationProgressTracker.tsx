@@ -64,9 +64,10 @@ function StepIndicator({ status }: { status: StepStatus }) {
   }
 
   if (status === 'in-progress') {
+    // Bare spinner, no circle, as in the resume redesign progress.
     return (
       <span
-        className="bg-card border-border flex size-4 shrink-0 items-center justify-center rounded-full border shadow-[0_0_0_3px_hsl(var(--primary)/0.1)] motion-safe:transition-all motion-safe:duration-300"
+        className="flex size-4 shrink-0 items-center justify-center"
         aria-hidden="true"
       >
         <Loader2 className="text-primary size-3.5 motion-safe:animate-spin" />
@@ -77,7 +78,7 @@ function StepIndicator({ status }: { status: StepStatus }) {
   // completed
   return (
     <span
-      className="bg-gradient-to-t from-primary to-primary/85 text-primary-foreground border border-zinc-950/25 shadow-md shadow-zinc-950/20 ring-1 ring-inset ring-white/20 dark:border-white/20 dark:ring-transparent flex size-4 shrink-0 items-center justify-center rounded-full motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-75 motion-safe:duration-300 motion-safe:ease-out"
+      className="bg-gradient-to-t from-primary to-primary/85 text-primary-foreground border border-zinc-950/25 ring-1 ring-inset ring-white/20 dark:border-white/20 dark:ring-transparent flex size-4 shrink-0 items-center justify-center rounded-full motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-75 motion-safe:duration-300 motion-safe:ease-out"
       aria-hidden="true"
     >
       <Check
@@ -167,7 +168,7 @@ export function GenerationProgressTracker({
       aria-live="polite"
       aria-busy={hasInProgress}
     >
-      <ol className="m-0 flex list-none flex-col gap-0 p-0">
+      <ol className="m-0 flex list-none flex-col gap-2 p-0">
         {STEPS.map((step, index) => {
           const status = statuses[index];
           const isCurrent = status === 'in-progress';
@@ -180,11 +181,13 @@ export function GenerationProgressTracker({
               className="relative"
               aria-current={isCurrent ? 'step' : undefined}
             >
-              {/* Vertical connector line from this step to the next */}
+              {/* Connector to the next step's indicator. The indicator spans
+                  6-22px of the 28px row; the line runs from 4px below it to
+                  4px above the next one (8px list gap + its 6px offset). */}
               {index < STEPS.length - 1 && (
                 <div
-                  className="bg-border absolute top-4 left-[7px] w-px motion-safe:transition-all motion-safe:duration-300"
-                  style={{ height: 'calc(100% - 1rem)' }}
+                  className="bg-border absolute top-[26px] left-[7.5px] w-px motion-safe:transition-all motion-safe:duration-300"
+                  style={{ height: 'calc(100% - 16px)' }}
                   aria-hidden="true"
                 />
               )}

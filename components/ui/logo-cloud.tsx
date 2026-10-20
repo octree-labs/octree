@@ -4,7 +4,7 @@ export default function LogoCloud() {
   return (
     <section className="overflow-hidden bg-transparent py-0">
       <div className="group relative m-auto max-w-7xl">
-        <div className="relative w-full py-6">
+        <div className="relative w-full py-2">
           <InfiniteSlider speedOnHover={5} speed={20} gap={80}>
             <div className="flex items-center justify-center">
               <img

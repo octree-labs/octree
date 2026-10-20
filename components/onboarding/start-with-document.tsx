@@ -4,10 +4,12 @@ import { useCallback, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useDropzone, type FileRejection } from 'react-dropzone';
-import { BookOpen, ClipboardPaste, FilePlus2, FileUp, Loader2 } from 'lucide-react';
+import { BookOpen, ChevronRight, ClipboardPaste, FilePlus2, FileText, FileUp, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { createProjectFromLatex } from '@/actions/create-project-from-latex';
+import { Sparkles } from '@/components/icons/sparkles';
+import { ResumeRedesignDialog } from '@/components/resume/resume-redesign-dialog';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { useCreateProject } from '@/hooks/create-project-client';
@@ -29,6 +31,12 @@ import {
 import { importProject } from '@/lib/requests/project';
 import { cn } from '@/lib/utils';
 
+const ROW_CLASSES = [
+  'flex w-full items-center gap-3 rounded-lg border border-neutral-300 bg-card px-3 py-2.5 text-left transition-all',
+  'hover:border-primary/60 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+  'disabled:cursor-not-allowed disabled:opacity-60',
+];
+
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 const MAX_LATEX_MB = Math.round(MAX_LATEX_BYTES / (1024 * 1024));
 const TEX_TOO_LARGE = `That .tex file is over ${MAX_LATEX_MB} MB. Zip it and upload the ZIP instead.`;
@@ -36,26 +44,22 @@ const PASTE_TOO_LARGE = `That is over ${MAX_LATEX_MB} MB of LaTeX. Save it as a 
 
 const OPTION_COPY: Record<
   StartOption,
-  { title: string; description: string; icon: React.ComponentType<{ className?: string }> }
+  { title: string; icon: React.ComponentType<{ className?: string }> }
 > = {
   upload: {
     title: 'Upload .tex or .zip',
-    description: 'An Overleaf export (Download → Source) works as-is.',
     icon: FileUp,
   },
   paste: {
     title: 'Paste LaTeX',
-    description: 'Drop in a document or a fragment; it becomes main.tex.',
     icon: ClipboardPaste,
   },
   sample: {
     title: 'Start from a sample',
-    description: 'A short article with equations and a table to try AI edits on.',
     icon: BookOpen,
   },
   blank: {
     title: 'Blank project',
-    description: 'An empty article template to write from scratch.',
     icon: FilePlus2,
   },
 };
@@ -83,6 +87,7 @@ interface StartWithDocumentProps {
 export function StartWithDocument({ context, onSkip, targets, className }: StartWithDocumentProps) {
   const router = useRouter();
   const { createProjectWithRefresh, refreshProjects } = useCreateProject();
+  const [resumeOpen, setResumeOpen] = useState(false);
   const [busy, setBusy] = useState<StartOption | null>(null);
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasted, setPasted] = useState('');
@@ -243,7 +248,7 @@ export function StartWithDocument({ context, onSkip, targets, className }: Start
 
   return (
     <div className={cn('space-y-4', className)}>
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="flex flex-col gap-2">
         {START_OPTIONS.map((option) => {
           const copy = OPTION_COPY[option];
           const Icon = copy.icon;
@@ -255,7 +260,7 @@ export function StartWithDocument({ context, onSkip, targets, className }: Start
               key={option}
               {...dropzoneProps}
               data-onboarding-target={option === 'blank' ? targets?.blank : undefined}
-              className={cn('h-full', isUpload && 'rounded-lg', isDragActive && isUpload && 'ring-2 ring-primary')}
+              className={cn(isUpload && 'rounded-lg', isDragActive && isUpload && 'ring-2 ring-primary')}
             >
               {isUpload && <input {...getInputProps()} />}
               <button
@@ -263,28 +268,53 @@ export function StartWithDocument({ context, onSkip, targets, className }: Start
                 onClick={() => handleOption(option)}
                 disabled={busy !== null}
                 aria-busy={isBusy}
-                className={cn(
-                  'flex h-full w-full flex-col items-start gap-3 rounded-lg border bg-card p-4 text-left transition-all',
-                  'hover:border-primary/60 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
-                  'disabled:cursor-not-allowed disabled:opacity-60',
-                  option === 'upload' ? 'border-primary/40 bg-primary/5' : 'border-neutral-300',
-                  pasteOpen && option === 'paste' && 'border-primary'
-                )}
+                className={cn(ROW_CLASSES, pasteOpen && option === 'paste' && 'border-primary')}
               >
-                <span className="flex size-9 items-center justify-center rounded-md bg-primary/10 text-primary">
-                  {isBusy ? <Loader2 className="size-5 animate-spin" /> : <Icon className="size-5" />}
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                  {isBusy ? <Loader2 className="size-4 animate-spin" /> : <Icon className="size-4" />}
                 </span>
-                <span className="space-y-1">
-                  <span className="block text-sm font-semibold text-neutral-900">{copy.title}</span>
-                  <span className="block text-xs leading-relaxed text-neutral-500">
-                    {copy.description}
-                  </span>
-                </span>
+                <span className="min-w-0 flex-1 text-sm font-medium text-neutral-900">{copy.title}</span>
+                <ChevronRight className="size-4 shrink-0 text-neutral-400" />
               </button>
             </div>
           );
         })}
+
+        {/* Not a START_OPTION: it opens the resume redesign flow instead of creating a project here. */}
+        <button
+          type="button"
+          onClick={() => {
+            select('resume');
+            setResumeOpen(true);
+          }}
+          disabled={busy !== null}
+          className={cn(ROW_CLASSES)}
+        >
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+            <FileText className="size-4" />
+          </span>
+          <span className="min-w-0 flex-1 text-sm font-medium text-neutral-900">Redesign a PDF resume</span>
+          <ChevronRight className="size-4 shrink-0 text-neutral-400" />
+        </button>
+
+        <Link
+          href={`/generate?from=${context}`}
+          onClick={() => select('generate')}
+          data-onboarding-target={targets?.generate}
+          aria-disabled={busy !== null}
+          className={cn(ROW_CLASSES, busy !== null && 'pointer-events-none opacity-60')}
+        >
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+            <Sparkles className="size-4" />
+          </span>
+          <span className="min-w-0 flex-1 text-sm font-medium text-neutral-900">
+            Generate a document with AI
+          </span>
+          <ChevronRight className="size-4 shrink-0 text-neutral-400" />
+        </Link>
       </div>
+
+      <ResumeRedesignDialog open={resumeOpen} onOpenChange={setResumeOpen} />
 
       {pasteOpen && (
         <div className="space-y-2 rounded-lg border border-neutral-300 bg-card p-3">
@@ -323,18 +353,8 @@ export function StartWithDocument({ context, onSkip, targets, className }: Start
         </div>
       )}
 
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-xs text-muted-foreground">
-        <span data-onboarding-target={targets?.generate}>
-          Nothing to bring?{' '}
-          <Link
-            href={`/generate?from=${context}`}
-            onClick={() => select('generate')}
-            className="font-medium text-primary underline-offset-4 hover:underline"
-          >
-            Generate a document with AI
-          </Link>
-        </span>
-        {onSkip && (
+      {onSkip && (
+        <div className="flex text-xs text-muted-foreground">
           <button
             type="button"
             onClick={() => {
@@ -346,8 +366,8 @@ export function StartWithDocument({ context, onSkip, targets, className }: Start
           >
             I&apos;ll do this later
           </button>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

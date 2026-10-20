@@ -143,6 +143,8 @@ describe('toFeatureUsage', () => {
       monthlyLimitReached: false,
       freeGenerationsRemaining: 0,
       generationCredits: 0,
+      editCount: 5,
+      monthlyEditCount: 0,
     });
   });
 

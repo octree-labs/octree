@@ -137,3 +137,10 @@ export const PRO_FEATURES = [
   'Generate full documents from a prompt',
   'Unlimited projects and files',
 ] as const;
+
+/**
+ * Kill switch for the post-compile "try one AI edit" card
+ * (components/editor/first-edit-nudge.tsx). Set to `false` to stop showing it
+ * to anyone; nothing else needs to change.
+ */
+export const FIRST_EDIT_NUDGE_ENABLED = true;

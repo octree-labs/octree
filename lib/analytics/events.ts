@@ -27,6 +27,10 @@ export const AnalyticsEvents = {
   EXPORT_CLICKED: 'export_clicked',
   IMPORT_PREVIEW_SHOWN: 'import_preview_shown',
   IMPORT_PREVIEW_SIGNUP_CLICKED: 'import_preview_signup_clicked',
+  // Post-compile "try one AI edit" card (components/editor/first-edit-nudge.tsx)
+  FIRST_EDIT_NUDGE_SHOWN: 'first_edit_nudge_shown',
+  FIRST_EDIT_NUDGE_CLICKED: 'first_edit_nudge_clicked',
+  FIRST_EDIT_NUDGE_DISMISSED: 'first_edit_nudge_dismissed',
 
   // --- Monetisation (browser) ---
   PAYWALL_SHOWN: 'paywall_shown',
@@ -145,6 +149,13 @@ export type LifecycleEmailTemplate =
   | 'checkout_recovery_offer';
 /** Which control on the logged-out import landing started sign-up. */
 export type ImportPreviewCta = 'google' | 'email' | 'login';
+/** The one-click prompts on the post-compile nudge (lib/first-edit-nudge.ts). */
+export type FirstEditNudgeSuggestion =
+  | 'fix_formatting'
+  | 'tighten_abstract'
+  | 'tighten_introduction'
+  | 'check_citations'
+  | 'add_toc';
 
 export interface AnalyticsEventProperties {
   [AnalyticsEvents.SIGNUP_COMPLETED]: { provider: SignupProvider };
@@ -215,6 +226,16 @@ export interface AnalyticsEventProperties {
     method: ImportPreviewCta;
     preview_ok: boolean | null;
   };
+  /**
+   * The "Your PDF is ready. Try one AI edit on it" card after a user's first
+   * successful compile; shown at most once per user.
+   */
+  [AnalyticsEvents.FIRST_EDIT_NUDGE_SHOWN]: {
+    /** Which three prompts were offered, in order. */
+    suggestions: FirstEditNudgeSuggestion[];
+  };
+  [AnalyticsEvents.FIRST_EDIT_NUDGE_CLICKED]: { suggestion: FirstEditNudgeSuggestion };
+  [AnalyticsEvents.FIRST_EDIT_NUDGE_DISMISSED]: Record<string, never>;
 
   [AnalyticsEvents.PAYWALL_SHOWN]: {
     feature: PaywallFeature;

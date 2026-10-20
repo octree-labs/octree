@@ -61,8 +61,8 @@ export async function processFullStream(
         }
 
         case 'finish-step': {
-          const sf = p as { type: string; finishReason?: string; usage?: { inputTokens?: number; outputTokens?: number } };
-          console.log(`[Stream] Step finished: reason=${sf.finishReason || 'unknown'}, usage=${JSON.stringify(sf.usage || {})}`);
+          const sf = p as { type: string; finishReason?: string; usage?: { inputTokens?: number; outputTokens?: number }; providerMetadata?: { anthropic?: { cacheCreationInputTokens?: number } } };
+          console.log(`[Stream] Step finished: reason=${sf.finishReason || 'unknown'}, usage=${JSON.stringify(sf.usage || {})}, cacheWrite=${sf.providerMetadata?.anthropic?.cacheCreationInputTokens ?? 0}`);
           break;
         }
 

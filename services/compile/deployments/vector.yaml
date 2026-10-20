@@ -1,0 +1,19 @@
+# Ships the compile container's stdout/stderr to Better Stack.
+# BETTER_STACK_SOURCE_TOKEN and BETTER_STACK_INGESTING_HOST come from the server's .env.
+sources:
+  compile:
+    type: docker_logs
+    include_containers: ["latex-compile"]
+
+sinks:
+  better_stack:
+    type: http
+    inputs: ["compile"]
+    uri: "https://${BETTER_STACK_INGESTING_HOST}/"
+    method: post
+    encoding:
+      codec: json
+    compression: gzip
+    auth:
+      strategy: bearer
+      token: "${BETTER_STACK_SOURCE_TOKEN}"

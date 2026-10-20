@@ -135,12 +135,16 @@ export function useChatStream() {
       const applyFullSnapshot = (raw: string) => {
         const full = String(raw).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 
+        // Compare against everything received so far, including chunks still waiting
+        // for the next animation frame, or the waiting text gets appended twice.
+        const received = lastAssistantText + pendingTextRef.current;
+
         // Some backends emit occasional truncated/out-of-order "full text so far" events.
         // Never allow the UI to regress (that looks like the message is restarting).
-        if (full.length < lastAssistantText.length) return;
+        if (full.length < received.length) return;
 
-        if (full.startsWith(lastAssistantText)) {
-          queueChunk(full.slice(lastAssistantText.length));
+        if (full.startsWith(received)) {
+          queueChunk(full.slice(received.length));
           return;
         }
 

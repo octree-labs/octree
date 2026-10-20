@@ -131,7 +131,7 @@ export async function buildNumberedContent(fileContent: string, textFromEditor?:
         .map((line, index) => `${lines.length - LINES_PER_SECTION + index + 1}: ${line}`)
         .join('\n');
 
-      let numbered = `${startLines}\n\n... [${lines.length - LINES_PER_SECTION * 2} lines omitted] ...\n\n${endLines}`;
+      let numbered = `${startLines}\n\n... [${lines.length - LINES_PER_SECTION * 2} lines omitted; call get_context to read the whole file] ...\n\n${endLines}`;
       if (textFromEditor && textFromEditor.length > 0) {
         numbered += `\n\n[Selected region context will be provided separately]`;
       }

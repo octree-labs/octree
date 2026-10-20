@@ -175,10 +175,22 @@ app.post('/agent', jwtAuthMiddleware, async (req: express.Request, res: express.
 
     writeEvent('status', { state: 'started' });
 
+    // Prompt caching: one breakpoint on the system prompt (tools + system are
+    // identical on every step) and one on the newest message of each step, so
+    // the next step reads the whole conversation so far from cache.
+    const cacheControl = { anthropic: { cacheControl: { type: 'ephemeral' } } } as const;
+
     const result = streamText({
       model: anthropic('claude-sonnet-5-5'),
-      system: systemPrompt,
-      prompt: userText,
+      messages: [
+        { role: 'system', content: systemPrompt, providerOptions: cacheControl },
+        { role: 'user', content: userText },
+      ],
+      prepareStep: ({ messages }) => ({
+        messages: messages.map((message, i) =>
+          i === messages.length - 1 ? { ...message, providerOptions: cacheControl } : message
+        ),
+      }),
       tools,
       stopWhen: stepCountIs(25),
       // Thinking counts toward this limit, so leave room beyond the reply itself.

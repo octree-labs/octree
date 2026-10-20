@@ -6,6 +6,7 @@ import posthog from 'posthog-js';
 import { PostHogProvider as PHProvider } from 'posthog-js/react';
 import type { User } from '@supabase/supabase-js';
 
+import { dropNoiseExceptions } from '@/lib/analytics/exception-filter';
 import { identifyUser, resetAnalytics } from '@/lib/analytics/track';
 import { getUserIdentityTraits } from '@/lib/requests/user';
 import { createClient } from '@/lib/supabase/client';
@@ -35,6 +36,10 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
       capture_pageview: 'history_change',
       capture_pageleave: true,
       capture_exceptions: true,
+      // Drop browser/extension noise before it reaches error tracking: Outlook
+      // SafeLinks scanners following lifecycle email links to /auth/login were
+      // 18 of 30 app exceptions in a day (see lib/analytics/exception-filter.ts).
+      before_send: dropNoiseExceptions,
       // Session replay is switched on in the PostHog project (scoped to
       // app.useoctree.com); the client must not switch it back off. LaTeX
       // source (Monaco), the PDF preview and every input are masked so

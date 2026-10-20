@@ -145,7 +145,6 @@ app.post('/agent', jwtAuthMiddleware, async (req: express.Request, res: express.
 
     const tools = createOctraTools({
       fileContent,
-      numberedContent: numbered,
       textFromEditor,
       selectionRange,
       collectedEdits,

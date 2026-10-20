@@ -9,7 +9,6 @@ import { ProjectFileContext } from './content-processing.js';
 
 export interface ToolContext {
   fileContent: string;
-  numberedContent: string;
   textFromEditor?: string | null;
   selectionRange?: { startLineNumber: number; endLineNumber: number } | null;
   collectedEdits: StringEdit[];
@@ -36,9 +35,6 @@ function applyEditToContext(edit: StringEdit, context: ToolContext) {
         context.fileContent = context.fileContent.slice(0, idx) + edit.new_string + context.fileContent.slice(idx + edit.old_string.length);
       }
     }
-    // Keep numberedContent in sync so get_context returns correct line numbers
-    const lines = context.fileContent.split('\n');
-    context.numberedContent = lines.map((line, idx) => `${idx + 1}: ${line}`).join('\n');
   } else {
     const file = context.projectFiles?.find(f => f.path === edit.file_path);
     if (file) {
@@ -95,13 +91,15 @@ export function createOctraTools(context: ToolContext) {
           }
         }
 
-        // Default: return current file context
+        // Default: return the whole current file (the system prompt only shows
+        // the start and end of long files)
+        const lines = context.fileContent.split('\n');
         const payload: Record<string, unknown> = {
           currentFilePath: context.currentFilePath,
-          lineCount: context.fileContent.split('\n').length,
+          lineCount: lines.length,
         };
         if (args.includeNumbered !== false) {
-          payload.numberedContent = context.numberedContent;
+          payload.numberedContent = lines.map((line, idx) => `${idx + 1}: ${line}`).join('\n');
         }
         if (args.includeSelection !== false && context.textFromEditor) {
           payload.selection = context.textFromEditor;

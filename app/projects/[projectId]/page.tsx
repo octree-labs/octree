@@ -11,6 +11,8 @@ import { useEditSuggestions } from '@/hooks/use-edit-suggestions';
 import { useEditorInteractions } from '@/hooks/use-editor-interactions';
 import { useEditorKeyboardShortcuts } from '@/hooks/use-editor-keyboard-shortcuts';
 import { useSynctex } from '@/hooks/use-synctex';
+import { useSubscriptionUsage } from '@/hooks/use-subscription-usage';
+import { useFirstEditNudge } from '@/hooks/use-first-edit-nudge';
 import { MonacoEditor } from '@/components/editor/monaco-editor';
 import { EditorToolbar } from '@/components/editor/toolbar';
 import { EditorPaneTabs } from '@/components/editor/editor-pane-tabs';
@@ -18,6 +20,7 @@ import { FormattingBar } from '@/components/editor/formatting-bar';
 import { SelectionButton } from '@/components/editor/selection-button';
 import { LoadingState } from '@/components/editor/loading-state';
 import { ErrorState } from '@/components/editor/error-state';
+import { FirstEditNudge } from '@/components/editor/first-edit-nudge';
 import PDFViewer from '@/components/pdf-viewer';
 import { Chat } from '@/components/chat';
 import { CompilationError } from '@/components/latex/compilation-error';
@@ -34,6 +37,7 @@ import { useParams } from 'next/navigation';
 import type { Project } from '@/types/project';
 import { ProjectActions } from '@/stores/project';
 import type { EditSuggestion } from '@/types/edit';
+import { collectNudgeSource, type NudgeSuggestion } from '@/lib/first-edit-nudge';
 import { isImageFile, isPDFFile, isTextFile } from '@/lib/constants/file-types';
 import { ImageViewer } from '@/components/image-viewer';
 import { SimplePDFViewer } from '@/components/simple-pdf-viewer';
@@ -276,6 +280,41 @@ export default function ProjectPage() {
     onTextFormat: handleTextFormat,
   });
 
+  // "Your PDF is ready. Try one AI edit on it": once per user, after the
+  // first compile that produces a PDF, for users who have never asked for an
+  // AI edit (hooks/use-first-edit-nudge.ts).
+  const { usage: subscriptionUsage, isLoading: isUsageLoading } = useSubscriptionUsage();
+  // The prompts are picked from the main .tex file (plus the other .tex
+  // files), not whichever file happens to be open.
+  const nudgeSource = useMemo(
+    () => collectNudgeSource(projectFileContext, selectedFile?.name ?? null, content),
+    [projectFileContext, selectedFile?.name, content]
+  );
+  const {
+    suggestions: nudgeSuggestions,
+    choose: chooseNudgeSuggestion,
+    dismiss: dismissNudge,
+  } = useFirstEditNudge({
+    pdfData,
+    content: nudgeSource,
+    usage: subscriptionUsage,
+    usageLoading: isUsageLoading,
+  });
+
+  // Same entry point as "Fix with AI": open the chat and submit the prompt.
+  const handleNudgeChoose = useCallback(
+    (suggestion: NudgeSuggestion) => {
+      chooseNudgeSuggestion(suggestion);
+      setChatOpen(true);
+      if (isMobile) {
+        setMobileView('code'); // The chat overlay lives in the code view
+        setIsMobileChatOpen(true);
+      }
+      setAutoSendMessage(suggestion.prompt);
+    },
+    [chooseNudgeSuggestion, isMobile, setChatOpen]
+  );
+
   if (isProjectLoading || isFilesLoading) return <LoadingState />;
   if (projectError || filesError)
     return <ErrorState error="Error fetching project" />;
@@ -350,7 +389,16 @@ export default function ProjectPage() {
   };
 
   const renderPreview = () => (
-      <div className="h-full overflow-hidden border-l border-slate-200" data-onboarding-target="pdf">
+      <div className="flex h-full flex-col overflow-hidden border-l border-slate-200" data-onboarding-target="pdf">
+          {nudgeSuggestions && (
+              <FirstEditNudge
+                  suggestions={nudgeSuggestions}
+                  onChoose={handleNudgeChoose}
+                  onDismiss={dismissNudge}
+                  showFreeAllowance={!subscriptionUsage?.isPro}
+              />
+          )}
+          <div className="relative min-h-0 flex-1 overflow-hidden">
           {compilationError && !pdfData ? (
               <div className="relative flex h-full overflow-auto">
                   <CompilationError
@@ -398,6 +446,7 @@ export default function ProjectPage() {
                   }
               />
           )}
+          </div>
       </div>
   );
 

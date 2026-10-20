@@ -30,6 +30,10 @@ export interface FeatureUsage {
   freeGenerationsRemaining?: number;
   /** One-off generation credits bought through Checkout. Pro: ignored. */
   generationCredits?: number;
+  /** AI edits today (free tier counter; resets daily). */
+  editCount?: number;
+  /** AI edits this billing period (Pro counter). */
+  monthlyEditCount?: number;
 }
 
 export type FeatureAccess =
@@ -112,6 +116,8 @@ export interface SubscriptionStatusResponse {
     /** Absent from older responses; treated as 0. */
     freeGenerationsRemaining?: number;
     generationCredits?: number;
+    editCount?: number;
+    monthlyEditCount?: number;
     /** user_usage.subscription_status, current_period_end and whether a Stripe subscription id is stored. */
     subscriptionStatus?: string | null;
     currentPeriodEnd?: string | null;
@@ -159,5 +165,7 @@ export function toFeatureUsage(
     monthlyLimitReached: Boolean(data.usage.monthlyLimitReached),
     freeGenerationsRemaining: Number(data.usage.freeGenerationsRemaining ?? 0) || 0,
     generationCredits: Number(data.usage.generationCredits ?? 0) || 0,
+    editCount: Number(data.usage.editCount ?? 0) || 0,
+    monthlyEditCount: Number(data.usage.monthlyEditCount ?? 0) || 0,
   };
 }

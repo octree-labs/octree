@@ -17,16 +17,36 @@ import {
 import { uploadProjectPreview } from '@/lib/utils/project-preview';
 import { AnalyticsEvents } from '@/lib/analytics/events';
 import { shouldSample, track } from '@/lib/analytics/track';
+import {
+  decideCompileSampling,
+  describeCompileFailure,
+  readSuccessfulCompileCount,
+  writeSuccessfulCompileCount,
+} from '@/lib/analytics/compile';
 
-/** Successful compiles are captured 1 in N; failures always. */
-const COMPILE_SUCCESS_SAMPLE_RATE = 10;
+interface CompileOutcome {
+  success: boolean;
+  startedAt: number;
+  error?: CompilationError | null;
+  httpStatus?: number;
+}
 
-function trackCompileCompleted(success: boolean, startedAt: number) {
-  if (success && !shouldSample(COMPILE_SUCCESS_SAMPLE_RATE)) return;
+/**
+ * Failures and the browser's first few successes are always captured, later
+ * successes 1 in N (lib/analytics/compile.ts). On failure the event carries
+ * the first TeX error line and a coarse `error_kind`.
+ */
+function trackCompileCompleted({ success, startedAt, error, httpStatus }: CompileOutcome) {
+  const successesBefore = readSuccessfulCompileCount();
+  const decision = decideCompileSampling(success, successesBefore, shouldSample);
+  if (success && successesBefore !== null) writeSuccessfulCompileCount(successesBefore + 1);
+  if (!decision.capture) return;
   track(AnalyticsEvents.COMPILE_COMPLETED, {
     success,
     duration_ms: Math.round(performance.now() - startedAt),
-    sample_rate: success ? COMPILE_SUCCESS_SAMPLE_RATE : 1,
+    sample_rate: decision.sample_rate,
+    compile_index: decision.compile_index,
+    ...(success ? {} : describeCompileFailure(error ?? null, httpStatus)),
   });
 }
 
@@ -202,6 +222,8 @@ export function useEditorCompilation({
 
     const startedAt = performance.now();
     let handled = false;
+    let failure: CompilationError | null = null;
+    let httpStatus: number | undefined;
     try {
       const currentContent = editorRef.current?.getValue() || content;
       const normalizedFileName = normalizePath(fileName || 'document');
@@ -234,14 +256,16 @@ export function useEditorCompilation({
         setPdfData(data.pdf);
         setCompilationError(null);
         if (projectId) uploadProjectPreview(projectId, data.pdf).catch(console.error);
-        trackCompileCompleted(true, startedAt);
+        trackCompileCompleted({ success: true, startedAt });
         return true;
       }
 
+      httpStatus = response.status;
       if (!response.ok) {
         const errorMessage =
           data?.error || `Compilation failed with status ${response.status}`;
-        setCompilationError(createCompilationError(data, errorMessage));
+        failure = createCompilationError(data, errorMessage);
+        setCompilationError(failure);
         handled = true;
         throw new Error(errorMessage);
       }
@@ -251,13 +275,14 @@ export function useEditorCompilation({
       if (!handled) {
         const errorMessage =
           error instanceof Error ? error.message : 'Unknown compilation error';
-        setCompilationError({
+        failure = {
           message: errorMessage,
           details: error instanceof Error ? error.stack : undefined,
-        });
+        };
+        setCompilationError(failure);
       }
 
-      trackCompileCompleted(false, startedAt);
+      trackCompileCompleted({ success: false, startedAt, error: failure, httpStatus });
       return false;
     } finally {
       setCompiling(false);

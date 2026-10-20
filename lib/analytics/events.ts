@@ -32,10 +32,12 @@ export const AnalyticsEvents = {
   PAYWALL_SHOWN: 'paywall_shown',
   PAYWALL_DISMISSED: 'paywall_dismissed',
   EDIT_LIMIT_HIT: 'edit_limit_hit',
-  CHECKOUT_STARTED: 'checkout_started',
   DUNNING_BANNER_CLICKED: 'dunning_banner_clicked',
 
   // --- Server-side (posthog-node) ---
+  // Captured by app/api/checkout-session once Stripe has opened the session,
+  // so a browser that blocks analytics scripts still counts.
+  CHECKOUT_STARTED: 'checkout_started',
   SUBSCRIPTION_STARTED: 'subscription_started',
   SUBSCRIPTION_CANCELED: 'subscription_canceled',
   SUBSCRIPTION_PAST_DUE: 'subscription_past_due',
@@ -122,6 +124,21 @@ export type GenerateErrorKind =
   | 'incomplete'
   | 'empty'
   | 'unknown';
+/**
+ * Why a compile failed (lib/analytics/compile.ts). The LaTeX buckets come
+ * from the first `! ` line of the log; the rest are transport failures that
+ * never reached TeX.
+ */
+export type CompileErrorKind =
+  | 'missing_package'
+  | 'undefined_control_sequence'
+  | 'missing_dollar'
+  | 'missing_brace'
+  | 'latex_error'
+  | 'timeout'
+  | 'service_unavailable'
+  | 'unauthorized'
+  | 'network';
 export type CancelOffer = 'pause' | 'discount';
 /** Stripe's `cancellation_details.feedback` enum. */
 export type CancelFeedback =
@@ -192,11 +209,30 @@ export interface AnalyticsEventProperties {
     /** Characters of LaTeX produced, on success. */
     latex_length?: number;
   };
+  /**
+   * One compile ended (hooks/use-editor-compilation.ts). Failures and the
+   * browser's first FIRST_COMPILES_UNSAMPLED successes are always captured;
+   * later successes 1 in N (`sample_rate` says which).
+   */
   [AnalyticsEvents.COMPILE_COMPLETED]: {
     success: boolean;
     duration_ms: number;
-    /** 1 in N successes are captured; failures are always captured. */
+    /** 1 when this capture was not sampled, otherwise the N of "1 in N". */
     sample_rate: number;
+    /**
+     * Successful compiles seen on this browser, counted in localStorage: on
+     * success the ordinal of this one (1 = first ever success); on failure
+     * the successes so far (0 = the user has never compiled successfully).
+     * `null` when storage is unavailable.
+     */
+    compile_index: number | null;
+    error_kind?: CompileErrorKind;
+    /** First `! ` line of the log (or the error message), at most 200 chars. */
+    error_summary?: string;
+    /** Number of `! ` lines in the log, when a log came back. */
+    error_count?: number;
+    /** HTTP status of the compile response, when there was one. */
+    http_status?: number;
   };
   [AnalyticsEvents.EXPORT_CLICKED]: { format: ExportFormat; allowed: boolean };
   /**
@@ -223,10 +259,22 @@ export interface AnalyticsEventProperties {
   };
   [AnalyticsEvents.PAYWALL_DISMISSED]: { feature: PaywallFeature; reason?: PaywallReason };
   [AnalyticsEvents.EDIT_LIMIT_HIT]: { is_pro: boolean; source: 'chat' | 'accept' };
+  /**
+   * A Stripe Checkout Session was opened (app/api/checkout-session, server
+   * side). `source` is 'unknown' only for a request that sent no valid
+   * source; every in-app button sends one.
+   */
   [AnalyticsEvents.CHECKOUT_STARTED]: {
     plan: PurchasePlan;
-    source: CheckoutSource;
+    source: CheckoutSource | 'unknown';
+    entry?: GenerateEntry;
     with_trial: boolean;
+    mode: 'subscription' | 'payment';
+    /** Stripe price lookup_key (lib/stripe-prices.ts). */
+    price_lookup_key: string;
+    /** The Checkout Session id, to join with `subscription_started` / `checkout_abandoned`. */
+    session_id: string;
+    captured: 'server';
   };
   /** The past-due banner's "Update card" was clicked (opens the billing portal). */
   [AnalyticsEvents.DUNNING_BANNER_CLICKED]: { location: 'dashboard' | 'editor' };

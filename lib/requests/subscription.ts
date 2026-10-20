@@ -1,12 +1,5 @@
 import { createClient } from '@/lib/supabase/client';
-import {
-  AnalyticsEvents,
-  checkoutPlanFromAnnualFlag,
-  type CheckoutSource,
-  type GenerateEntry,
-  type PurchasePlan,
-} from '@/lib/analytics/events';
-import { track } from '@/lib/analytics/track';
+import type { CheckoutSource, GenerateEntry, PurchasePlan } from '@/lib/analytics/events';
 import type { CancelFeedback } from '@/lib/analytics/events';
 import type { PauseMonths, SubscriptionOfferState } from '@/lib/stripe-subscription';
 
@@ -22,9 +15,9 @@ interface CreateCheckoutSessionOptions {
   annual?: boolean;
   withTrial?: boolean;
   /**
-   * Where the checkout was started from. Captured on `checkout_started`
-   * and written to the Stripe metadata so the webhook can attribute the
-   * sale (`subscription_started`, `onboarding_completed`).
+   * Where the checkout was started from. Captured on `checkout_started` by
+   * the route and written to the Stripe metadata so the webhook can
+   * attribute the sale (`subscription_started`, `onboarding_completed`).
    */
   source?: CheckoutSource;
   /** For a checkout from /generate: how the visitor reached /generate. */
@@ -33,8 +26,9 @@ interface CreateCheckoutSessionOptions {
 
 /**
  * Starts a Stripe Checkout session and returns its URL. Every upgrade button
- * in the app goes through here, so `checkout_started` is captured in one
- * place (before the redirect, so it is never lost to the navigation).
+ * in the app goes through here. `checkout_started` is captured by the route
+ * itself (server side), not here: a browser that blocks analytics scripts
+ * still opens sessions, and those were going uncounted.
  */
 export const createCheckoutSession = async ({
   plan,
@@ -53,10 +47,6 @@ export const createCheckoutSession = async ({
     throw new Error('User not authenticated');
   }
 
-  // Without either flag the API sells the monthly plan; mirror that here.
-  const requested: PurchasePlan =
-    plan ?? (annual === undefined ? 'monthly' : checkoutPlanFromAnnualFlag(annual));
-
   const response = await fetch('/api/checkout-session', {
     method: 'POST',
     headers: {
@@ -70,15 +60,7 @@ export const createCheckoutSession = async ({
     throw new Error(errorData.error || 'Failed to create checkout session');
   }
 
-  const checkoutUrl = await response.text();
-
-  track(AnalyticsEvents.CHECKOUT_STARTED, {
-    plan: requested,
-    source,
-    with_trial: withTrial,
-  });
-
-  return checkoutUrl;
+  return response.text();
 };
 
 async function postSubscriptionAction<T>(

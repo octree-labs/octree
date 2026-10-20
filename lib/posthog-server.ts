@@ -105,7 +105,16 @@ export async function captureServerEvent<E extends AnalyticsEvent>(
   const posthog = getPostHogServer();
   if (!posthog) return;
   try {
-    posthog.capture({ distinctId, event, properties: { ...properties, source: 'server' } });
+    // `captured: 'server'` marks every event from here. `source` keeps its
+    // legacy 'server' value only for events that carry no `source` of their
+    // own; an event's own `source` (checkout_started, subscription_started,
+    // import_completed) must not be overwritten.
+    const own = (properties as { source?: unknown }).source;
+    posthog.capture({
+      distinctId,
+      event,
+      properties: { ...properties, captured: 'server', source: own ?? 'server' },
+    });
     await flushBounded(posthog, event);
   } catch (error) {
     console.error(`PostHog capture failed (${event}):`, error);

@@ -93,9 +93,24 @@ describe('posthog-server', () => {
     expect(mocks.capture.mock.calls[0][0]).toEqual({
       distinctId: 'user_1',
       event: 'edit_limit_hit_server',
-      properties: { is_pro: false, source: 'server' },
+      properties: { is_pro: false, captured: 'server', source: 'server' },
     });
     expect(mocks.flush).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps an event's own source instead of overwriting it with 'server'", async () => {
+    process.env.POSTHOG_KEY = 'phc_server';
+
+    await captureServerEvent('user_1', AnalyticsEvents.IMPORT_COMPLETED, {
+      source: 'tools',
+      title_length: 3,
+    });
+
+    expect(mocks.capture.mock.calls[0][0]).toEqual({
+      distinctId: 'user_1',
+      event: 'import_completed',
+      properties: { source: 'tools', title_length: 3, captured: 'server' },
+    });
   });
 
   it('falls back to NEXT_PUBLIC_POSTHOG_KEY', () => {

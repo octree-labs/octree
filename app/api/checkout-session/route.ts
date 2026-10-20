@@ -7,10 +7,15 @@ import { resolveStripeCustomer } from '@/lib/stripe-customer';
 import { getOrCreatePrice } from '@/lib/stripe-prices';
 import {
   buildCheckoutSessionParams,
+  isSubscriptionPlan,
   lookupKeyForPlan,
   resolveCheckoutPlan,
 } from '@/lib/checkout-plans';
-import { captureServerExceptionAfterResponse } from '@/lib/posthog-server';
+import { AnalyticsEvents } from '@/lib/analytics/events';
+import {
+  captureServerEventAfterResponse,
+  captureServerExceptionAfterResponse,
+} from '@/lib/posthog-server';
 
 /**
  * Starts a Stripe Checkout Session.
@@ -27,6 +32,10 @@ import { captureServerExceptionAfterResponse } from '@/lib/posthog-server';
  * (lib/stripe-prices.ts). When the user already has a Stripe customer
  * (user_usage.stripe_customer_id, or found by email) the session is opened
  * on it so one user stays one customer.
+ *
+ * `checkout_started` is captured here, server side, once Stripe has opened
+ * the session: a browser that blocks analytics scripts still reaches this
+ * route, so the event cannot be lost the way a client capture is.
  */
 export async function POST(request: Request) {
   try {
@@ -56,8 +65,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: resolved.error }, { status: 400 });
     }
 
+    const lookupKey = lookupKeyForPlan(resolved.plan);
     const [priceId, customer] = await Promise.all([
-      getOrCreatePrice(lookupKeyForPlan(resolved.plan), stripe),
+      getOrCreatePrice(lookupKey, stripe),
       resolveStripeCustomer(supabase, user).catch((error) => {
         console.error('Could not resolve Stripe customer for checkout:', error);
         return null;
@@ -81,6 +91,17 @@ export async function POST(request: Request) {
     if (!session.url) {
       throw new Error('No session URL');
     }
+
+    captureServerEventAfterResponse(user.id, AnalyticsEvents.CHECKOUT_STARTED, {
+      plan: resolved.plan,
+      source: resolved.source ?? 'unknown',
+      entry: resolved.entry,
+      with_trial: resolved.withTrial,
+      mode: isSubscriptionPlan(resolved.plan) ? 'subscription' : 'payment',
+      price_lookup_key: lookupKey,
+      session_id: session.id,
+      captured: 'server',
+    });
 
     return new NextResponse(session.url, { status: 200 });
   } catch (err: any) {

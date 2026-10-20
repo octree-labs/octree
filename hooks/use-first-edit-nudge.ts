@@ -20,9 +20,16 @@ import {
 interface UseFirstEditNudgeOptions {
   /** The compiled PDF; non-null means the last compile succeeded. */
   pdfData: string | null;
-  /** Current editor content; read when the card is shown to pick the prompts. */
+  /**
+   * The LaTeX the prompts are picked from when the card is shown (the main
+   * file plus the project's other .tex files: `collectNudgeSource`).
+   */
   content: string;
-  /** From useSubscriptionUsage: the decision waits until this has loaded. */
+  /**
+   * From useSubscriptionUsage. The decision waits until `usageLoading` is
+   * false *and* `usage` is present: with the status route down the card is
+   * not shown rather than risk showing it to someone who has edited.
+   */
   usage: FeatureUsage | null;
   usageLoading: boolean;
 }
@@ -78,7 +85,7 @@ export function useFirstEditNudge({
   // flashed the card).
   useEffect(() => {
     if (decidedRef.current || !FIRST_EDIT_NUDGE_ENABLED) return;
-    if (!pdfData || usageLoading || userId === undefined) return;
+    if (!pdfData || usageLoading || !usage || userId === undefined) return;
     decidedRef.current = true;
     if (!userId) return;
 

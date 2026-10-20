@@ -30,7 +30,8 @@ function renderNudge(initial: { pdfData?: string | null; usageLoading?: boolean;
       initialProps: {
         pdfData: initial.pdfData ?? null,
         usageLoading: initial.usageLoading ?? false,
-        usage: initial.usage ?? { isPro: false, editCount: 0, monthlyEditCount: 0 },
+        usage:
+          'usage' in initial ? initial.usage : { isPro: false, editCount: 0, monthlyEditCount: 0 },
       },
     }
   );
@@ -69,6 +70,27 @@ describe('useFirstEditNudge', () => {
     await flush();
     expect(result.current.suggestions).toBeNull();
     expect(wasNudgeShown('user-1')).toBe(false);
+    expect(mockedTrack).not.toHaveBeenCalled();
+  });
+
+  it('does not show while the plan is unknown (status route failed)', async () => {
+    const { result, rerender } = renderNudge({ pdfData: 'JVBERi0=', usageLoading: false, usage: null });
+    await flush();
+    expect(result.current.suggestions).toBeNull();
+    expect(wasNudgeShown('user-1')).toBe(false);
+
+    // A later successful load still gets one decision.
+    rerender({ pdfData: 'JVBERi0=', usageLoading: false, usage: { isPro: true, editCount: 0, monthlyEditCount: 0 } });
+    await waitFor(() => expect(result.current.suggestions).toHaveLength(3));
+  });
+
+  it('skips a Pro user whose period counter shows edits', async () => {
+    const { result } = renderNudge({
+      pdfData: 'JVBERi0=',
+      usage: { isPro: true, editCount: 0, monthlyEditCount: 4 },
+    });
+    await flush();
+    expect(result.current.suggestions).toBeNull();
     expect(mockedTrack).not.toHaveBeenCalled();
   });
 

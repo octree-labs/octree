@@ -42,13 +42,20 @@ export function countLatexErrors(log: string | undefined): number | undefined {
 
 function truncate(text: string): string {
   const trimmed = text.trim();
-  return trimmed.length > ERROR_SUMMARY_MAX ? trimmed.slice(0, ERROR_SUMMARY_MAX) : trimmed;
+  if (trimmed.length <= ERROR_SUMMARY_MAX) return trimmed;
+  // Never cut a surrogate pair in half (an emoji or a CJK extension glyph
+  // in the offending line would otherwise end the summary with U+FFFD).
+  const last = trimmed.charCodeAt(ERROR_SUMMARY_MAX - 1);
+  const end = last >= 0xd800 && last <= 0xdbff ? ERROR_SUMMARY_MAX - 1 : ERROR_SUMMARY_MAX;
+  return trimmed.slice(0, end);
 }
 
 /**
  * Buckets a failure. Transport failures are told apart by HTTP status first
  * (a 408 or 503 carries no TeX log); everything else goes by the first `! `
- * line, or the error message when there is no log.
+ * line of the log, or the error message when there is no log. The first
+ * error line wins because later ones usually cascade from it (a missing
+ * package's macros come back as undefined control sequences).
  */
 export function classifyCompileError(
   error: Pick<CompilationError, 'message' | 'log' | 'stdout' | 'stderr'> | null,
@@ -57,6 +64,7 @@ export function classifyCompileError(
   if (httpStatus === 408 || httpStatus === 504) return 'timeout';
   if (httpStatus === 401 || httpStatus === 403) return 'unauthorized';
   if (httpStatus === 502 || httpStatus === 503 || httpStatus === 429) return 'service_unavailable';
+  if (httpStatus === 400 || httpStatus === 413 || httpStatus === 422) return 'request_rejected';
 
   const summary = firstLatexErrorLine(error?.log ?? error?.stdout ?? error?.stderr);
   const text = summary ?? error?.message ?? '';
@@ -69,7 +77,11 @@ export function classifyCompileError(
 
   // No TeX error line: a message from the relay, fetch or the hook itself.
   if (/timed out|timeout/i.test(text)) return 'timeout';
-  if (/failed to fetch|networkerror|network request failed|load failed|not configured/i.test(text)) {
+  if (
+    /failed to fetch|networkerror|network request failed|load failed|not configured|no pdf data|empty response/i.test(
+      text
+    )
+  ) {
     return 'network';
   }
   if (/service unavailable|unavailable|too busy|queue is full|bad gateway/i.test(text)) {

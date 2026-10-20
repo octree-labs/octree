@@ -51,6 +51,22 @@ describe('classifyCompileError', () => {
     );
   });
 
+  it('lets the first error line win when several kinds are present', () => {
+    // LOG above: the missing package comes first, the undefined control
+    // sequence it causes second. The other way round, the first line wins too.
+    const reversed = [
+      '! Undefined control sequence.',
+      'l.3 \\bar',
+      "! LaTeX Error: File `tikz-cd.sty' not found.",
+    ].join('\n');
+    expect(classifyCompileError({ message: 'x', log: LOG })).toBe('missing_package');
+    expect(classifyCompileError({ message: 'x', log: reversed })).toBe('undefined_control_sequence');
+    // A mention outside a `! ` line does not count.
+    expect(
+      classifyCompileError({ message: 'x', log: "(./foo.sty)\n! Missing $ inserted." })
+    ).toBe('missing_dollar');
+  });
+
   it('reads stdout when there is no log', () => {
     expect(classifyCompileError({ message: 'x', stdout: 'junk\n! Missing $ inserted.' })).toBe(
       'missing_dollar'
@@ -64,6 +80,8 @@ describe('classifyCompileError', () => {
     expect(classifyCompileError({ message: 'x' }, 503)).toBe('service_unavailable');
     expect(classifyCompileError({ message: 'x' }, 502)).toBe('service_unavailable');
     expect(classifyCompileError({ message: 'x' }, 429)).toBe('service_unavailable');
+    expect(classifyCompileError({ message: 'Request too large' }, 413)).toBe('request_rejected');
+    expect(classifyCompileError({ message: 'Invalid request' }, 400)).toBe('request_rejected');
   });
 
   it('falls back to the message when nothing reached TeX', () => {
@@ -79,7 +97,9 @@ describe('classifyCompileError', () => {
       'service_unavailable'
     );
     expect(classifyCompileError({ message: 'Unauthorized' })).toBe('unauthorized');
-    expect(classifyCompileError({ message: 'No PDF data received' })).toBe('latex_error');
+    // A 200 with no PDF body never reached TeX either.
+    expect(classifyCompileError({ message: 'No PDF data received' }, 200)).toBe('network');
+    expect(classifyCompileError({ message: 'Compilation returned empty response' })).toBe('network');
     expect(classifyCompileError(null)).toBe('latex_error');
   });
 });
@@ -112,6 +132,26 @@ describe('describeCompileFailure', () => {
     const props = describeCompileFailure({ message: 'x', log: long });
     expect(props.error_summary).toHaveLength(200);
     expect(props.error_summary?.startsWith('! aaa')).toBe(true);
+  });
+
+  it('does not cut a surrogate pair in half when truncating', () => {
+    // 199 ASCII chars then an emoji (2 UTF-16 units) straddling the limit.
+    const line = '! ' + 'a'.repeat(197) + '\u{1F600}' + 'tail';
+    const props = describeCompileFailure({ message: 'x', log: line });
+    expect(props.error_summary).toHaveLength(199);
+    expect(props.error_summary).toBe('! ' + 'a'.repeat(197));
+    expect(props.error_summary?.includes('\uFFFD')).toBe(false);
+    // An emoji that ends exactly at the limit is kept whole.
+    const exact = '! ' + 'a'.repeat(196) + '\u{1F600}' + 'tail';
+    expect(describeCompileFailure({ message: 'x', log: exact }).error_summary).toBe(
+      '! ' + 'a'.repeat(196) + '\u{1F600}'
+    );
+  });
+
+  it('never includes the whole log, only its first error line', () => {
+    const props = describeCompileFailure({ message: 'LaTeX compilation failed', log: LOG }, 500);
+    expect(props.error_summary).not.toContain('l.4');
+    expect(props.error_summary).not.toContain('Undefined control sequence');
   });
 
   it('log helpers', () => {

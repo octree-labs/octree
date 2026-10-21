@@ -1,4 +1,5 @@
 import { PRO_MONTHLY_EDIT_LIMIT, PRO_PLANS } from '@/data/constants';
+import { WARM_LEAD_OFFER, warmLeadOfferUrl } from '@/lib/checkout-offers';
 import { join, link, p, renderLifecycleEmail, type LifecycleEmailContent } from './layout';
 
 export type { LifecycleEmailContent } from './layout';
@@ -7,7 +8,7 @@ export type { LifecycleEmailContent } from './layout';
  * The scheduled templates: picked by the daily cron from the user's state,
  * at most once per user, rendered from the app URLs alone.
  */
-export const SCHEDULED_LIFECYCLE_TEMPLATES = ['welcome', 'limit_hit', 'day7', 'winback', 'pro_inactive'] as const;
+export const SCHEDULED_LIFECYCLE_TEMPLATES = ['welcome', 'limit_hit', 'day7', 'winback', 'pro_inactive', 'warm_lead_offer'] as const;
 export type ScheduledLifecycleTemplate = (typeof SCHEDULED_LIFECYCLE_TEMPLATES)[number];
 
 /**
@@ -145,12 +146,76 @@ export function proInactiveEmail(input: LifecycleTemplateInput): LifecycleEmailC
   });
 }
 
+/** Which paywall the warm lead ran into; picks the subject and the first line. */
+export type WarmLeadVariant = 'daily_limit' | 'export' | 'generate';
+
+/**
+ * Maps a paywall hit (paywall_hits.reason / feature) to the copy variant.
+ * Anything unknown reads as the export / Pro feature paywall.
+ */
+export function warmLeadVariant(reason: string | null | undefined, feature?: string | null): WarmLeadVariant {
+  if (reason === 'daily_limit') return 'daily_limit';
+  if (reason === 'generate_quota' || feature === 'generate') return 'generate';
+  return 'export';
+}
+
+const WARM_LEAD_COPY: Record<WarmLeadVariant, { subject: string; ranInto: string }> = {
+  daily_limit: {
+    subject: "You hit the daily AI edit limit — here's 50% off your first month",
+    ranInto: 'the daily AI edit limit',
+  },
+  export: {
+    subject: 'Your PDF is one step away — 50% off your first month',
+    ranInto: 'the paywall when exporting your PDF',
+  },
+  generate: {
+    subject: 'Finish that document — 50% off your first month',
+    ranInto: 'the end of the free generation',
+  },
+};
+
+export interface WarmLeadOfferEmailInput extends LifecycleTemplateInput {
+  /** paywall_hits.reason of the latest hit; drives the subject. */
+  reason?: string | null;
+  feature?: string | null;
+  /** When the hit was, in words ("yesterday"); defaults to "recently". */
+  when?: string;
+}
+
+/**
+ * To a free user who hit a paywall and did not buy: a personal note with
+ * 50% off the first Pro month. The button lands on /buy?offer=welcome50,
+ * which applies the WELCOME50 promotion code at checkout
+ * (lib/checkout-offers.ts).
+ */
+export function warmLeadOfferEmail(input: WarmLeadOfferEmailInput): LifecycleEmailContent {
+  const copy = WARM_LEAD_COPY[warmLeadVariant(input.reason, input.feature)];
+  const offer = WARM_LEAD_OFFER;
+  return renderLifecycleEmail({
+    template: 'warm_lead_offer',
+    subject: copy.subject,
+    preheader: `${offer.label} of Octree Pro. Code ${offer.promotionCode}.`,
+    paragraphs: [
+      p(`Hi, I'm Basil, I build Octree. I saw you ran into ${copy.ranInto} ${input.when ?? 'recently'}. That's a frustrating place to stop.`),
+      p(`If you want to keep going, here's ${offer.percentOff}% off your first month of Pro on the monthly plan (${PRO_MONTHLY_EDIT_LIMIT} AI edits a month, PDF export, no daily cap):`),
+    ],
+    cta: { label: `Claim ${offer.percentOff}% off`, href: warmLeadOfferUrl(input.appUrl) },
+    closing: [
+      `Use code ${offer.promotionCode} at checkout if the discount doesn't show.`,
+      'If something else was in the way, just reply and tell me — one line is enough.',
+      'Basil',
+    ],
+    unsubscribeUrl: input.unsubscribeUrl,
+  });
+}
+
 export const LIFECYCLE_EMAILS: Record<ScheduledLifecycleTemplate, (input: LifecycleTemplateInput) => LifecycleEmailContent> = {
   welcome: welcomeEmail,
   limit_hit: limitHitEmail,
   day7: day7Email,
   winback: winbackEmail,
   pro_inactive: proInactiveEmail,
+  warm_lead_offer: warmLeadOfferEmail,
 };
 
 /**

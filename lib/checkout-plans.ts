@@ -7,6 +7,7 @@ import {
   type GenerateEntry,
 } from '@/lib/analytics/events';
 import { PRICE_LOOKUP_KEYS, type PriceLookupKey } from '@/lib/stripe-prices';
+import { isCheckoutOfferId, offerAppliesToPlan, type CheckoutOfferId } from '@/lib/checkout-offers';
 
 /**
  * What /api/checkout-session sells, and how a request body maps onto it.
@@ -80,8 +81,32 @@ export interface CheckoutAttribution {
 }
 
 export type ResolvedCheckoutPlan =
-  | ({ ok: true; plan: PurchasePlan; withTrial: boolean } & CheckoutAttribution)
+  | ({
+      ok: true;
+      plan: PurchasePlan;
+      withTrial: boolean;
+      /**
+       * A known offer (lib/checkout-offers.ts) that applies to `plan`. An
+       * offer for another plan (annual, semester, the one-off purchases) is dropped, not refused.
+       */
+      offer?: CheckoutOfferId;
+    } & CheckoutAttribution)
   | { ok: false; error: string };
+
+/**
+ * `offer` from the body: absent (or null / '') is no offer, a known id is
+ * kept, anything else is an error (a mistyped link should not silently
+ * charge full price without anyone noticing).
+ */
+function resolveOffer(value: unknown): { ok: true; offer?: CheckoutOfferId } | { ok: false; error: string } {
+  if (value === undefined || value === null || value === '') return { ok: true };
+  if (isCheckoutOfferId(value)) return { ok: true, offer: value };
+  return { ok: false, error: `Unknown offer: ${String(value)}` };
+}
+
+function withOffer(plan: PurchasePlan, offer: CheckoutOfferId | undefined): { offer?: CheckoutOfferId } {
+  return offer && offerAppliesToPlan(offer, plan) ? { offer } : {};
+}
 
 export function resolveCheckoutAttribution(body: unknown): CheckoutAttribution {
   const input = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
@@ -104,18 +129,20 @@ export function resolveCheckoutPlan(body: unknown): ResolvedCheckoutPlan {
   const input = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
   const withTrial = input.withTrial === true;
   const attribution = resolveCheckoutAttribution(input);
+  const offer = resolveOffer(input.offer);
+  if (!offer.ok) return offer;
 
   if (input.plan !== undefined) {
     if (input.plan === 'weekly') return { ok: false, error: WEEKLY_PLAN_RETIRED_MESSAGE };
     if (!isPurchasePlan(input.plan)) {
       return { ok: false, error: `Unknown plan: ${String(input.plan)}` };
     }
-    return { ok: true, plan: input.plan, withTrial, ...attribution };
+    return { ok: true, plan: input.plan, withTrial, ...attribution, ...withOffer(input.plan, offer.offer) };
   }
 
   if (input.annual === false) return { ok: false, error: WEEKLY_PLAN_RETIRED_MESSAGE };
 
-  return { ok: true, plan: 'monthly', withTrial, ...attribution };
+  return { ok: true, plan: 'monthly', withTrial, ...attribution, ...withOffer('monthly', offer.offer) };
 }
 
 /**
@@ -149,6 +176,13 @@ export interface CheckoutSessionInput {
   entry?: GenerateEntry;
   /** Unix seconds; defaults to now. Injected so the expiry is testable. */
   nowSeconds?: number;
+  /**
+   * An offer to apply, with the Stripe promotion code id it resolved to
+   * (lib/checkout-offers-stripe.ts). Both or neither: without the id the
+   * session is a plain one with the promotion code box.
+   */
+  offer?: CheckoutOfferId;
+  promotionCodeId?: string | null;
 }
 
 /**
@@ -177,6 +211,8 @@ export function buildCheckoutSessionParams(
   const { plan, priceId, userId, customerId, email, origin, withTrial } = input;
   const nowSeconds = input.nowSeconds ?? Math.floor(Date.now() / 1000);
   const metadata = checkoutMetadata(userId, plan, { source: input.source, entry: input.entry });
+  const discounted = !!input.offer && !!input.promotionCodeId;
+  if (discounted) metadata.offer = input.offer!;
 
   const params: Stripe.Checkout.SessionCreateParams = {
     line_items: [{ price: priceId, quantity: 1 }],
@@ -199,6 +235,17 @@ export function buildCheckoutSessionParams(
     expires_at: nowSeconds + CHECKOUT_SESSION_TTL_SECONDS,
     after_expiration: { recovery: { enabled: true, allow_promotion_codes: true } },
   };
+
+  if (discounted) {
+    // Stripe refuses `discounts` together with `allow_promotion_codes`
+    // (parameters_exclusive). The recovery session's own promotion code box
+    // goes too: the API reference does not say whether it may be combined
+    // with a prefilled discount, and a refused create would cost the user
+    // the discount (the route retries without it). Recovery stays enabled.
+    delete params.allow_promotion_codes;
+    params.after_expiration = { recovery: { enabled: true } };
+    params.discounts = [{ promotion_code: input.promotionCodeId! }];
+  }
 
   if (customerId) {
     params.customer = customerId;

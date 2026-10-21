@@ -18,12 +18,25 @@
  *              activity for 7 days (no project saved, no document generated,
  *              no AI edit counted). The only template for subscribers; at
  *              most one per calendar month (ledger ref = `YYYY-MM`).
+ *   warm_lead_offer  free user who has never paid (not entitled to Pro, no
+ *              subscription relationship, no Stripe customer, no one-off
+ *              purchase: WELCOME50 is first-time-transaction only) whose
+ *              latest paywall hit (paywall_hits, last 7 days) is 1h..3d
+ *              old: 50% off the first Pro month (WELCOME50). Once per user
+ *              under any ledger ref, and mutually exclusive with limit_hit:
+ *              whoever got one of the two never gets the other.
  *
  * One email per user per run, highest-priority template first
- * (limit_hit > day7 > welcome > winback > pro_inactive), oldest-eligible
- * first, capped.
+ * (warm_lead_offer > limit_hit > day7 > welcome > winback > pro_inactive),
+ * oldest-eligible first, capped.
  */
-import type { LifecycleEmailContent, LifecycleTemplate, LifecycleTemplateInput, ScheduledLifecycleTemplate } from '@/lib/email/lifecycle';
+import {
+  warmLeadOfferEmail,
+  type LifecycleEmailContent,
+  type LifecycleTemplate,
+  type LifecycleTemplateInput,
+  type ScheduledLifecycleTemplate,
+} from '@/lib/email/lifecycle';
 import { isAdminEmail } from '@/lib/admin';
 import { hasUnlimitedEdits } from '@/lib/paywall';
 import { isProEntitled } from '@/lib/subscription/entitlement';
@@ -68,6 +81,25 @@ export interface LifecycleUserRow {
    * rule.
    */
   lastActivityAt?: string | null;
+  /**
+   * The user's latest paywall_hits row of the last 7 days, null when none
+   * (or the table is not there yet). Loaded for the warm_lead_offer rule.
+   */
+  lastPaywallHit?: PaywallHit | null;
+  /**
+   * The user has a credit_purchases or generation_purchases row: they have
+   * paid Octree before (credit pack, single generation), so a first-time-only
+   * promotion code would be refused at checkout. Loaded for warm_lead_offer.
+   */
+  hasOneOffPurchase?: boolean;
+}
+
+export interface PaywallHit {
+  /** ProFeature: 'ai-edit' | 'export' | 'generate'. */
+  feature: string;
+  /** PaywallReason: 'daily_limit' | 'pro_feature' | 'generate_quota'. */
+  reason: string;
+  createdAt: string;
 }
 
 export interface LifecycleSelectionInput {
@@ -132,12 +164,37 @@ export const LIFECYCLE_RULES = {
   day7: { minAgeMs: 7 * DAY_MS, maxAgeMs: 14 * DAY_MS },
   winback: { minLapsedMs: 7 * DAY_MS },
   pro_inactive: { minIdleMs: 7 * DAY_MS },
+  /**
+   * Measured from the latest paywall hit: at least an hour (they may still
+   * be deciding) and at most three days (the moment has passed). The loader
+   * reads `lookbackMs` of paywall_hits.
+   */
+  warm_lead_offer: { minHitAgeMs: 1 * HOUR_MS, maxHitAgeMs: 3 * DAY_MS, lookbackMs: 7 * DAY_MS },
 } as const;
+
+/**
+ * Templates a user gets at most one of, ever: the warm-lead discount and
+ * the plain limit_hit upsell pitch the same moment.
+ */
+const MUTUALLY_EXCLUSIVE: Partial<Record<ScheduledLifecycleTemplate, ScheduledLifecycleTemplate>> = {
+  warm_lead_offer: 'limit_hit',
+  limit_hit: 'warm_lead_offer',
+};
+
+/** Templates that go out at most once per user whatever ref the ledger row has. */
+const ONCE_EVER = new Set<ScheduledLifecycleTemplate>(['warm_lead_offer']);
 
 export const DEFAULT_SEND_CAP = 200;
 
 /** Templates in the order a user who qualifies for several gets them. */
-export const TEMPLATE_PRIORITY: readonly ScheduledLifecycleTemplate[] = ['limit_hit', 'day7', 'welcome', 'winback', 'pro_inactive'];
+export const TEMPLATE_PRIORITY: readonly ScheduledLifecycleTemplate[] = [
+  'warm_lead_offer',
+  'limit_hit',
+  'day7',
+  'welcome',
+  'winback',
+  'pro_inactive',
+];
 
 /**
  * Statuses that mean the user has a subscription relationship Octree must
@@ -247,7 +304,40 @@ export function eligibleSince(user: LifecycleUserRow, template: ScheduledLifecyc
       if (ended === null || nowMs - ended < LIFECYCLE_RULES.winback.minLapsedMs) return null;
       return ended + LIFECYCLE_RULES.winback.minLapsedMs;
     }
+    case 'warm_lead_offer': {
+      // A free user who has never paid: not Pro by the entitlement rule (nor
+      // by the `is_pro` flag or a past_due / paused / unlimited status, which
+      // hasSubscription above already excluded), no Stripe subscription or
+      // customer, and no one-off purchase. WELCOME50 is restricted to
+      // first-time transactions, so anyone with prior payments would be
+      // promised a discount Stripe then refuses.
+      if (user.subscriptionStatus === 'unlimited' || isEntitledToPro(user, now)) return null;
+      if (user.stripeSubscriptionId || user.stripeCustomerId || user.hasOneOffPurchase) return null;
+      const hit = ms(user.lastPaywallHit?.createdAt ?? null);
+      if (hit === null) return null;
+      const age = nowMs - hit;
+      const { minHitAgeMs, maxHitAgeMs } = LIFECYCLE_RULES.warm_lead_offer;
+      if (age < minHitAgeMs || age > maxHitAgeMs) return null;
+      return hit;
+    }
   }
+}
+
+/** "earlier today" / "yesterday" / "a couple of days ago" for a hit `ageMs` old. */
+export function hitWhen(ageMs: number): string {
+  if (ageMs < 12 * HOUR_MS) return 'earlier today';
+  if (ageMs < 36 * HOUR_MS) return 'yesterday';
+  return 'a couple of days ago';
+}
+
+/** The warm_lead_offer candidate's render and ledger payload, from the hit. */
+function warmLeadExtras(user: LifecycleUserRow, now: Date): Pick<LifecycleCandidate, 'render' | 'payload'> {
+  const hit = user.lastPaywallHit!;
+  const when = hitWhen(now.getTime() - Date.parse(hit.createdAt));
+  return {
+    payload: { feature: hit.feature, reason: hit.reason, hit_at: hit.createdAt },
+    render: (input) => warmLeadOfferEmail({ ...input, reason: hit.reason, feature: hit.feature, when }),
+  };
 }
 
 /**
@@ -263,6 +353,8 @@ export function selectLifecycleCandidates(input: LifecycleSelectionInput): Lifec
   const suppressed = new Set(Array.from(input.suppressedEmails, (e) => e.toLowerCase()));
   const optedOut = new Set(input.optedOutUserIds);
   const sentKeys = new Set(Array.from(input.sent, (s) => `${s.userId}:${s.template}:${s.ref ?? ''}`));
+  // (user, template) under any ref: the once-ever and mutual-exclusion checks.
+  const sentAnyRef = new Set(Array.from(input.sent, (s) => `${s.userId}:${s.template}`));
   const enabled = new Set(input.enabledTemplates);
   const cap = input.cap ?? DEFAULT_SEND_CAP;
 
@@ -272,6 +364,7 @@ export function selectLifecycleCandidates(input: LifecycleSelectionInput): Lifec
     day7: [],
     winback: [],
     pro_inactive: [],
+    warm_lead_offer: [],
   };
 
   const claimed = new Set<string>();
@@ -282,9 +375,19 @@ export function selectLifecycleCandidates(input: LifecycleSelectionInput): Lifec
       const email = user.email.toLowerCase();
       if (suppressed.has(email) || optedOut.has(user.userId)) continue;
       if (sentKeys.has(`${user.userId}:${template}:${ref}`)) continue;
+      if (ONCE_EVER.has(template) && sentAnyRef.has(`${user.userId}:${template}`)) continue;
+      const exclusive = MUTUALLY_EXCLUSIVE[template];
+      if (exclusive && sentAnyRef.has(`${user.userId}:${exclusive}`)) continue;
       const since = eligibleSince(user, template, input.now);
       if (since === null) continue;
-      eligible[template].push({ userId: user.userId, email, template, eligibleSince: since, ...(ref ? { ref } : {}) });
+      eligible[template].push({
+        userId: user.userId,
+        email,
+        template,
+        eligibleSince: since,
+        ...(ref ? { ref } : {}),
+        ...(template === 'warm_lead_offer' ? warmLeadExtras(user, input.now) : {}),
+      });
     }
     eligible[template].sort((a, b) => a.eligibleSince - b.eligibleSince || a.userId.localeCompare(b.userId));
   }

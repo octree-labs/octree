@@ -209,3 +209,53 @@ describe('buildCheckoutSessionParams', () => {
     expect(lookupKeyForPlan('generate_single')).toBe('octree_generate_single');
   });
 });
+
+describe('checkout offers', () => {
+  it('keeps a known offer for the monthly plan', () => {
+    expect(resolveCheckoutPlan({ plan: 'monthly', offer: 'welcome50' })).toMatchObject({ ok: true, plan: 'monthly', offer: 'welcome50' });
+    expect(resolveCheckoutPlan({ offer: 'welcome50' })).toMatchObject({ ok: true, plan: 'monthly', offer: 'welcome50' });
+  });
+
+  it('drops an offer for annual, semester and the one-off purchases without failing', () => {
+    for (const plan of ['annual', 'semester', 'credits_100', 'generate_single']) {
+      const resolved = resolveCheckoutPlan({ plan, offer: 'welcome50' });
+      expect(resolved.ok).toBe(true);
+      expect(resolved).not.toHaveProperty('offer');
+    }
+  });
+
+  it('refuses an unknown offer and treats empty values as none', () => {
+    expect(resolveCheckoutPlan({ plan: 'monthly', offer: 'WELCOME50' })).toEqual({ ok: false, error: 'Unknown offer: WELCOME50' });
+    expect(resolveCheckoutPlan({ plan: 'monthly', offer: 50 })).toMatchObject({ ok: false });
+    expect(resolveCheckoutPlan({ plan: 'monthly', offer: null })).not.toHaveProperty('offer');
+    expect(resolveCheckoutPlan({ plan: 'monthly', offer: '' })).not.toHaveProperty('offer');
+    expect(resolveCheckoutPlan({ plan: 'monthly' })).not.toHaveProperty('offer');
+  });
+
+  const base = {
+    priceId: 'price_123',
+    userId: 'user-1',
+    customerId: null,
+    email: 'buyer@example.com',
+    origin: 'https://app.example.com',
+    withTrial: false,
+    nowSeconds: 1_800_000_000,
+  };
+
+  it('swaps the promotion code box for the discount and tags the metadata', () => {
+    const params = buildCheckoutSessionParams({ ...base, plan: 'monthly', offer: 'welcome50', promotionCodeId: 'promo_1' });
+    expect(params.discounts).toEqual([{ promotion_code: 'promo_1' }]);
+    expect(params).not.toHaveProperty('allow_promotion_codes');
+    // Recovery stays on, without its own promotion code box next to the discount.
+    expect(params.after_expiration).toEqual({ recovery: { enabled: true } });
+    expect(params.metadata).toMatchObject({ offer: 'welcome50' });
+    expect(params.subscription_data?.metadata).toMatchObject({ offer: 'welcome50' });
+  });
+
+  it('is unchanged without an offer or without its promotion code id', () => {
+    const plain = buildCheckoutSessionParams({ ...base, plan: 'monthly' });
+    expect(buildCheckoutSessionParams({ ...base, plan: 'monthly', offer: 'welcome50', promotionCodeId: null })).toEqual(plain);
+    expect(plain.allow_promotion_codes).toBe(true);
+    expect(plain.discounts).toBeUndefined();
+  });
+});

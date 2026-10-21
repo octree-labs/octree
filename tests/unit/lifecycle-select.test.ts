@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 
 import {
   eligibleSince,
+  hitWhen,
   isWinbackPrecandidate,
   monthRef,
   selectLifecycleCandidates,
@@ -175,7 +176,7 @@ describe('winback', () => {
   });
 
   it('is off unless LIFECYCLE_WINBACK_ENABLED=true', () => {
-    expect(enabledTemplates({})).toEqual(new Set(['welcome', 'limit_hit', 'day7', 'pro_inactive']));
+    expect(enabledTemplates({})).toEqual(new Set(['welcome', 'limit_hit', 'day7', 'pro_inactive', 'warm_lead_offer']));
     expect(enabledTemplates({ LIFECYCLE_WINBACK_ENABLED: 'false' }).has('winback')).toBe(false);
     expect(enabledTemplates({ LIFECYCLE_WINBACK_ENABLED: 'true' }).has('winback')).toBe(true);
   });
@@ -340,5 +341,132 @@ describe('selectLifecycleCandidates', () => {
   it('defaults to a 200-send cap', () => {
     const many = Array.from({ length: 250 }, () => user());
     expect(select(many).toSend).toHaveLength(200);
+  });
+});
+
+describe('warm_lead_offer', () => {
+  const hit = (msAgo: number, reason = 'daily_limit', feature = 'ai-edit') => ({
+    lastPaywallHit: { feature, reason, createdAt: ago(msAgo) },
+  });
+  // An older account with a project: qualifies for no other template.
+  const lead = (overrides: Partial<LifecycleUserRow> = {}) =>
+    user({ createdAt: ago(30 * DAY), firstProjectAt: ago(29 * DAY), ...hit(2 * HOUR), ...overrides });
+
+  it('goes to a free user whose latest paywall hit is 1h..3d old, dated from the hit', () => {
+    const u = lead();
+    expect(eligibleSince(u, 'warm_lead_offer', NOW)).toBe(Date.parse(u.lastPaywallHit!.createdAt));
+    expect(eligibleSince(lead(hit(3 * DAY - HOUR)), 'warm_lead_offer', NOW)).not.toBeNull();
+  });
+
+  it('waits an hour after the hit and gives up after three days', () => {
+    expect(eligibleSince(lead(hit(30 * 60 * 1000)), 'warm_lead_offer', NOW)).toBeNull();
+    expect(eligibleSince(lead(hit(4 * DAY)), 'warm_lead_offer', NOW)).toBeNull();
+    expect(eligibleSince(lead({ lastPaywallHit: null }), 'warm_lead_offer', NOW)).toBeNull();
+  });
+
+  it('never goes to Pro, a manual grant, a Stripe subscriber or staff', () => {
+    const periodEnd = new Date(NOW.getTime() + 10 * DAY).toISOString();
+    expect(
+      eligibleSince(
+        lead({ isPro: true, subscriptionStatus: 'active', stripeSubscriptionId: 'sub_1', currentPeriodEnd: periodEnd }),
+        'warm_lead_offer',
+        NOW
+      )
+    ).toBeNull();
+    expect(eligibleSince(lead({ subscriptionStatus: 'unlimited' }), 'warm_lead_offer', NOW)).toBeNull();
+    // A lapsed subscription id on the row still blocks it (no discount stacking on a returning payer).
+    expect(eligibleSince(lead({ subscriptionStatus: 'canceled', stripeSubscriptionId: 'sub_old' }), 'warm_lead_offer', NOW)).toBeNull();
+    expect(eligibleSince(lead({ role: 'admin' }), 'warm_lead_offer', NOW)).toBeNull();
+  });
+
+  it('never goes to a flag-only Pro, a past_due / paused subscriber or anyone who has paid before', () => {
+    // is_pro without a subscription grants nothing by the entitlement rule,
+    // but it is still a subscription relationship: no discount pitch.
+    expect(eligibleSince(lead({ isPro: true }), 'warm_lead_offer', NOW)).toBeNull();
+    expect(eligibleSince(lead({ subscriptionStatus: 'past_due' }), 'warm_lead_offer', NOW)).toBeNull();
+    expect(eligibleSince(lead({ subscriptionStatus: 'paused' }), 'warm_lead_offer', NOW)).toBeNull();
+    // WELCOME50 is first-time-transaction only: Stripe would refuse it.
+    expect(eligibleSince(lead({ stripeCustomerId: 'cus_1' }), 'warm_lead_offer', NOW)).toBeNull();
+    expect(eligibleSince(lead({ hasOneOffPurchase: true }), 'warm_lead_offer', NOW)).toBeNull();
+    expect(eligibleSince(lead({ subscriptionStatus: 'inactive', hasOneOffPurchase: false }), 'warm_lead_offer', NOW)).not.toBeNull();
+  });
+
+  it('needs an email', () => {
+    expect(select([lead({ email: null })]).eligible.warm_lead_offer).toHaveLength(0);
+  });
+
+  it('treats a ledger row under any ref as sent, for itself and for the limit_hit exclusion', () => {
+    const u = lead({ editCount: 5, dailyResetDate: '2026-10-18' });
+    const offerSent = select([u], { sent: [{ userId: u.userId, template: 'warm_lead_offer', ref: 'manual' }] });
+    expect(offerSent.eligible.warm_lead_offer).toHaveLength(0);
+    expect(offerSent.eligible.limit_hit).toHaveLength(0);
+    const limitSent = select([u], { sent: [{ userId: u.userId, template: 'limit_hit', ref: 'manual' }] });
+    expect(limitSent.eligible.warm_lead_offer).toHaveLength(0);
+  });
+
+  it('outranks limit_hit, so a user eligible for both gets the offer', () => {
+    const u = lead({ editCount: 5, dailyResetDate: '2026-10-18' });
+    const selection = select([u]);
+    expect(selection.eligible.limit_hit).toHaveLength(1);
+    expect(selection.toSend).toEqual([expect.objectContaining({ userId: u.userId, template: 'warm_lead_offer' })]);
+  });
+
+  it('is not sent to someone who already got limit_hit', () => {
+    const u = lead();
+    const selection = select([u], { sent: [{ userId: u.userId, template: 'limit_hit', ref: '' }] });
+    expect(selection.eligible.warm_lead_offer).toHaveLength(0);
+    expect(selection.toSend).toHaveLength(0);
+  });
+
+  it('blocks limit_hit for someone who already got the offer', () => {
+    const u = lead({ editCount: 5, dailyResetDate: '2026-10-18' });
+    const selection = select([u], { sent: [{ userId: u.userId, template: 'warm_lead_offer', ref: '' }] });
+    expect(selection.eligible.limit_hit).toHaveLength(0);
+    expect(selection.eligible.warm_lead_offer).toHaveLength(0);
+    expect(selection.toSend).toHaveLength(0);
+  });
+
+  it('goes out once per user ever (ledger ref "")', () => {
+    const u = lead();
+    const selection = select([u], { sent: [{ userId: u.userId, template: 'warm_lead_offer', ref: '' }] });
+    expect(selection.toSend).toHaveLength(0);
+    expect(select([u]).toSend[0]).not.toHaveProperty('ref');
+  });
+
+  it('sends the oldest hits first under the cap', () => {
+    const newer = lead(hit(2 * HOUR));
+    const older = lead(hit(2 * DAY));
+    expect(select([newer, older], { cap: 1 }).toSend.map((c) => c.userId)).toEqual([older.userId]);
+  });
+
+  it('carries the hit in the payload and renders the subject for its reason', () => {
+    const input = { appUrl: 'https://app.example.com', toolsUrl: 'https://tools.example.com', unsubscribeUrl: 'https://u' };
+    const [daily] = select([lead(hit(2 * HOUR, 'daily_limit', 'ai-edit'))]).toSend;
+    expect(daily.payload).toMatchObject({ reason: 'daily_limit', feature: 'ai-edit' });
+    expect(daily.render!(input).subject).toContain('daily AI edit limit');
+    const [exportHit] = select([lead(hit(DAY, 'pro_feature', 'export'))]).toSend;
+    expect(exportHit.render!(input).subject).toContain('Your PDF is one step away');
+  });
+
+  it('is on by default and off with LIFECYCLE_WARM_LEAD_OFFER_ENABLED=false', () => {
+    expect(enabledTemplates({}).has('warm_lead_offer')).toBe(true);
+    expect(enabledTemplates({ LIFECYCLE_WARM_LEAD_OFFER_ENABLED: 'true' }).has('warm_lead_offer')).toBe(true);
+    const off = enabledTemplates({ LIFECYCLE_WARM_LEAD_OFFER_ENABLED: 'false' });
+    expect(off.has('warm_lead_offer')).toBe(false);
+    const selection = select([lead()], { enabledTemplates: off });
+    expect(selection.eligible.warm_lead_offer).toHaveLength(1);
+    expect(selection.toSend).toHaveLength(0);
+  });
+
+  it('with the offer switched off, limit_hit still reaches a user who qualifies for both', () => {
+    const u = lead({ editCount: 5, dailyResetDate: '2026-10-18' });
+    const selection = select([u], { enabledTemplates: enabledTemplates({ LIFECYCLE_WARM_LEAD_OFFER_ENABLED: 'false' }) });
+    expect(selection.toSend).toEqual([expect.objectContaining({ template: 'limit_hit' })]);
+  });
+
+  it('words the hit time', () => {
+    expect(hitWhen(2 * HOUR)).toBe('earlier today');
+    expect(hitWhen(DAY)).toBe('yesterday');
+    expect(hitWhen(2 * DAY + 12 * HOUR)).toBe('a couple of days ago');
   });
 });

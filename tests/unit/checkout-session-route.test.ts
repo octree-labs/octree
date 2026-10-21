@@ -14,6 +14,11 @@ const mocks = vi.hoisted(() => ({
   resolveStripeCustomer: vi.fn(),
   captureEvent: vi.fn(),
   captureException: vi.fn(),
+  ensureOfferPromotionCode: vi.fn(),
+}));
+
+vi.mock('@/lib/checkout-offers-stripe', () => ({
+  ensureOfferPromotionCode: mocks.ensureOfferPromotionCode,
 }));
 
 vi.mock('next/headers', () => ({
@@ -60,6 +65,7 @@ describe('POST /api/checkout-session analytics', () => {
     mocks.getOrCreatePrice.mockResolvedValue('price_123');
     mocks.resolveStripeCustomer.mockResolvedValue({ customerId: 'cus_1' });
     mocks.sessionsCreate.mockResolvedValue({ id: 'cs_test_1', url: 'https://checkout.stripe.com/c/cs_test_1' });
+    mocks.ensureOfferPromotionCode.mockResolvedValue('promo_welcome');
   });
 
   it('captures checkout_started for the user with the plan, source and session', async () => {
@@ -78,6 +84,12 @@ describe('POST /api/checkout-session analytics', () => {
       session_id: 'cs_test_1',
       captured: 'server',
     });
+    // No offer asked for: Stripe is not asked about one and the session keeps the promo box.
+    expect(mocks.ensureOfferPromotionCode).not.toHaveBeenCalled();
+    const params = mocks.sessionsCreate.mock.calls[0][0];
+    expect(params.allow_promotion_codes).toBe(true);
+    expect(params.discounts).toBeUndefined();
+    expect(params.metadata.offer).toBeUndefined();
   });
 
   it('reports one-off purchases as payment mode and keeps the /generate entry', async () => {
@@ -123,5 +135,116 @@ describe('POST /api/checkout-session analytics', () => {
     const response = await POST(post({ plan: 'monthly' }));
     expect(response.status).toBe(401);
     expect(mocks.captureEvent).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /api/checkout-session offers', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.getUser.mockResolvedValue({ data: { user }, error: null });
+    mocks.getOrCreatePrice.mockResolvedValue('price_123');
+    mocks.resolveStripeCustomer.mockResolvedValue({ customerId: 'cus_1' });
+    mocks.sessionsCreate.mockResolvedValue({ id: 'cs_test_1', url: 'https://checkout.stripe.com/c/cs_test_1' });
+    mocks.ensureOfferPromotionCode.mockResolvedValue('promo_welcome');
+  });
+
+  it('applies a valid offer as a discount and records it', async () => {
+    const response = await POST(post({ plan: 'monthly', source: 'buy', offer: 'welcome50' }));
+    expect(response.status).toBe(200);
+    expect(mocks.ensureOfferPromotionCode).toHaveBeenCalledWith('welcome50', expect.anything());
+    expect(mocks.sessionsCreate).toHaveBeenCalledTimes(1);
+    const params = mocks.sessionsCreate.mock.calls[0][0];
+    expect(params.discounts).toEqual([{ promotion_code: 'promo_welcome' }]);
+    // Stripe refuses both at once.
+    expect(params).not.toHaveProperty('allow_promotion_codes');
+    expect(params.metadata).toMatchObject({ offer: 'welcome50', plan: 'monthly', source: 'buy' });
+    expect(params.subscription_data.metadata).toMatchObject({ offer: 'welcome50' });
+    expect(mocks.captureEvent).toHaveBeenCalledWith(
+      'user-1',
+      'checkout_started',
+      expect.objectContaining({ plan: 'monthly', offer: 'welcome50', offer_applied: true })
+    );
+  });
+
+  it('refuses an unknown offer with a 400', async () => {
+    const response = await POST(post({ plan: 'monthly', offer: 'free100' }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: 'Unknown offer: free100' });
+    expect(mocks.sessionsCreate).not.toHaveBeenCalled();
+  });
+
+  it('ignores an offer for a plan it does not cover (the credit pack)', async () => {
+    const response = await POST(post({ plan: 'credits_100', offer: 'welcome50' }));
+    expect(response.status).toBe(200);
+    expect(mocks.ensureOfferPromotionCode).not.toHaveBeenCalled();
+    const params = mocks.sessionsCreate.mock.calls[0][0];
+    expect(params.discounts).toBeUndefined();
+    expect(params.allow_promotion_codes).toBe(true);
+    expect(mocks.captureEvent.mock.calls[0][2]).not.toHaveProperty('offer');
+  });
+
+  it('falls back to a full-price checkout when Stripe refuses the promotion code', async () => {
+    const refused = Object.assign(new Error('This promotion code cannot be redeemed because it is only for first-time customers.'), {
+      type: 'StripeInvalidRequestError',
+      code: 'promotion_code_customer_not_first_time',
+      statusCode: 400,
+    });
+    mocks.sessionsCreate.mockRejectedValueOnce(refused);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const response = await POST(post({ plan: 'monthly', source: 'buy', offer: 'welcome50' }));
+    expect(response.status).toBe(200);
+    expect(mocks.sessionsCreate).toHaveBeenCalledTimes(2);
+    expect(mocks.sessionsCreate.mock.calls[0][0].discounts).toEqual([{ promotion_code: 'promo_welcome' }]);
+    const retry = mocks.sessionsCreate.mock.calls[1][0];
+    expect(retry.discounts).toBeUndefined();
+    expect(retry.allow_promotion_codes).toBe(true);
+    expect(retry.metadata.offer).toBeUndefined();
+    expect(warn).toHaveBeenCalled();
+    expect(mocks.captureEvent).toHaveBeenCalledWith(
+      'user-1',
+      'checkout_started',
+      expect.objectContaining({ plan: 'monthly', offer: undefined, offer_applied: false })
+    );
+    warn.mockRestore();
+  });
+
+  it('opens a plain checkout when the promotion code cannot be ensured', async () => {
+    mocks.ensureOfferPromotionCode.mockResolvedValueOnce(null);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const response = await POST(post({ plan: 'monthly', offer: 'welcome50' }));
+    expect(response.status).toBe(200);
+    expect(mocks.sessionsCreate).toHaveBeenCalledTimes(1);
+    expect(mocks.sessionsCreate.mock.calls[0][0].discounts).toBeUndefined();
+    warn.mockRestore();
+  });
+
+  it.each(['annual', 'semester'] as const)('opens a plain %s checkout (no 400) when the offer is monthly only', async (plan) => {
+    const response = await POST(post({ plan, source: 'buy', offer: 'welcome50' }));
+    expect(response.status).toBe(200);
+    expect(mocks.ensureOfferPromotionCode).not.toHaveBeenCalled();
+    const params = mocks.sessionsCreate.mock.calls[0][0];
+    expect(params.discounts).toBeUndefined();
+    expect(params.allow_promotion_codes).toBe(true);
+    expect(params.metadata.offer).toBeUndefined();
+  });
+
+  it.each([
+    ['auth', { type: 'StripeAuthenticationError', statusCode: 401 }],
+    ['rate limit', { type: 'StripeRateLimitError', statusCode: 429, code: 'rate_limit' }],
+    ['permission', { type: 'StripePermissionError', statusCode: 403 }],
+    ['api', { type: 'StripeAPIError', statusCode: 500 }],
+  ])('does not retry without the discount on a Stripe %s error', async (_label, fields) => {
+    mocks.sessionsCreate.mockRejectedValueOnce(Object.assign(new Error('nope'), fields));
+    const response = await POST(post({ plan: 'monthly', offer: 'welcome50' }));
+    expect(response.status).not.toBe(200);
+    expect(mocks.sessionsCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not retry a non-Stripe-validation failure', async () => {
+    mocks.sessionsCreate.mockRejectedValueOnce(new Error('stripe down'));
+    const response = await POST(post({ plan: 'monthly', offer: 'welcome50' }));
+    expect(response.status).toBe(500);
+    expect(mocks.sessionsCreate).toHaveBeenCalledTimes(1);
   });
 });

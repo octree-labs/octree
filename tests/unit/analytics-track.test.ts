@@ -87,11 +87,12 @@ describe('track wrappers', () => {
   it('captures with the catalogue name and the given properties once loaded', () => {
     posthogMock.__loaded = true;
 
-    track(AnalyticsEvents.EXPORT_CLICKED, { format: 'pdf', allowed: true });
+    track(AnalyticsEvents.EXPORT_CLICKED, { format: 'pdf', allowed: true, unlocked: false });
 
     expect(posthogMock.capture).toHaveBeenCalledWith('export_clicked', {
       format: 'pdf',
       allowed: true,
+      unlocked: false,
     });
   });
 

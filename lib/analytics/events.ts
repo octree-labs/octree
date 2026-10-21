@@ -65,6 +65,8 @@ export const AnalyticsEvents = {
   CREDITS_PURCHASED: 'credits_purchased',
   GENERATE_ALLOWANCE_USED: 'generate_allowance_used',
   GENERATION_PURCHASED: 'generation_purchased',
+  // A one-off $4.99 export unlock for one project was granted (Stripe webhook).
+  EXPORT_UNLOCKED: 'export_unlocked',
   // Billing recovery (Stripe webhook + lifecycle cron)
   CHECKOUT_ABANDONED: 'checkout_abandoned',
   CHECKOUT_RECOVERY_EMAIL_SENT: 'checkout_recovery_email_sent',
@@ -84,9 +86,10 @@ export type PaywallOffer = 'pro' | 'single';
 export type CheckoutPlan = 'monthly' | 'annual' | 'semester' | 'weekly';
 /**
  * Everything checkout can sell: the recurring plans, the one-time AI edit
- * credit pack and the one-off $2.99 generation credit.
+ * credit pack, the one-off $2.99 generation credit and the one-off $4.99
+ * export unlock for one project.
  */
-export type PurchasePlan = CheckoutPlan | 'credits_100' | 'generate_single';
+export type PurchasePlan = CheckoutPlan | 'credits_100' | 'generate_single' | 'export_single';
 /** How a generation was paid for (consume_generation in the database). */
 export type GenerationKind = 'pro' | 'free' | 'credit';
 export const CHECKOUT_SOURCES = ['onboarding', 'paywall', 'settings', 'generate-preview', 'toolbar', 'buy'] as const;
@@ -260,7 +263,12 @@ export interface AnalyticsEventProperties {
     /** HTTP status of the compile response, when there was one. */
     http_status?: number;
   };
-  [AnalyticsEvents.EXPORT_CLICKED]: { format: ExportFormat; allowed: boolean };
+  [AnalyticsEvents.EXPORT_CLICKED]: {
+    format: ExportFormat;
+    allowed: boolean;
+    /** This project has a one-off export unlock (project_export_unlocks). */
+    unlocked: boolean;
+  };
   /**
    * The logged-out /import/start landing finished loading its PDF preview.
    * `source` is the draft's origin slug (e.g. `tools:templates:x`); `ok` is
@@ -434,6 +442,18 @@ export interface AnalyticsEventProperties {
     credits: number;
     amount: number | null;
     currency: string | null;
+  };
+  /**
+   * A paid `export_single` Checkout Session unlocked export for one project
+   * (Stripe webhook, grant_export_unlock). Captured once per session;
+   * `amount` in major units.
+   */
+  [AnalyticsEvents.EXPORT_UNLOCKED]: {
+    project_id: string;
+    session_id: string;
+    amount: number | null;
+    source?: CheckoutSource;
+    entry?: GenerateEntry;
   };
   /**
    * GET /api/subscription-status found `user_usage` still claiming Pro for

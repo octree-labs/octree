@@ -15,6 +15,7 @@ import {
 import { isSubscriptionPlan, isPurchasePlan } from '@/lib/checkout-plans';
 import { STRIPE_PRICE_IDS } from '@/lib/stripe-config';
 import { PRICE_LOOKUP_KEYS, PRICE_METADATA_KEY, isPriceLookupKey } from '@/lib/stripe-prices';
+import { isMissingExportUnlockSchema } from '@/lib/export-unlock';
 
 /** One server-side analytics event with its typed properties. */
 export type ServerAnalyticsEvent = {
@@ -386,4 +387,67 @@ export async function grantCreditsFromCheckoutSession(
     credits: pack.credits,
     balance: typeof data === 'number' ? data : null,
   };
+}
+
+/**
+ * The project a Checkout Session unlocks export for, or null when it is
+ * not a paid, payment-mode session carrying `metadata.export_project_id`
+ * (app/api/checkout-session sets that for the $4.99 `export_single`).
+ */
+export function exportProjectFromSession(
+  session: Pick<Stripe.Checkout.Session, 'mode' | 'payment_status' | 'metadata'>
+): string | null {
+  if (session.mode !== 'payment' || session.payment_status !== 'paid') return null;
+  const projectId = session.metadata?.export_project_id;
+  return typeof projectId === 'string' && projectId.length > 0 ? projectId : null;
+}
+
+export type GrantExportUnlockResult =
+  | { granted: true; userId: string; projectId: string }
+  | {
+      granted: false;
+      reason: 'not_an_export_purchase' | 'missing_user' | 'already_unlocked' | 'schema_missing';
+    };
+
+/**
+ * Unlocks export for the project a paid `export_single` Checkout Session
+ * bought, through the service-role-only `grant_export_unlock` RPC (one
+ * project_export_unlocks row, unique per session id AND per project). The
+ * RPC returns false for a session or project already unlocked, so a
+ * redelivered event grants once.
+ *
+ * Until 20261021150000_project_export_unlocks.sql is applied the RPC does
+ * not exist: that is logged (with the session id, for a manual grant) and
+ * reported as `schema_missing` instead of thrown, so the webhook still
+ * answers 200. Any other database error is thrown so Stripe retries.
+ */
+export async function grantExportUnlock(
+  supabase: SupabaseClient<any, any, any>,
+  session: Stripe.Checkout.Session
+): Promise<GrantExportUnlockResult> {
+  const projectId = exportProjectFromSession(session);
+  if (!projectId) return { granted: false, reason: 'not_an_export_purchase' };
+
+  const userId = session.metadata?.user_id;
+  if (!userId) return { granted: false, reason: 'missing_user' };
+
+  const { data, error } = await supabase.rpc('grant_export_unlock', {
+    p_user_id: userId,
+    p_project_id: projectId,
+    p_session_id: session.id,
+    p_amount_cents: typeof session.amount_total === 'number' ? session.amount_total : 0,
+  });
+  if (error) {
+    if (isMissingExportUnlockSchema(error)) {
+      console.error(
+        `[export-unlock] project_export_unlocks migration not applied; session ${session.id} (project ${projectId}) was NOT unlocked`,
+        error
+      );
+      return { granted: false, reason: 'schema_missing' };
+    }
+    throw error;
+  }
+  if (data !== true) return { granted: false, reason: 'already_unlocked' };
+
+  return { granted: true, userId, projectId };
 }

@@ -463,6 +463,112 @@ describe('POST /api/webhooks/stripe', () => {
     });
   });
 
+  describe('checkout.session.completed for a one-off export unlock (mode: payment)', () => {
+    const projectId = '2f1c7d4e-8a9b-4c3d-9e2f-1a2b3c4d5e6f';
+    const exportOverrides = {
+      id: 'cs_export_1',
+      mode: 'payment',
+      amount_total: 499,
+      metadata: { user_id: 'user-1', plan: 'export_single', export_project_id: projectId, source: 'paywall' },
+    };
+    const unlockArgs = {
+      p_user_id: 'user-1',
+      p_project_id: projectId,
+      p_session_id: 'cs_export_1',
+      p_amount_cents: 499,
+    };
+
+    it('unlocks through grant_export_unlock and captures export_unlocked once', async () => {
+      mocks.constructEvent.mockReturnValue(checkoutEvent(exportOverrides));
+      mocks.rpc.mockResolvedValue({ data: true, error: null });
+
+      const res = await POST(makeRequest());
+
+      expect(res.status).toBe(200);
+      await expect(res.json()).resolves.toEqual({ received: true });
+      // Only the export RPC: no credits or generation_credits metadata.
+      expect(mocks.rpc).toHaveBeenCalledTimes(1);
+      expect(mocks.rpc).toHaveBeenCalledWith('grant_export_unlock', unlockArgs);
+      expect(mocks.captureServerEvent).toHaveBeenCalledWith('user-1', 'export_unlocked', {
+        project_id: projectId,
+        session_id: 'cs_export_1',
+        amount: 4.99,
+        source: 'paywall',
+      });
+      expect(mocks.captureServerEvent).not.toHaveBeenCalledWith('user-1', 'subscription_started', expect.anything());
+      expect(mocks.usageUpdate).not.toHaveBeenCalled();
+      expect(mocks.rpc.mock.invocationCallOrder[0]).toBeLessThan(mocks.eventsInsert.mock.invocationCallOrder[0]);
+      expect(mocks.trackRedditConversion).toHaveBeenCalledTimes(1);
+    });
+
+    it('grants nothing on a redelivery (the RPC answers false) and captures nothing', async () => {
+      mocks.constructEvent.mockReturnValue(checkoutEvent(exportOverrides));
+      mocks.rpc.mockResolvedValue({ data: false, error: null });
+      mocks.eventsInsert.mockResolvedValue({ error: { code: '23505', message: 'duplicate key' } });
+
+      const res = await POST(makeRequest());
+
+      expect(res.status).toBe(200);
+      expect(mocks.rpc).toHaveBeenCalledTimes(1);
+      expect(mocks.captureServerEvent).not.toHaveBeenCalled();
+      expect(mocks.trackRedditConversion).not.toHaveBeenCalled();
+    });
+
+    it.each(['PGRST202', '42883', '42P01', 'PGRST205', 'PGRST204'])(
+      'logs and returns 200 when the migration is not applied (%s)',
+      async (code) => {
+        mocks.constructEvent.mockReturnValue(checkoutEvent(exportOverrides));
+        mocks.rpc.mockResolvedValue({ data: null, error: { code, message: 'missing' } });
+
+        const res = await POST(makeRequest());
+
+        expect(res.status).toBe(200);
+        expect(mocks.captureServerEvent).not.toHaveBeenCalled();
+        expect(errorSpy.mock.calls.some((args: unknown[]) => String(args[0]).includes('cs_export_1'))).toBe(true);
+      }
+    );
+
+    it('returns 500 so Stripe retries on any other database error', async () => {
+      mocks.constructEvent.mockReturnValue(checkoutEvent(exportOverrides));
+      mocks.rpc.mockResolvedValueOnce({ data: null, error: { code: '08006', message: 'db down' } });
+
+      const failed = await POST(makeRequest());
+      expect(failed.status).toBe(500);
+      expect(mocks.eventsInsert).not.toHaveBeenCalled();
+
+      mocks.rpc.mockResolvedValueOnce({ data: true, error: null });
+      const retried = await POST(makeRequest());
+      expect(retried.status).toBe(200);
+      expect(mocks.captureServerEvent).toHaveBeenCalledWith('user-1', 'export_unlocked', expect.anything());
+    });
+
+    it.each([
+      ['an unpaid session', { ...exportOverrides, payment_status: 'unpaid' }],
+      ['a subscription session', { ...exportOverrides, mode: 'subscription' }],
+      ['a payment session without export_project_id', { ...exportOverrides, metadata: { user_id: 'user-1' } }],
+    ])('ignores %s', async (_label, overrides) => {
+      mocks.constructEvent.mockReturnValue(checkoutEvent(overrides));
+
+      const res = await POST(makeRequest());
+
+      expect(res.status).toBe(200);
+      expect(mocks.rpc).not.toHaveBeenCalledWith('grant_export_unlock', expect.anything());
+      expect(mocks.captureServerEvent).not.toHaveBeenCalledWith('user-1', 'export_unlocked', expect.anything());
+    });
+
+    it('logs and returns 200 for an export session with no user_id', async () => {
+      mocks.constructEvent.mockReturnValue(
+        checkoutEvent({ ...exportOverrides, metadata: { export_project_id: projectId } })
+      );
+
+      const res = await POST(makeRequest());
+
+      expect(res.status).toBe(200);
+      expect(mocks.rpc).not.toHaveBeenCalled();
+      expect(errorSpy).toHaveBeenCalled();
+    });
+  });
+
   describe('checkout.session.completed', () => {
     it('records the event id, then sends one Reddit Purchase and returns 200', async () => {
       mocks.constructEvent.mockReturnValue(checkoutEvent());

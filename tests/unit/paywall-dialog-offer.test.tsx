@@ -49,7 +49,7 @@ function stableIds(html: string): string {
 
 function resetStore() {
   PaywallActions.close();
-  usePaywallStore.setState({ open: false, feature: null, reason: null, offers: ['pro'], firstPurchaseOffer: null });
+  usePaywallStore.setState({ open: false, feature: null, reason: null, offers: ['pro'], firstPurchaseOffer: null, context: null });
 }
 
 describe('PaywallDialog without a first-purchase offer (unchanged)', () => {
@@ -168,6 +168,106 @@ describe('PaywallDialog with the first-purchase offer', () => {
       reason: 'pro_feature',
       offers: ['pro'],
     });
+  });
+});
+
+const PROJECT_ID = '2f1c7d4e-8a9b-4c3d-9e2f-1a2b3c4d5e6f';
+const openExportSingle = () => PaywallActions.open('export', 'pro_feature', ['single', 'pro'], { projectId: PROJECT_ID });
+
+describe('PaywallDialog export with the one-off "Export this document" offer', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetStore();
+  });
+  afterEach(() => cleanup());
+
+  it('renders the two-card layout: the $4.99 one-off first, then the Pro card', () => {
+    openExportSingle();
+    render(<PaywallDialog />);
+
+    expect(screen.getByText('Export this document', { selector: 'p' })).toBeInTheDocument();
+    expect(screen.getByText('$4.99 once')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Unlock export — $4.99' })).toBeInTheDocument();
+    expect(screen.getByText('Octree Pro')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Go Pro — $9.99/mo' })).toBeInTheDocument();
+    // Not the plan picker layout.
+    expect(screen.queryByRole('radio')).not.toBeInTheDocument();
+    expect(stableIds(document.body.innerHTML)).toMatchSnapshot();
+  });
+
+  it('starts an export_single checkout for the project from the paywall', async () => {
+    openExportSingle();
+    render(<PaywallDialog />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Unlock export — $4.99' }));
+    await waitFor(() => expect(createCheckoutSession).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(createCheckoutSession).mock.calls[0][0]).toEqual({
+      plan: 'export_single',
+      projectId: PROJECT_ID,
+      source: 'paywall',
+    });
+  });
+
+  it('shows the first-purchase offer on the Pro card only; the one-off checkout carries no offer', async () => {
+    PaywallActions.setFirstPurchaseOffer('welcome50');
+    openExportSingle();
+    render(<PaywallDialog />);
+
+    expect(screen.getByText('$4.99 first month, then $9.99/mo')).toBeInTheDocument();
+    expect(screen.getByText('50% off your first month, applied at checkout')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Unlock export — $4.99' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Unlock export — $4.99' }));
+    await waitFor(() => expect(createCheckoutSession).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(createCheckoutSession).mock.calls[0][0]).toEqual({
+      plan: 'export_single',
+      projectId: PROJECT_ID,
+      source: 'paywall',
+    });
+  });
+
+  it('the Pro card still buys the monthly plan with the offer', async () => {
+    PaywallActions.setFirstPurchaseOffer('welcome50');
+    openExportSingle();
+    render(<PaywallDialog />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Go Pro — 50% off first month' }));
+    await waitFor(() => expect(createCheckoutSession).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(createCheckoutSession).mock.calls[0][0]).toEqual({
+      plan: 'monthly',
+      withTrial: false,
+      source: 'paywall',
+      offer: 'welcome50',
+    });
+  });
+
+  it('falls back to the plain export paywall when no project was passed', () => {
+    PaywallActions.open('export', 'pro_feature', ['single', 'pro']);
+    render(<PaywallDialog />);
+    expect(screen.queryByRole('button', { name: /Unlock export/ })).not.toBeInTheDocument();
+    expect(screen.getByText('Export is a Pro feature')).toBeInTheDocument();
+  });
+
+  it('reports both offers on paywall_shown', () => {
+    openExportSingle();
+    expect(track).toHaveBeenLastCalledWith('paywall_shown', {
+      feature: 'export',
+      reason: 'pro_feature',
+      offers: ['single', 'pro'],
+    });
+  });
+});
+
+describe('paywall store context', () => {
+  beforeEach(() => resetStore());
+
+  it('carries the context of the open and resets it on the next open', () => {
+    openExportSingle();
+    expect(usePaywallStore.getState().context).toEqual({ projectId: PROJECT_ID });
+
+    PaywallActions.close();
+    PaywallActions.open('ai-edit', 'daily_limit');
+    expect(usePaywallStore.getState().context).toBeNull();
   });
 });
 

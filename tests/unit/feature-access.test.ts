@@ -92,6 +92,30 @@ describe('canUseFeature', () => {
     expect(canUseFeature(unlimited, 'export')).toEqual({ allowed: true });
     expect(canUseFeature(unlimited, 'generate')).toEqual({ allowed: true });
   });
+
+  describe('export with a one-off project unlock', () => {
+    it('allows an unlocked project on the free plan', () => {
+      expect(canUseFeature(free, 'export', { projectUnlocked: true })).toEqual({ allowed: true });
+      expect(canUseFeature(freeAtLimit, 'export', { projectUnlocked: true })).toEqual({ allowed: true });
+    });
+
+    it('allows an unlocked project before the plan has loaded', () => {
+      expect(canUseFeature(null, 'export', { projectUnlocked: true })).toEqual({ allowed: true });
+    });
+
+    it('leaves a locked project exactly as before', () => {
+      for (const usage of [free, freeAtLimit, pro, proAtMonthlyLimit, unlimited, null]) {
+        expect(canUseFeature(usage, 'export', { projectUnlocked: false })).toEqual(canUseFeature(usage, 'export'));
+        expect(canUseFeature(usage, 'export', {})).toEqual(canUseFeature(usage, 'export'));
+      }
+      expect(canUseFeature(free, 'export', { projectUnlocked: false })).toEqual({ allowed: false, reason: 'paywall' });
+    });
+
+    it('unlocks export only, never AI edits or Generate', () => {
+      expect(canUseFeature(freeAtLimit, 'ai-edit', { projectUnlocked: true })).toEqual({ allowed: false, reason: 'paywall' });
+      expect(canUseFeature(free, 'generate', { projectUnlocked: true })).toEqual({ allowed: false, reason: 'paywall' });
+    });
+  });
 });
 
 describe('toFeatureUsage', () => {

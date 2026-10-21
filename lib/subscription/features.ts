@@ -65,10 +65,24 @@ export function remainingGenerations(usage: FeatureUsage): number {
   return Math.max(0, usage.freeGenerationsRemaining ?? 0) + Math.max(0, usage.generationCredits ?? 0);
 }
 
+export interface FeatureContext {
+  /**
+   * `export` only: this project has a one-off export unlock
+   * (project_export_unlocks, bought as `export_single`). Allows export on
+   * any plan, even before the plan has loaded. Ignored for other features.
+   */
+  projectUnlocked?: boolean;
+}
+
 export function canUseFeature(
   usage: FeatureUsage | null | undefined,
-  feature: ProFeature
+  feature: ProFeature,
+  context: FeatureContext = {}
 ): FeatureAccess {
+  if (feature === 'export' && context.projectUnlocked) {
+    return { allowed: true };
+  }
+
   if (!usage) {
     // Plain AI chat is enforced by the server (429), so don't block it while
     // the plan loads; Pro-only actions wait for the plan.

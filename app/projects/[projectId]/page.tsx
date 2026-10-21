@@ -590,6 +590,7 @@ export default function ProjectPage() {
         exporting={exporting}
         isSaving={isSaving}
         hasPdfData={!!pdfData}
+        projectId={projectId}
       >
         <EditorPaneTabs
           activeTab={paneTab}

@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { cleanup, render } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { PaywallDialog } from '@/components/subscription/paywall-dialog';
 import { PaywallActions, usePaywallStore } from '@/stores/paywall';
+import { createCheckoutSession } from '@/lib/requests/subscription';
+import { track } from '@/lib/analytics/track';
 
 vi.mock('@/lib/requests/subscription', () => ({
   createCheckoutSession: vi.fn(() => new Promise(() => {})),
@@ -32,7 +34,7 @@ const VARIANTS = [
 
 function resetStore() {
   PaywallActions.close();
-  usePaywallStore.setState({ open: false, feature: null, reason: null, offers: ['pro'] });
+  usePaywallStore.setState({ open: false, feature: null, reason: null, offers: ['pro'], firstPurchaseOffer: null });
 }
 
 describe('PaywallDialog without a first-purchase offer (unchanged)', () => {
@@ -49,4 +51,129 @@ describe('PaywallDialog without a first-purchase offer (unchanged)', () => {
       expect(document.body.innerHTML).toMatchSnapshot();
     });
   }
+});
+
+describe('PaywallDialog with the first-purchase offer', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetStore();
+    PaywallActions.setFirstPurchaseOffer('welcome50');
+  });
+  afterEach(() => cleanup());
+
+  it('shows the offer on the plan picker paywall and passes it to a monthly checkout', async () => {
+    PaywallActions.open('export');
+    render(<PaywallDialog />);
+
+    expect(screen.getByText('50% off your first month, applied at checkout')).toBeInTheDocument();
+    expect(screen.getByText('$4.99')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Go Pro — 50% off first month' }));
+
+    await waitFor(() => expect(createCheckoutSession).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(createCheckoutSession).mock.calls[0][0]).toEqual({
+      plan: 'monthly',
+      withTrial: false,
+      source: 'paywall',
+      offer: 'welcome50',
+    });
+  });
+
+  it('drops the offer when the annual plan is picked', async () => {
+    PaywallActions.open('ai-edit', 'daily_limit');
+    render(<PaywallDialog />);
+
+    fireEvent.click(screen.getByRole('radio', { name: /annual/i }));
+    expect(screen.queryByText('50% off your first month, applied at checkout')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Get Octree Pro →' }));
+
+    await waitFor(() => expect(createCheckoutSession).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(createCheckoutSession).mock.calls[0][0]).toEqual({
+      plan: 'annual',
+      withTrial: false,
+      source: 'paywall',
+    });
+  });
+
+  it('shows the offer on the Pro card of the generate quota paywall; the one-off card is untouched', async () => {
+    PaywallActions.open('generate', 'generate_quota', ['pro', 'single']);
+    render(<PaywallDialog />);
+
+    expect(screen.getByText('$4.99 first month, then $9.99/mo')).toBeInTheDocument();
+    expect(screen.getByText('50% off your first month, applied at checkout')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Generate this one — $2.99' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Go Pro — 50% off first month' }));
+    await waitFor(() => expect(createCheckoutSession).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(createCheckoutSession).mock.calls[0][0]).toEqual({
+      plan: 'monthly',
+      withTrial: false,
+      source: 'paywall',
+      offer: 'welcome50',
+    });
+  });
+
+  it('keeps the one-off generation checkout free of the offer', async () => {
+    PaywallActions.open('generate', 'generate_quota', ['pro', 'single']);
+    render(<PaywallDialog />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Generate this one — $2.99' }));
+    await waitFor(() => expect(createCheckoutSession).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(createCheckoutSession).mock.calls[0][0]).toEqual({ plan: 'generate_single', source: 'paywall' });
+  });
+
+  it('never shows the offer on the monthly_limit (credits only) paywall', () => {
+    PaywallActions.open('ai-edit', 'monthly_limit');
+    const { container } = render(<PaywallDialog />);
+    expect(screen.queryByText(/applied at checkout/)).not.toBeInTheDocument();
+    expect(container.ownerDocument.body.innerHTML).not.toContain('first month');
+  });
+
+  it('adds offer to paywall_shown only when the offer is shown', () => {
+    PaywallActions.open('export');
+    expect(track).toHaveBeenLastCalledWith('paywall_shown', {
+      feature: 'export',
+      reason: 'pro_feature',
+      offers: ['pro'],
+      offer: 'welcome50',
+    });
+
+    resetStore();
+    PaywallActions.setFirstPurchaseOffer('welcome50');
+    PaywallActions.open('ai-edit', 'monthly_limit');
+    expect(track).toHaveBeenLastCalledWith('paywall_shown', {
+      feature: 'ai-edit',
+      reason: 'monthly_limit',
+      offers: ['pro'],
+    });
+
+    resetStore();
+    PaywallActions.open('export');
+    expect(track).toHaveBeenLastCalledWith('paywall_shown', {
+      feature: 'export',
+      reason: 'pro_feature',
+      offers: ['pro'],
+    });
+  });
+});
+
+describe('useSubscriptionUsage feeds the paywall store', () => {
+  afterEach(() => cleanup());
+
+  it('stores the first_purchase_offer from the status response, so the dialog needs no request', async () => {
+    const { renderHook } = await import('@testing-library/react');
+    const { useSubscriptionUsage } = await import('@/hooks/use-subscription-usage');
+    resetStore();
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        hasSubscription: false,
+        usage: { isPro: false, hasUnlimitedEdits: false, limitReached: true, monthlyLimitReached: false },
+        first_purchase_offer: 'welcome50',
+      }),
+    }) as any;
+
+    renderHook(() => useSubscriptionUsage());
+    await waitFor(() => expect(usePaywallStore.getState().firstPurchaseOffer).toBe('welcome50'));
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
 });

@@ -6,6 +6,7 @@ import {
   type FeatureUsage,
   type SubscriptionStatusResponse,
 } from '@/lib/subscription/features';
+import { PaywallActions } from '@/stores/paywall';
 
 /**
  * One request in flight at a time, shared by every mounted consumer. The
@@ -21,7 +22,11 @@ function fetchUsage(): Promise<FeatureUsage | null> {
       const res = await fetch('/api/subscription-status');
       if (!res.ok) return null;
       const data = (await res.json()) as SubscriptionStatusResponse;
-      return toFeatureUsage(data);
+      const usage = toFeatureUsage(data);
+      // The paywall dialog reads the offer from its store, so it needs no
+      // status request of its own.
+      if (usage) PaywallActions.setFirstPurchaseOffer(usage.firstPurchaseOffer ?? null);
+      return usage;
     })().finally(() => {
       inflight = null;
     });

@@ -19,9 +19,18 @@ interface BuyPageClientProps {
   plan: CheckoutPlanRequest | null;
   /** A validated `?offer=` (lib/checkout-offers.ts); null without one. */
   offer?: CheckoutOfferId | null;
+  /**
+   * The first-purchase offer the server found the user eligible for
+   * (app/buy/page.tsx); used only when the URL named no offer.
+   */
+  autoOffer?: CheckoutOfferId | null;
 }
 
-export function BuyPageClient({ plan: requestedPlan, offer = null }: BuyPageClientProps) {
+export function BuyPageClient({ plan: requestedPlan, offer: urlOffer = null, autoOffer = null }: BuyPageClientProps) {
+  // An explicit ?offer= wins; otherwise the auto offer, exactly as if the
+  // link had carried it.
+  const offer = urlOffer ?? autoOffer;
+  const isAutoOffer = !urlOffer && !!autoOffer;
   const router = useRouter();
   const [plan, setPlan] = useState<PickerPlan>('monthly');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -59,8 +68,10 @@ export function BuyPageClient({ plan: requestedPlan, offer = null }: BuyPageClie
   // so, and the price is shown discounted only for a plan it covers.
   const offerCoversPlan = !!offer && offerAppliesToPlan(offer, plan);
   useEffect(() => {
-    if (showOfferBanner && offer) track(AnalyticsEvents.OFFER_BANNER_SHOWN, { offer });
-  }, [showOfferBanner, offer]);
+    if (showOfferBanner && offer) {
+      track(AnalyticsEvents.OFFER_BANNER_SHOWN, isAutoOffer ? { offer, auto: true } : { offer });
+    }
+  }, [showOfferBanner, offer, isAutoOffer]);
 
   if (requestedPlan) {
     return (

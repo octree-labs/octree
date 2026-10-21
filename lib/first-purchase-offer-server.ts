@@ -4,7 +4,6 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 import type { CheckoutOfferId } from '@/lib/checkout-offers';
 import { hasUnlimitedEdits } from '@/lib/paywall';
-import { resolveStripeCustomer } from '@/lib/stripe-customer';
 import {
   firstPurchaseOfferFor,
   type FirstPurchaseOfferContext,
@@ -14,7 +13,10 @@ import {
 /**
  * True when the user has a one-off purchase on record (credit pack or
  * single generation). Both ledgers are service-role only, so `admin` is
- * the service-role client. Throws on a query error: the caller fails closed.
+ * the service-role client. Two `limit 1` existence reads, in parallel, on
+ * the user_id indexes (credit_purchases_user_id_idx,
+ * generation_purchases_user_id_idx). Throws on a query error: the caller
+ * fails closed.
  */
 async function hasOneOffPurchase(admin: SupabaseClient<any, any, any>, userId: string): Promise<boolean> {
   const [credits, generations] = await Promise.all([
@@ -29,8 +31,8 @@ async function hasOneOffPurchase(admin: SupabaseClient<any, any, any>, userId: s
 /**
  * `firstPurchaseOfferFor` with the purchase ledgers consulted. The ledgers
  * are read only for a row that already passes every other check (a free
- * user who never paid), so paying users cost no extra query. Any failure
- * means no offer.
+ * user who never paid), so paying users cost no extra query. No Stripe
+ * call. Any failure means no offer.
  */
 export async function resolveFirstPurchaseOffer(
   admin: SupabaseClient<any, any, any>,
@@ -51,15 +53,15 @@ export async function resolveFirstPurchaseOffer(
 
 /**
  * The first-purchase offer for the signed-in user of a server-rendered page
- * (/buy), with the same inputs GET /api/subscription-status uses: the
- * user_usage row, the allowlist, the Stripe customer (by stored id, then by
- * email) and the ledgers. Rendered into the page, so /buy needs no client
- * round trip to know. The Stripe lookup runs only for a row that passes the
- * cheap checks. Never throws; any failure is no offer.
+ * (/buy), by the same rule GET /api/subscription-status uses: the
+ * user_usage row, the allowlist and the ledgers (no Stripe call). One
+ * user_usage read, plus the two ledger reads only for an eligible row.
+ * Rendered into the page, so /buy needs no client round trip to know.
+ * Never throws; any failure is no offer.
  */
 export async function firstPurchaseOfferForUser(
   supabase: SupabaseClient<any, any, any>,
-  admin: SupabaseClient<any, any, any>,
+  getAdmin: () => SupabaseClient<any, any, any>,
   user: { id: string; email?: string | null },
   now: Date = new Date()
 ): Promise<CheckoutOfferId | null> {
@@ -68,15 +70,7 @@ export async function firstPurchaseOfferForUser(
     if (error) throw error;
     const hasUnlimited = hasUnlimitedEdits(user.email);
     if (!firstPurchaseOfferFor(row, now, { hasUnlimited })) return null;
-
-    let stripeCustomer: boolean | 'unknown';
-    try {
-      stripeCustomer = Boolean(await resolveStripeCustomer(supabase, user));
-    } catch (lookupError) {
-      console.error('[first-purchase-offer] Stripe customer lookup failed:', lookupError);
-      stripeCustomer = 'unknown';
-    }
-    return await resolveFirstPurchaseOffer(admin, user.id, row, { hasUnlimited, stripeCustomer, now });
+    return await resolveFirstPurchaseOffer(getAdmin(), user.id, row, { hasUnlimited, now });
   } catch (error) {
     console.error('[first-purchase-offer] eligibility check failed:', error);
     return null;

@@ -60,6 +60,7 @@ vi.mock('@/lib/stripe-customer', () => ({
 
 import { GET } from '@/app/api/subscription-status/route';
 import { entitlementFromStatusResponse } from '@/lib/subscription/entitlement';
+import { unlimitedEditEmails } from '@/lib/paywall';
 
 const user = { id: 'user-1', email: 'pro@example.com' };
 const periodStart = 1_760_000_000;
@@ -492,16 +493,59 @@ describe('GET /api/subscription-status: first_purchase_offer', () => {
     expect(body.first_purchase_offer).toBeNull();
   });
 
-  it('is null when Stripe has a customer for the user', async () => {
+  it('never asks Stripe for eligibility: a Stripe customer without a subscription still gets the offer', async () => {
+    // Rare (a returning customer whose row kept no trace of the purchase):
+    // checkout-session retries without the code when Stripe refuses it.
     mocks.resolveStripeCustomer.mockResolvedValue({ customerId: 'cus_email' });
     mocks.subscriptionsList.mockResolvedValue({ data: [] });
+    const body = await (await GET()).json();
+    expect(body.first_purchase_offer).toBe('welcome50');
+  });
+
+  it('a failing Stripe customer lookup does not change the offer', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocks.resolveStripeCustomer.mockRejectedValue(new Error('stripe down'));
+    const body = await (await GET()).json();
+    expect(body.first_purchase_offer).toBe('welcome50');
+  });
+
+  it('query budget for a never-paid user: 1 session read, the 2 ledger reads, no Stripe call beyond the customer lookup main already made', async () => {
+    const body = await (await GET()).json();
+    expect(body.first_purchase_offer).toBe('welcome50');
+    // Route's own user_usage read (resolveStripeCustomer, mocked here, adds
+    // its stripe_customer_id read and one customers.list, as on main).
+    expect(mocks.userFrom).toHaveBeenCalledTimes(1);
+    expect(mocks.adminFrom.mock.calls.map((c: unknown[]) => c[0])).toEqual(['credit_purchases', 'generation_purchases']);
+    expect(mocks.resolveStripeCustomer).toHaveBeenCalledTimes(1);
+    expect(mocks.subscriptionsList).not.toHaveBeenCalled();
+    expect(mocks.subscriptionsRetrieve).not.toHaveBeenCalled();
+  });
+
+  it.each<[string, Record<string, unknown>]>([
+    ['is_pro set with no subscription (flag-only grant)', { is_pro: true }],
+    ['past_due with a stored subscription id', { subscription_status: 'past_due', stripe_subscription_id: 'sub_old' }],
+    ['paused with a stored subscription id', { subscription_status: 'paused', stripe_subscription_id: 'sub_old' }],
+    ['canceled with a stored subscription id', { subscription_status: 'canceled', stripe_subscription_id: 'sub_old' }],
+    ['a stored customer id', { stripe_customer_id: 'cus_old' }],
+    ['generation credits left', { generation_credits: 1 }],
+  ])('is null with %s, and skips the ledgers', async (_name, overrides) => {
+    mocks.userSingle.mockResolvedValue({ data: freeRow(overrides), error: null });
+    mocks.subscriptionsRetrieve.mockResolvedValue({ id: 'sub_old', status: 'canceled', items: { data: [] } });
+    const body = await (await GET()).json();
+    expect(body.first_purchase_offer).toBeNull();
+    expect(mocks.adminFrom).not.toHaveBeenCalledWith('credit_purchases');
+    expect(mocks.adminFrom).not.toHaveBeenCalledWith('generation_purchases');
+  });
+
+  it('is null for staff on the allowlist', async () => {
+    mocks.getUser.mockResolvedValue({ data: { user: { id: 'user-1', email: unlimitedEditEmails[0] } }, error: null });
+    mocks.userSingle.mockResolvedValue({ data: freeRow({ is_pro: true, subscription_status: 'unlimited' }), error: null });
     const body = await (await GET()).json();
     expect(body.first_purchase_offer).toBeNull();
   });
 
-  it('is null when the Stripe customer lookup fails', async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => {});
-    mocks.resolveStripeCustomer.mockRejectedValue(new Error('stripe down'));
+  it('is null after a credit pack was bought and spent', async () => {
+    ledgerRows.credit_purchases = [{ id: 'c1' }];
     const body = await (await GET()).json();
     expect(body.first_purchase_offer).toBeNull();
   });
@@ -521,10 +565,14 @@ describe('GET /api/subscription-status: first_purchase_offer', () => {
     expect(body.first_purchase_offer).toBeNull();
   });
 
-  it('is null with the kill switch off', async () => {
-    vi.stubEnv('LIFECYCLE_WARM_LEAD_OFFER_ENABLED', 'false');
-    const body = await (await GET()).json();
-    expect(body.first_purchase_offer).toBeNull();
-    vi.unstubAllEnvs();
-  });
+  it.each(['LIFECYCLE_WARM_LEAD_OFFER_ENABLED', 'FIRST_PURCHASE_OFFER_ENABLED'])(
+    'is null with %s=false',
+    async (name) => {
+      vi.stubEnv(name, 'false');
+      const body = await (await GET()).json();
+      expect(body.first_purchase_offer).toBeNull();
+      expect(mocks.adminFrom).not.toHaveBeenCalledWith('credit_purchases');
+      vi.unstubAllEnvs();
+    }
+  );
 });

@@ -143,21 +143,16 @@ async function ensureUnlimitedStatus(
   return error ? usageData : data;
 }
 
-/**
- * The user's Stripe customer id, or null. `lookupFailed` tells a Stripe
- * error apart from "no customer": the route still answers (as before) with
- * no subscription, but the first-purchase offer is withheld.
- */
 async function findStripeCustomerId(
   supabase: any,
   user: { id: string; email?: string | null }
-): Promise<{ customerId: string | null; lookupFailed: boolean }> {
+): Promise<string | null> {
   try {
     const resolved = await resolveStripeCustomer(supabase, user);
-    return { customerId: resolved?.customerId ?? null, lookupFailed: false };
+    return resolved?.customerId ?? null;
   } catch (error) {
     console.error('Error fetching Stripe customer:', error);
-    return { customerId: null, lookupFailed: true };
+    return null;
   }
 }
 
@@ -423,7 +418,7 @@ export async function GET() {
       usageData = await ensureUnlimitedStatus(admin, user.id, usageData);
     }
 
-    const { customerId, lookupFailed: customerLookupFailed } = await findStripeCustomerId(supabase, user);
+    const customerId = await findStripeCustomerId(supabase, user);
     const subscription = customerId ? await findActiveSubscription(customerId) : null;
 
     if (!subscription || !customerId) {
@@ -454,10 +449,11 @@ export async function GET() {
 
       // 50% off the first Pro month for an account that has never bought
       // anything (lib/first-purchase-offer.ts); the paywall and /buy show it.
+      // Decided from the row and the ledgers only (no Stripe call, and the
+      // ledgers only for a row that passes): /buy uses the same rule.
       const firstPurchaseOffer = await resolveFirstPurchaseOffer(admin, user.id, usageData, {
         hasUnlimited,
         stripeStatus: storedStatus,
-        stripeCustomer: customerLookupFailed ? 'unknown' : Boolean(customerId),
       });
 
       return NextResponse.json({

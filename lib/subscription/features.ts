@@ -132,7 +132,7 @@ export interface SubscriptionStatusResponse {
     stripeStatus?: string | null;
   } & Record<string, unknown>;
   /**
-   * `welcome50` when the user has never bought anything (no Stripe
+   * `welcome50` when the user has never bought anything (no stored Stripe
    * customer, no credits, no one-off purchase, not Pro) and the offer is
    * switched on; computed server-side only (lib/first-purchase-offer.ts).
    * Absent from older responses; treated as null.

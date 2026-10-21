@@ -1,7 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
+// Eligibility never asks Stripe: any Stripe call from these modules fails the test.
 const mocks = vi.hoisted(() => ({ resolveStripeCustomer: vi.fn() }));
 vi.mock('@/lib/stripe-customer', () => ({ resolveStripeCustomer: mocks.resolveStripeCustomer }));
+vi.mock('@/lib/stripe', () => ({
+  stripe: new Proxy({}, { get: () => { throw new Error('eligibility must not call Stripe'); } }),
+}));
 
 import {
   firstPurchaseOfferCopy,
@@ -10,6 +14,7 @@ import {
   type FirstPurchaseOfferRow,
 } from '@/lib/first-purchase-offer';
 import { firstPurchaseOfferForUser, resolveFirstPurchaseOffer } from '@/lib/first-purchase-offer-server';
+import { unlimitedEditEmails } from '@/lib/paywall';
 
 const NOW = new Date('2026-10-21T12:00:00Z');
 
@@ -46,10 +51,17 @@ describe('firstPurchaseOfferFor: eligibility matrix', () => {
     }],
     ['a trialing Pro row', { subscription_status: 'trialing', stripe_subscription_id: 'sub_1' }],
     ['the unlimited grant', { subscription_status: 'unlimited', is_pro: true }],
+    ['the unlimited status without the flag', { subscription_status: 'unlimited' }],
+    ['is_pro set with no subscription (flag-only grant)', { is_pro: true }],
+    ['is_pro set with a null status', { is_pro: true, subscription_status: null }],
     ['past_due', { subscription_status: 'past_due' }],
+    ['past_due with a stored subscription id', { subscription_status: 'past_due', stripe_subscription_id: 'sub_1' }],
     ['unpaid', { subscription_status: 'unpaid' }],
     ['canceled (paid before)', { subscription_status: 'canceled' }],
+    ['canceled with a stored subscription id', { subscription_status: 'canceled', stripe_subscription_id: 'sub_1' }],
     ['paused', { subscription_status: 'paused' }],
+    ['paused with a stored subscription id', { subscription_status: 'paused', stripe_subscription_id: 'sub_1' }],
+    ['incomplete_expired', { subscription_status: 'incomplete_expired' }],
   ])('is null with %s', (_name, overrides) => {
     expect(firstPurchaseOfferFor(freeRow(overrides), NOW)).toBeNull();
   });
@@ -60,12 +72,6 @@ describe('firstPurchaseOfferFor: eligibility matrix', () => {
 
   it('is null when Stripe says the subscription is active even if the row is stale', () => {
     expect(firstPurchaseOfferFor(freeRow(), NOW, { stripeStatus: 'active' })).toBeNull();
-  });
-
-  it('is null when a Stripe customer exists or could not be checked', () => {
-    expect(firstPurchaseOfferFor(freeRow(), NOW, { stripeCustomer: true })).toBeNull();
-    expect(firstPurchaseOfferFor(freeRow(), NOW, { stripeCustomer: 'unknown' })).toBeNull();
-    expect(firstPurchaseOfferFor(freeRow(), NOW, { stripeCustomer: false })).toBe('welcome50');
   });
 
   it('is null after a one-off purchase whose credits are spent', () => {
@@ -81,6 +87,11 @@ describe('firstPurchaseOfferFor: eligibility matrix', () => {
     expect(firstPurchaseOfferEnabled({ LIFECYCLE_WARM_LEAD_OFFER_ENABLED: 'true' })).toBe(true);
     expect(firstPurchaseOfferFor(freeRow(), NOW, { env: { LIFECYCLE_WARM_LEAD_OFFER_ENABLED: 'false' } })).toBeNull();
     expect(firstPurchaseOfferFor(freeRow(), NOW, { env: { FIRST_PURCHASE_OFFER_ENABLED: 'false' } })).toBeNull();
+    expect(
+      firstPurchaseOfferFor(freeRow(), NOW, {
+        env: { LIFECYCLE_WARM_LEAD_OFFER_ENABLED: 'false', FIRST_PURCHASE_OFFER_ENABLED: 'false' },
+      })
+    ).toBeNull();
     expect(firstPurchaseOfferFor(freeRow(), NOW, { env: {} })).toBe('welcome50');
   });
 });
@@ -137,35 +148,49 @@ describe('resolveFirstPurchaseOffer (purchase ledgers)', () => {
 describe('firstPurchaseOfferForUser (/buy)', () => {
   const user = { id: 'u1', email: 'new@example.com' };
   function sessionClient(row: FirstPurchaseOfferRow | null) {
-    return {
-      from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: row, error: null }) }) }) }),
-    } as any;
+    const from = vi.fn(() => ({
+      select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: row, error: null }) }) }),
+    }));
+    return { from } as any;
   }
 
-  beforeEach(() => {
-    mocks.resolveStripeCustomer.mockReset();
-    mocks.resolveStripeCustomer.mockResolvedValue(null);
-  });
+  beforeEach(() => mocks.resolveStripeCustomer.mockReset());
 
-  it('offers to a never-paid user with no Stripe customer', async () => {
-    await expect(firstPurchaseOfferForUser(sessionClient(freeRow()), ledgerAdmin(), user, NOW)).resolves.toBe('welcome50');
-  });
-
-  it('withholds when Stripe has a customer for the email', async () => {
-    mocks.resolveStripeCustomer.mockResolvedValue({ customerId: 'cus_9', source: 'email' });
-    await expect(firstPurchaseOfferForUser(sessionClient(freeRow()), ledgerAdmin(), user, NOW)).resolves.toBeNull();
-  });
-
-  it('withholds when the Stripe lookup fails', async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => {});
-    mocks.resolveStripeCustomer.mockRejectedValue(new Error('stripe down'));
-    await expect(firstPurchaseOfferForUser(sessionClient(freeRow()), ledgerAdmin(), user, NOW)).resolves.toBeNull();
-  });
-
-  it('skips Stripe for an ineligible row', async () => {
-    await expect(
-      firstPurchaseOfferForUser(sessionClient(freeRow({ edit_credits: 5 })), ledgerAdmin(), user, NOW)
-    ).resolves.toBeNull();
+  it('offers to a never-paid user: one user_usage read, two ledger reads, no Stripe', async () => {
+    const session = sessionClient(freeRow());
+    const admin = ledgerAdmin();
+    await expect(firstPurchaseOfferForUser(session, () => admin, user, NOW)).resolves.toBe('welcome50');
+    expect(session.from).toHaveBeenCalledTimes(1);
+    expect(admin.from).toHaveBeenCalledTimes(2);
     expect(mocks.resolveStripeCustomer).not.toHaveBeenCalled();
+  });
+
+  it('withholds after a spent one-off purchase (credits back at 0, ledger row remains)', async () => {
+    const admin = ledgerAdmin({ credit: [{ id: 'c1' }] });
+    await expect(firstPurchaseOfferForUser(sessionClient(freeRow()), () => admin, user, NOW)).resolves.toBeNull();
+  });
+
+  it('skips the ledgers (and never builds the admin client) for an ineligible row', async () => {
+    const getAdmin = vi.fn(() => ledgerAdmin());
+    await expect(
+      firstPurchaseOfferForUser(sessionClient(freeRow({ edit_credits: 5 })), getAdmin, user, NOW)
+    ).resolves.toBeNull();
+    expect(getAdmin).not.toHaveBeenCalled();
+  });
+
+  it('withholds for staff on the allowlist and for a missing row', async () => {
+    const getAdmin = vi.fn(() => ledgerAdmin());
+    const staff = { id: 'u2', email: unlimitedEditEmails[0] };
+    await expect(firstPurchaseOfferForUser(sessionClient(freeRow()), getAdmin, staff, NOW)).resolves.toBeNull();
+    await expect(firstPurchaseOfferForUser(sessionClient(null), getAdmin, user, NOW)).resolves.toBeNull();
+    expect(getAdmin).not.toHaveBeenCalled();
+  });
+
+  it('never throws: a failing admin client is no offer', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const getAdmin = () => {
+      throw new Error('no service role key');
+    };
+    await expect(firstPurchaseOfferForUser(sessionClient(freeRow()), getAdmin, user, NOW)).resolves.toBeNull();
   });
 });

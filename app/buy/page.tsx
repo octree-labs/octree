@@ -36,11 +36,22 @@ export default async function BuyPage({ searchParams }: BuyPageProps) {
   return <BuyPageClient plan={plan} offer={offer} autoOffer={autoOffer} />;
 }
 
+/**
+ * Signed-out visitors never get here (middleware redirects them to
+ * /auth/login with `next=/buy...`), but a session that lapses between the
+ * middleware and the render reads as no user and no offer. Never throws:
+ * the page renders as without the offer.
+ */
 async function autoOfferForCurrentUser(): Promise<CheckoutOfferId | null> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
-  return firstPurchaseOfferForUser(supabase, createAdminClient(), user);
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return null;
+    return await firstPurchaseOfferForUser(supabase, createAdminClient, user);
+  } catch (error) {
+    console.error('[buy] first-purchase offer check failed:', error);
+    return null;
+  }
 }

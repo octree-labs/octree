@@ -15,13 +15,19 @@ import { PRO_PLANS } from '@/data/constants';
  * The first-purchase offer: the warm_lead_offer discount (welcome50, 50% off
  * the first Pro month) shown in the paywall and on /buy to a user who has
  * never paid for anything. Pure and browser-safe; the server side (the
- * purchase ledgers, the Stripe customer lookup) is
- * lib/first-purchase-offer-server.ts.
+ * purchase ledgers) is lib/first-purchase-offer-server.ts.
  *
- * The rule is "no prior purchase of any kind" because the WELCOME50
- * promotion code is restricted to `first_time_transaction`: Stripe would
- * refuse it for anyone who has paid before, and a dialog promising 50% off
- * that then charges full price is worse than no offer.
+ * The rule is "no prior purchase of any kind on record" because the
+ * WELCOME50 promotion code is restricted to `first_time_transaction`. It is
+ * decided from our own tables only, never from Stripe, so the paywall (GET
+ * /api/subscription-status, read for nearly every free user on every
+ * status fetch) and the /buy server render decide it the same way and /buy
+ * adds no Stripe call. The few accounts a Stripe lookup would catch (a
+ * returning customer whose row carries no trace of the old purchase) are
+ * handled at checkout: Stripe refuses the code with
+ * `promotion_code_customer_not_first_time` and app/api/checkout-session
+ * opens the session again without it: they pay full price, as they would
+ * have without the offer.
  */
 
 export const FIRST_PURCHASE_OFFER_ID: CheckoutOfferId = WARM_LEAD_OFFER_ID;
@@ -49,15 +55,8 @@ export interface FirstPurchaseOfferRow extends EntitlementRow {
 export interface FirstPurchaseOfferContext {
   /** lib/paywall.ts `hasUnlimitedEdits(email)`: staff never see an offer. */
   hasUnlimited?: boolean;
-  /** Stripe's effective status for the user's subscription, when known. */
+  /** Stripe's effective status for the user's subscription, when the caller already has it. */
   stripeStatus?: StripeStatusReport;
-  /**
-   * A Stripe customer exists for the user (found by stored id or by email),
-   * or the lookup failed (`'unknown'`). Either means no offer: a customer
-   * with a payment fails first_time_transaction, and an unknown is not a
-   * promise worth making. Undefined when not looked up.
-   */
-  stripeCustomer?: boolean | 'unknown';
   /**
    * A row in credit_purchases or generation_purchases. The one-off
    * purchases never write stripe_customer_id, and a spent credit leaves the
@@ -74,25 +73,26 @@ const NEVER_SUBSCRIBED_STATUSES: ReadonlySet<string> = new Set(['inactive']);
  * `welcome50` for an account that has never bought anything, else null.
  *
  * Null for: the kill switch off; no row; allowlisted / `unlimited`; Pro by
- * the entitlement rule; a stored Stripe customer or subscription id; any
- * row status other than `inactive`/null (canceled, past_due, paused, ...:
- * they paid once); a non-zero edit or generation credit balance; a Stripe
- * customer found or not checkable; a one-off purchase in the ledgers.
+ * the entitlement rule; `is_pro` set at all (a flag-only grant, or a stale
+ * row: either way not a first purchase); a stored Stripe customer or
+ * subscription id; any row status other than `inactive`/null (canceled,
+ * past_due, paused, ...: they paid once); a non-zero edit or generation
+ * credit balance; a one-off purchase in the ledgers.
  */
 export function firstPurchaseOfferFor(
   row: FirstPurchaseOfferRow | null | undefined,
   now: Date = new Date(),
   context: FirstPurchaseOfferContext = {}
 ): CheckoutOfferId | null {
-  const { hasUnlimited = false, stripeStatus, stripeCustomer, hasPurchaseHistory = false, env } = context;
+  const { hasUnlimited = false, stripeStatus, hasPurchaseHistory = false, env } = context;
   if (!firstPurchaseOfferEnabled(env)) return null;
   if (!row) return null;
   if (hasUnlimited || row.subscription_status === 'unlimited') return null;
   if (proEntitlement({ row, stripeStatus, hasUnlimited, now }).isPro) return null;
+  if (row.is_pro) return null;
   if (row.stripe_customer_id || row.stripe_subscription_id) return null;
   if (row.subscription_status != null && !NEVER_SUBSCRIBED_STATUSES.has(row.subscription_status)) return null;
   if ((row.edit_credits ?? 0) > 0 || (row.generation_credits ?? 0) > 0) return null;
-  if (stripeCustomer) return null;
   if (hasPurchaseHistory) return null;
   return FIRST_PURCHASE_OFFER_ID;
 }

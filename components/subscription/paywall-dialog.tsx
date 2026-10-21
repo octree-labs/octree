@@ -16,6 +16,7 @@ import { PlanPicker, type PickerPlan } from '@/components/subscription/plan-pick
 import { createCheckoutSession } from '@/lib/requests/subscription';
 import {
   CREDIT_PACKS,
+  EXPORT_SINGLE_PRICE,
   FREE_DAILY_EDIT_LIMIT,
   GENERATE_SINGLE_PRICE,
   PRO_FEATURES,
@@ -55,12 +56,30 @@ const GENERATE_QUOTA_COPY = {
     'Every account gets one free document. Go Pro for unlimited generations, or buy just this one.',
 };
 
+/** Export with a project to unlock: sell Pro, or export for just this document. */
+const EXPORT_SINGLE_COPY = {
+  title: 'Export this document',
+  description:
+    'Download it as a PDF or a ZIP of all files. Unlock export for this document once, or go Pro for every project.',
+};
+
+/** The one-off offer (first card) of the two-card layout, per feature. */
+type SingleOffer = {
+  heading: string;
+  price: string;
+  blurb: string;
+  button: string;
+  request: Parameters<typeof createCheckoutSession>[0];
+};
+
 /**
  * The in-product paywall. Opened from anywhere with `PaywallActions.open(feature)`
  * (see stores/paywall.ts); mounted once per layout that has gated features.
  *
- * With `offers` including `single` (only Generate does this, with reason
- * `generate_quota`) it shows two offers. The one-off $2.99 generation credit
+ * With `offers` including `single` it shows two offers: Generate (reason
+ * `generate_quota`) sells one more generation, and Export (with
+ * `context.projectId`, from the editor toolbar) sells a $4.99 one-off unlock
+ * of export for that project, forever. For Generate: The one-off $2.99 generation credit
  * comes first and carries the primary button: this paywall opens the moment a
  * new account spends its single free generation. On the first day of PostHog
  * data (18 Oct 2026), with Pro on top, all four such users dismissed it at
@@ -75,17 +94,39 @@ const GENERATE_QUOTA_COPY = {
  * and without the offer the dialog renders exactly as it did before.
  */
 export function PaywallDialog() {
-  const { open, feature, reason, offers, firstPurchaseOffer } = usePaywall();
+  const { open, feature, reason, offers, firstPurchaseOffer, context } = usePaywall();
   const [plan, setPlan] = useState<PickerPlan>('monthly');
   const [isSubmitting, setIsSubmitting] = useState<'pro' | 'single' | null>(null);
 
   const creditsOnly = reason === 'monthly_limit';
-  const offersSingle = feature === 'generate' && offers.includes('single');
+  const exportProjectId = feature === 'export' ? context?.projectId : undefined;
+  const singleOffer: SingleOffer | null = !offers.includes('single')
+    ? null
+    : feature === 'generate'
+      ? {
+          heading: 'Just this document',
+          price: `${GENERATE_SINGLE_PRICE.price} once`,
+          blurb: 'One more generation, no subscription.',
+          button: `Generate this one — ${GENERATE_SINGLE_PRICE.price}`,
+          request: { plan: 'generate_single', source: 'paywall' },
+        }
+      : exportProjectId
+        ? {
+            heading: 'Export this document',
+            price: `${EXPORT_SINGLE_PRICE.price} once`,
+            blurb: 'PDF and ZIP export for this document, forever. No subscription.',
+            button: `Unlock export — ${EXPORT_SINGLE_PRICE.price}`,
+            request: { plan: 'export_single', projectId: exportProjectId, source: 'paywall' },
+          }
+        : null;
+  const offersSingle = singleOffer !== null;
   const copy = creditsOnly
     ? MONTHLY_LIMIT_COPY
     : feature === 'generate' && reason === 'generate_quota'
       ? GENERATE_QUOTA_COPY
-      : COPY[feature ?? 'ai-edit'];
+      : feature === 'export' && offersSingle
+        ? EXPORT_SINGLE_COPY
+        : COPY[feature ?? 'ai-edit'];
 
   const startCheckout = async (
     kind: 'pro' | 'single',
@@ -115,7 +156,7 @@ export function PaywallDialog() {
       ...(pickerOffer ? { offer: pickerOffer } : {}),
     });
 
-  if (offersSingle) {
+  if (singleOffer) {
     return (
       <Dialog open={open} onOpenChange={(next) => !next && PaywallActions.close()}>
         <DialogContent className="max-w-md">
@@ -127,19 +168,17 @@ export function PaywallDialog() {
           <div className="space-y-4">
             <div className="rounded-lg border p-4">
               <div className="flex items-baseline justify-between gap-2">
-                <p className="font-semibold">Just this document</p>
-                <p className="text-sm text-muted-foreground">{GENERATE_SINGLE_PRICE.price} once</p>
+                <p className="font-semibold">{singleOffer.heading}</p>
+                <p className="text-sm text-muted-foreground">{singleOffer.price}</p>
               </div>
-              <p className="mt-1 text-sm text-muted-foreground">One more generation, no subscription.</p>
+              <p className="mt-1 text-sm text-muted-foreground">{singleOffer.blurb}</p>
               <Button
                 className="mt-3 w-full"
                 variant="gradient"
-                onClick={() => startCheckout('single', { plan: 'generate_single', source: 'paywall' })}
+                onClick={() => startCheckout('single', singleOffer.request)}
                 disabled={isSubmitting !== null}
               >
-                {isSubmitting === 'single'
-                  ? 'Loading...'
-                  : `Generate this one — ${GENERATE_SINGLE_PRICE.price}`}
+                {isSubmitting === 'single' ? 'Loading...' : singleOffer.button}
               </Button>
             </div>
 

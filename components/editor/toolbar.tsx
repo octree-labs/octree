@@ -13,6 +13,7 @@ import {
 import { useSubscriptionUsage } from '@/hooks/use-subscription-usage';
 import { canUseFeature } from '@/lib/subscription/features';
 import { PaywallActions } from '@/stores/paywall';
+import { useExportUnlocked } from '@/stores/project';
 import { AnalyticsEvents, type ExportFormat } from '@/lib/analytics/events';
 import { track } from '@/lib/analytics/track';
 import {
@@ -35,6 +36,11 @@ interface EditorToolbarProps {
   exporting: boolean;
   isSaving: boolean;
   hasPdfData?: boolean;
+  /**
+   * The open project. Its one-off export unlock (stores/project.ts) allows
+   * export without Pro, and the export paywall offers that unlock for it.
+   */
+  projectId?: string;
 }
 
 export function EditorToolbar({
@@ -46,6 +52,7 @@ export function EditorToolbar({
   exporting,
   isSaving,
   hasPdfData = false,
+  projectId,
 }: EditorToolbarProps) {
   const [isMac, setIsMac] = useState(true);
   const { usage, isLoading: isPlanLoading, refresh: refreshPlan } = useSubscriptionUsage();
@@ -54,14 +61,17 @@ export function EditorToolbar({
     setIsMac(navigator.platform.toUpperCase().indexOf('MAC') >= 0);
   }, []);
 
-  // Export is Pro-only. The menu items are disabled until the plan has loaded
-  // so a Pro user never sees the paywall; if the plan could not be loaded at
-  // all, say so instead of guessing.
-  const exportAccess = canUseFeature(usage, 'export');
+  // Export is Pro-only, unless this project has a one-off export unlock. The
+  // menu items are disabled until the plan has loaded so a Pro user never
+  // sees the paywall (an unlocked project needs no plan); if the plan could
+  // not be loaded at all, say so instead of guessing.
+  const exportUnlocked = useExportUnlocked(projectId);
+  const exportAccess = canUseFeature(usage, 'export', { projectUnlocked: exportUnlocked });
   const showExportLock = !exportAccess.allowed && exportAccess.reason === 'paywall';
+  const exportWaitsForPlan = isPlanLoading && !exportUnlocked;
 
   const gateExport = (format: ExportFormat, run: () => void) => {
-    track(AnalyticsEvents.EXPORT_CLICKED, { format, allowed: exportAccess.allowed });
+    track(AnalyticsEvents.EXPORT_CLICKED, { format, allowed: exportAccess.allowed, unlocked: exportUnlocked });
     if (exportAccess.allowed) {
       run();
       return;
@@ -71,7 +81,12 @@ export function EditorToolbar({
       void refreshPlan();
       return;
     }
-    PaywallActions.open('export');
+    // With the project known, the paywall also sells "Export this document".
+    if (projectId) {
+      PaywallActions.open('export', 'pro_feature', ['single', 'pro'], { projectId });
+    } else {
+      PaywallActions.open('export');
+    }
   };
 
   const handleExportPDF = () => gateExport('pdf', onExportPDF);
@@ -107,7 +122,7 @@ export function EditorToolbar({
             <DropdownMenuContent align="end">
               <DropdownMenuItem
                 onClick={handleExportPDF}
-                disabled={!hasPdfData || isPlanLoading}
+                disabled={!hasPdfData || exportWaitsForPlan}
                 className="gap-2"
               >
                 <FileText className="size-4" />
@@ -116,7 +131,7 @@ export function EditorToolbar({
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={handleExportZIP}
-                disabled={isPlanLoading}
+                disabled={exportWaitsForPlan}
                 className="gap-2"
               >
                 <FolderArchive className="size-4" />

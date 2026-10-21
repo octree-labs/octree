@@ -13,6 +13,8 @@
  * Emails reach PostHog only through `identify`.
  */
 
+import type { CheckoutOfferId } from '@/lib/checkout-offers';
+
 export const AnalyticsEvents = {
   // --- Acquisition and activation (browser) ---
   SIGNUP_COMPLETED: 'signup_completed',
@@ -37,6 +39,8 @@ export const AnalyticsEvents = {
   PAYWALL_DISMISSED: 'paywall_dismissed',
   EDIT_LIMIT_HIT: 'edit_limit_hit',
   DUNNING_BANNER_CLICKED: 'dunning_banner_clicked',
+  // /buy?offer=<id>: the discount banner rendered (app/buy/buy-page-client.tsx).
+  OFFER_BANNER_SHOWN: 'offer_banner_shown',
 
   // --- Server-side (posthog-node) ---
   // Captured by app/api/checkout-session once Stripe has opened the session,
@@ -163,6 +167,7 @@ export type LifecycleEmailTemplate =
   | 'day7'
   | 'winback'
   | 'pro_inactive'
+  | 'warm_lead_offer'
   | 'payment_failed'
   | 'payment_failed_reminder'
   | 'checkout_recovery'
@@ -306,7 +311,15 @@ export interface AnalyticsEventProperties {
     /** The Checkout Session id, to join with `subscription_started` / `checkout_abandoned`. */
     session_id: string;
     captured: 'server';
+    /**
+     * The checkout offer applied to the session (lib/checkout-offers.ts);
+     * undefined when none was asked for, or Stripe refused it.
+     */
+    offer?: CheckoutOfferId;
+    /** Present when an offer was asked for: whether the discount made it onto the session. */
+    offer_applied?: boolean;
   };
+  [AnalyticsEvents.OFFER_BANNER_SHOWN]: { offer: CheckoutOfferId };
   /** The past-due banner's "Update card" was clicked (opens the billing portal). */
   [AnalyticsEvents.DUNNING_BANNER_CLICKED]: { location: 'dashboard' | 'editor' };
 

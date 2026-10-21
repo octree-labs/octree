@@ -146,7 +146,7 @@ describe('loadLifecycleRows', () => {
     const from = vi.fn((table: string) => {
       const rows = tables[table];
       const chain: any = {};
-      for (const method of ['select', 'eq', 'order']) chain[method] = () => chain;
+      for (const method of ['select', 'eq', 'gte', 'order']) chain[method] = () => chain;
       chain.range = async (fromIndex: number, toIndex: number) => {
         if (!rows) return { data: null, error: { message: `relation "${table}" does not exist`, code: '42P01' } };
         return { data: rows.slice(fromIndex, toIndex + 1), error: null };
@@ -218,5 +218,52 @@ describe('loadLifecycleRows', () => {
     expect(rows.users.find((u) => u.userId === 'a')?.lastActivityAt).toBe('2026-10-09T12:00:00+00:00');
     expect(rows.users.find((u) => u.userId === 'b')?.lastActivityAt).toBeNull();
     expect(rows.users.find((u) => u.userId === 'b')?.currentPeriodStart).toBeNull();
+  });
+
+  const baseTables = () => ({
+    user_usage: [
+      { user_id: 'a', edit_count: 0, daily_reset_date: null, is_pro: false, subscription_status: 'inactive', stripe_customer_id: null, stripe_subscription_id: null, current_period_start: null, current_period_end: null, updated_at: null, role: null },
+    ],
+    projects: [],
+    generated_documents: [],
+    email_suppressions: [],
+    email_preferences: [],
+    lifecycle_emails: [],
+  });
+  const authUsers = [
+    { id: 'a', email: 'a@example.com', created_at: '2026-08-01T00:00:00Z' },
+    { id: 'b', email: 'b@example.com', created_at: '2026-08-01T00:00:00Z' },
+  ];
+
+  it('attaches each user\'s latest paywall hit', async () => {
+    const db = fakeDb(
+      {
+        ...baseTables(),
+        paywall_hits: [
+          { id: '1', user_id: 'a', feature: 'export', reason: 'pro_feature', created_at: '2026-10-19T10:00:00+00:00' },
+          { id: '2', user_id: 'a', feature: 'ai-edit', reason: 'daily_limit', created_at: '2026-10-20T08:00:00+00:00' },
+          { id: '3', user_id: 'a', feature: 'generate', reason: 'generate_quota', created_at: '2026-10-18T08:00:00+00:00' },
+        ],
+      },
+      authUsers
+    );
+    const rows = await loadLifecycleRows(db, new Date('2026-10-21T14:30:00Z'));
+    expect(rows.missingOptionalTables).toEqual([]);
+    expect(rows.users.find((u) => u.userId === 'a')?.lastPaywallHit).toEqual({
+      feature: 'ai-edit',
+      reason: 'daily_limit',
+      createdAt: '2026-10-20T08:00:00+00:00',
+    });
+    expect(rows.users.find((u) => u.userId === 'b')?.lastPaywallHit).toBeNull();
+    expect(db.from).toHaveBeenCalledWith('paywall_hits');
+  });
+
+  it('tolerates a missing paywall_hits table without blocking the run', async () => {
+    const db = fakeDb(baseTables(), authUsers);
+    const rows = await loadLifecycleRows(db);
+    // Not a ledger table: the live run still sends everything else.
+    expect(rows.missingTables).toEqual([]);
+    expect(rows.missingOptionalTables).toEqual(['paywall_hits']);
+    expect(rows.users.every((u) => u.lastPaywallHit === null)).toBe(true);
   });
 });

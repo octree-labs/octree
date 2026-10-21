@@ -7,6 +7,7 @@ import {
   type PaywallReason,
 } from '@/lib/analytics/events';
 import { track } from '@/lib/analytics/track';
+import { recordPaywallHit } from '@/lib/requests/paywall';
 
 interface PaywallState {
   open: boolean;
@@ -40,7 +41,12 @@ export const PaywallActions = {
   ) {
     const wasOpen = usePaywallStore.getState().open;
     usePaywallStore.setState({ open: true, feature, reason, offers });
-    if (!wasOpen) track(AnalyticsEvents.PAYWALL_SHOWN, { feature, reason, offers });
+    if (!wasOpen) {
+      track(AnalyticsEvents.PAYWALL_SHOWN, { feature, reason, offers });
+      // Server-side record for the warm_lead_offer email; skips monthly_limit
+      // and never throws.
+      void recordPaywallHit(feature, reason);
+    }
   },
   close() {
     const { open, feature, reason } = usePaywallStore.getState();

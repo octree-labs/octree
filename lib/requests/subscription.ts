@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/client';
 import type { CheckoutSource, GenerateEntry, PurchasePlan } from '@/lib/analytics/events';
 import type { CancelFeedback } from '@/lib/analytics/events';
 import type { PauseMonths, SubscriptionOfferState } from '@/lib/stripe-subscription';
+import type { CheckoutOfferId } from '@/lib/checkout-offers';
 
 export type CheckoutPlanRequest = Exclude<PurchasePlan, 'weekly'>;
 
@@ -22,6 +23,11 @@ interface CreateCheckoutSessionOptions {
   source?: CheckoutSource;
   /** For a checkout from /generate: how the visitor reached /generate. */
   entry?: GenerateEntry;
+  /**
+   * A discount from lib/checkout-offers.ts (`/buy?offer=welcome50`). The
+   * route applies it when it covers the plan and drops it otherwise.
+   */
+  offer?: CheckoutOfferId;
 }
 
 /**
@@ -36,6 +42,7 @@ export const createCheckoutSession = async ({
   withTrial = false,
   source = 'settings',
   entry,
+  offer,
 }: CreateCheckoutSessionOptions = {}): Promise<string> => {
   const supabase = createClient();
 
@@ -52,7 +59,7 @@ export const createCheckoutSession = async ({
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ ...(plan ? { plan } : { annual }), withTrial, source, entry }),
+    body: JSON.stringify({ ...(plan ? { plan } : { annual }), withTrial, source, entry, ...(offer ? { offer } : {}) }),
   });
 
   if (!response.ok) {

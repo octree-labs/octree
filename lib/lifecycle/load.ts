@@ -6,7 +6,7 @@
 import type Stripe from 'stripe';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/database.types';
-import { isWinbackPrecandidate, type LifecycleUserRow } from './select';
+import { isWinbackPrecandidate, LIFECYCLE_RULES, type LifecycleUserRow, type PaywallHit } from './select';
 
 type Db = SupabaseClient<Database>;
 
@@ -97,11 +97,20 @@ export interface LifecycleRows {
   sent: Array<{ userId: string; template: string; ref: string }>;
   /** Lifecycle tables (or columns) the database does not have yet (migration pending). */
   missingTables: string[];
+  /**
+   * Input-only tables that are not there yet (paywall_hits, migration
+   * 20261021120000). Unlike `missingTables` they do not stop a live run:
+   * without them the templates that read them (warm_lead_offer) simply
+   * find nobody, and everything else sends as before.
+   */
+  missingOptionalTables?: string[];
 }
 
-export async function loadLifecycleRows(supabase: Db): Promise<LifecycleRows> {
+export async function loadLifecycleRows(supabase: Db, now: Date = new Date()): Promise<LifecycleRows> {
   const missingTables: string[] = [];
-  const [authUsers, usage, projects, generated, suppressions, prefs, ledger] = await Promise.all([
+  const missingOptionalTables: string[] = [];
+  const paywallSince = new Date(now.getTime() - LIFECYCLE_RULES.warm_lead_offer.lookbackMs).toISOString();
+  const [authUsers, usage, projects, generated, suppressions, prefs, ledger, paywallHits] = await Promise.all([
     listAllAuthUsers(supabase),
     selectAll((from, to) =>
       supabase
@@ -141,7 +150,28 @@ export async function loadLifecycleRows(supabase: Db): Promise<LifecycleRows> {
       // fails with undefined_column and is reported like a missing table.
       { onMissingTable: () => missingTables.push('lifecycle_emails') }
     ),
+    // The last week of paywall hits, for warm_lead_offer.
+    selectAll(
+      (from, to) =>
+        supabase
+          .from('paywall_hits')
+          .select('id, user_id, feature, reason, created_at')
+          .gte('created_at', paywallSince)
+          .order('id')
+          .range(from, to),
+      { onMissingTable: () => missingOptionalTables.push('paywall_hits') }
+    ),
   ]);
+
+  const lastHit = new Map<string, PaywallHit>();
+  for (const hit of paywallHits) {
+    if (!hit.created_at) continue;
+    const current = lastHit.get(hit.user_id);
+    // Compared as instants: PostgREST may format offsets differently.
+    if (!current || Date.parse(hit.created_at) > Date.parse(current.createdAt)) {
+      lastHit.set(hit.user_id, { feature: hit.feature, reason: hit.reason, createdAt: hit.created_at });
+    }
+  }
 
   const firstProject = new Map<string, string>();
   const lastActivity = new Map<string, string>();
@@ -191,6 +221,7 @@ export async function loadLifecycleRows(supabase: Db): Promise<LifecycleRows> {
       firstProjectAt: firstProject.get(user.id) ?? null,
       subscriptionEndedAt: null,
       lastActivityAt: lastActivity.get(user.id) ?? null,
+      lastPaywallHit: lastHit.get(user.id) ?? null,
     };
   });
 
@@ -212,6 +243,7 @@ export async function loadLifecycleRows(supabase: Db): Promise<LifecycleRows> {
     optedOutUserIds: prefs.map((p) => p.user_id),
     sent,
     missingTables,
+    missingOptionalTables,
   };
 }
 

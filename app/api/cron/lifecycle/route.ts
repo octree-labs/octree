@@ -41,7 +41,7 @@ export async function GET(request: Request) {
   const now = new Date();
 
   try {
-    const rows = await loadLifecycleRows(supabase);
+    const rows = await loadLifecycleRows(supabase, now);
     // Stripe is read when win-back can send, and on a dry run so the batch
     // the flag would release is visible before it is switched on.
     const stripeLookups =
@@ -123,6 +123,7 @@ export async function GET(request: Request) {
         stripe: stripeLookups,
         cap: DEFAULT_SEND_CAP,
         missing_tables: rows.missingTables,
+        missing_optional_tables: rows.missingOptionalTables ?? [],
         templates: summary,
         billing,
       });

@@ -271,6 +271,30 @@ export type Database = {
         }
         Relationships: []
       }
+      paywall_hits: {
+        Row: {
+          created_at: string
+          feature: string
+          id: string
+          reason: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          feature: string
+          id?: string
+          reason: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          feature?: string
+          id?: string
+          reason?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       project_zotero_sources: {
         Row: {
           collection_key: string | null

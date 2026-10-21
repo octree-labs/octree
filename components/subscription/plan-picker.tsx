@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button, primaryClasses } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { CREDIT_PACKS, PRO_PLANS, type ProPlanId } from '@/data/constants';
+import { discountedAmount } from '@/lib/checkout-offers';
 import { createCheckoutSession } from '@/lib/requests/subscription';
 import type { CheckoutSource } from '@/lib/analytics/events';
 
@@ -24,7 +25,18 @@ interface PlanPickerProps {
   hideCredits?: boolean;
   disabled?: boolean;
   className?: string;
+  /**
+   * A checkout offer's percent off the first payment (/buy?offer=...): the
+   * selected plan's price is shown crossed out next to the discounted one.
+   */
+  offerPercentOff?: number;
 }
+
+const FIRST_PERIOD: Record<PickerPlan, string> = {
+  monthly: 'first month',
+  annual: 'first year',
+  semester: 'first 4 months',
+};
 
 /**
  * The one place the app shows what it sells: Monthly / Annual toggle, the
@@ -45,6 +57,7 @@ export function PlanPicker({
   hideCredits = false,
   disabled = false,
   className,
+  offerPercentOff,
 }: PlanPickerProps) {
   const [isBuyingCredits, setIsBuyingCredits] = useState(false);
   const selected = PRO_PLANS[plan];
@@ -101,10 +114,22 @@ export function PlanPicker({
           </div>
 
           <div className="space-y-1">
-            <div className="flex items-baseline gap-2">
-              <p className="text-3xl font-bold">{selected.price}</p>
-              <p className="text-sm text-muted-foreground">{selected.intervalLabel}</p>
-            </div>
+            {offerPercentOff ? (
+              <div className="flex flex-wrap items-baseline gap-2">
+                <p className="text-xl font-medium text-muted-foreground line-through">{selected.price}</p>
+                <p className="text-3xl font-bold">
+                  ${discountedAmount(selected.amount, offerPercentOff).toFixed(2)}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  {FIRST_PERIOD[plan]}, then {selected.price} {selected.intervalLabel}
+                </p>
+              </div>
+            ) : (
+              <div className="flex items-baseline gap-2">
+                <p className="text-3xl font-bold">{selected.price}</p>
+                <p className="text-sm text-muted-foreground">{selected.intervalLabel}</p>
+              </div>
+            )}
             <p className="text-xs text-muted-foreground">{selected.billingNote}</p>
           </div>
 

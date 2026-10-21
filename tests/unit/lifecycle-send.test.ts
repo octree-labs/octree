@@ -219,3 +219,74 @@ describe('lifecycle templates', () => {
     });
   });
 });
+
+describe('warm_lead_offer email', () => {
+  const NOW = new Date('2026-10-21T14:30:00Z');
+  const leadUser = (reason: string, feature: string) => ({
+    userId: `lead-${reason}`,
+    email: `${reason}@example.com`,
+    createdAt: '2026-09-01T00:00:00Z',
+    editCount: 0,
+    dailyResetDate: null,
+    isPro: false,
+    subscriptionStatus: 'inactive',
+    stripeCustomerId: null,
+    role: null,
+    firstProjectAt: '2026-09-02T00:00:00Z',
+    subscriptionEndedAt: null,
+    lastPaywallHit: { feature, reason, createdAt: '2026-10-20T12:00:00Z' },
+  });
+
+  it.each([
+    ['daily_limit', 'ai-edit', "You hit the daily AI edit limit — here's 50% off your first month", 'the daily AI edit limit'],
+    ['pro_feature', 'export', 'Your PDF is one step away — 50% off your first month', 'the paywall when exporting your PDF'],
+    ['generate_quota', 'generate', 'Finish that document — 50% off your first month', 'the end of the free generation'],
+  ])('renders the %s subject and line through the send path', async (reason, feature, subject, line) => {
+    const { selectLifecycleCandidates } = await import('@/lib/lifecycle/select');
+    const [candidate] = selectLifecycleCandidates({
+      users: [leadUser(reason, feature)],
+      suppressedEmails: [],
+      optedOutUserIds: [],
+      sent: [],
+      enabledTemplates: ['warm_lead_offer'],
+      now: NOW,
+    }).toSend;
+    expect(candidate.template).toBe('warm_lead_offer');
+
+    const html: string[] = [];
+    const text: string[] = [];
+    const { d, sent, claims, capture } = deps({
+      mailer: {
+        async send(input) {
+          sent.push({ to: input.to, subject: input.subject, headers: input.headers });
+          html.push(input.html);
+          text.push(input.text);
+          return { id: 'msg_1', error: null };
+        },
+      },
+    });
+    const result = await sendLifecycleEmail(candidate, d);
+    expect(result.sent).toBe(true);
+    expect(claims).toEqual([`lead-${reason}:warm_lead_offer`]);
+    expect(sent[0].subject).toBe(subject);
+    expect(text[0]).toContain(`I saw you ran into ${line} yesterday.`);
+    expect(text[0]).toContain('Use code WELCOME50 at checkout');
+    expect(text[0]).toContain(
+      'https://app.example.com/buy?offer=welcome50&utm_source=lifecycle&utm_campaign=warm_lead_offer&utm_medium=email'
+    );
+    expect(html[0]).toContain('Claim 50% off');
+    expect(html[0]).toContain(`token=lead-${reason}`);
+    expect(sent[0].headers['List-Unsubscribe']).toBe(`<https://app.example.com/api/email/unsubscribe?token=lead-${reason}>`);
+    expect(capture).toHaveBeenCalledWith(`lead-${reason}`, 'warm_lead_offer');
+  });
+
+  it('renders without hit data too (export copy)', () => {
+    const content = renderLifecycleTemplate('warm_lead_offer', {
+      appUrl: 'https://app.example.com',
+      toolsUrl: 'https://tools.example.com',
+      unsubscribeUrl: 'https://app.example.com/u',
+    });
+    expect(content.subject).toBe('Your PDF is one step away — 50% off your first month');
+    expect(content.text).toContain('recently');
+  });
+});

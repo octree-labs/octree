@@ -10,13 +10,18 @@ import { PlanPicker, type PickerPlan } from '@/components/subscription/plan-pick
 import { FeatureList } from '@/app/onboarding/components/feature-list';
 import { OctreeLogo, OctreeWordmark } from '@/components/icons/octree-logo';
 import { createCheckoutSession, type CheckoutPlanRequest } from '@/lib/requests/subscription';
+import { CHECKOUT_OFFERS, offerAppliesToPlan, type CheckoutOfferId } from '@/lib/checkout-offers';
+import { AnalyticsEvents } from '@/lib/analytics/events';
+import { track } from '@/lib/analytics/track';
 
 interface BuyPageClientProps {
   /** Checkout starts at once when set; otherwise the picker is shown. */
   plan: CheckoutPlanRequest | null;
+  /** A validated `?offer=` (lib/checkout-offers.ts); null without one. */
+  offer?: CheckoutOfferId | null;
 }
 
-export function BuyPageClient({ plan: requestedPlan }: BuyPageClientProps) {
+export function BuyPageClient({ plan: requestedPlan, offer = null }: BuyPageClientProps) {
   const router = useRouter();
   const [plan, setPlan] = useState<PickerPlan>('monthly');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -24,7 +29,11 @@ export function BuyPageClient({ plan: requestedPlan }: BuyPageClientProps) {
   const startCheckout = async (selected: CheckoutPlanRequest) => {
     setIsSubmitting(true);
     try {
-      const checkoutUrl = await createCheckoutSession({ plan: selected, source: 'buy' });
+      const checkoutUrl = await createCheckoutSession({
+        plan: selected,
+        source: 'buy',
+        ...(offer && offerAppliesToPlan(offer, selected) ? { offer } : {}),
+      });
       window.location.href = checkoutUrl;
     } catch (error) {
       console.error('Checkout error:', error);
@@ -43,6 +52,12 @@ export function BuyPageClient({ plan: requestedPlan }: BuyPageClientProps) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [requestedPlan]);
+
+  const offerDetails = offer ? CHECKOUT_OFFERS[offer] : null;
+  const showOfferBanner = !!offer && !requestedPlan;
+  useEffect(() => {
+    if (showOfferBanner && offer) track(AnalyticsEvents.OFFER_BANNER_SHOWN, { offer });
+  }, [showOfferBanner, offer]);
 
   if (requestedPlan) {
     return (
@@ -70,7 +85,23 @@ export function BuyPageClient({ plan: requestedPlan }: BuyPageClientProps) {
             </p>
           </div>
 
-          <PlanPicker plan={plan} onPlanChange={setPlan} source="buy" disabled={isSubmitting} />
+          {showOfferBanner && offerDetails && (
+            <div
+              role="status"
+              className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm text-foreground"
+            >
+              {offerDetails.label} is applied at checkout (code{' '}
+              <span className="font-semibold">{offerDetails.promotionCode}</span>)
+            </div>
+          )}
+
+          <PlanPicker
+            plan={plan}
+            onPlanChange={setPlan}
+            source="buy"
+            disabled={isSubmitting}
+            {...(showOfferBanner && offerDetails ? { offerPercentOff: offerDetails.percentOff } : {})}
+          />
 
           <div>
             <p className="mb-4 text-sm font-semibold">What you get with Pro</p>

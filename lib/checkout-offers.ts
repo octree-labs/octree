@@ -30,7 +30,9 @@ export const CHECKOUT_OFFERS: Record<CheckoutOfferId, CheckoutOffer> = {
     promotionCode: 'WELCOME50',
     percentOff: 50,
     label: '50% off your first month',
-    plans: ['monthly', 'annual', 'semester'],
+    // "your first month": the monthly plan only. An annual or semester
+    // checkout that carries the offer opens at full price (no error).
+    plans: ['monthly'],
   },
 };
 

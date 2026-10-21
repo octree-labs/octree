@@ -211,15 +211,13 @@ describe('buildCheckoutSessionParams', () => {
 });
 
 describe('checkout offers', () => {
-  it('keeps a known offer for the subscription plans', () => {
-    for (const plan of ['monthly', 'annual', 'semester']) {
-      expect(resolveCheckoutPlan({ plan, offer: 'welcome50' })).toMatchObject({ ok: true, plan, offer: 'welcome50' });
-    }
+  it('keeps a known offer for the monthly plan', () => {
+    expect(resolveCheckoutPlan({ plan: 'monthly', offer: 'welcome50' })).toMatchObject({ ok: true, plan: 'monthly', offer: 'welcome50' });
     expect(resolveCheckoutPlan({ offer: 'welcome50' })).toMatchObject({ ok: true, plan: 'monthly', offer: 'welcome50' });
   });
 
-  it('drops an offer for the one-off purchases without failing', () => {
-    for (const plan of ['credits_100', 'generate_single']) {
+  it('drops an offer for annual, semester and the one-off purchases without failing', () => {
+    for (const plan of ['annual', 'semester', 'credits_100', 'generate_single']) {
       const resolved = resolveCheckoutPlan({ plan, offer: 'welcome50' });
       expect(resolved.ok).toBe(true);
       expect(resolved).not.toHaveProperty('offer');
@@ -248,6 +246,8 @@ describe('checkout offers', () => {
     const params = buildCheckoutSessionParams({ ...base, plan: 'monthly', offer: 'welcome50', promotionCodeId: 'promo_1' });
     expect(params.discounts).toEqual([{ promotion_code: 'promo_1' }]);
     expect(params).not.toHaveProperty('allow_promotion_codes');
+    // Recovery stays on, without its own promotion code box next to the discount.
+    expect(params.after_expiration).toEqual({ recovery: { enabled: true } });
     expect(params.metadata).toMatchObject({ offer: 'welcome50' });
     expect(params.subscription_data?.metadata).toMatchObject({ offer: 'welcome50' });
   });

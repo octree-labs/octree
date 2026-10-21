@@ -87,7 +87,7 @@ export type ResolvedCheckoutPlan =
       withTrial: boolean;
       /**
        * A known offer (lib/checkout-offers.ts) that applies to `plan`. An
-       * offer for another plan (the credit pack) is dropped, not refused.
+       * offer for another plan (annual, semester, the one-off purchases) is dropped, not refused.
        */
       offer?: CheckoutOfferId;
     } & CheckoutAttribution)
@@ -237,8 +237,13 @@ export function buildCheckoutSessionParams(
   };
 
   if (discounted) {
-    // Stripe refuses `discounts` together with `allow_promotion_codes`.
+    // Stripe refuses `discounts` together with `allow_promotion_codes`
+    // (parameters_exclusive). The recovery session's own promotion code box
+    // goes too: the API reference does not say whether it may be combined
+    // with a prefilled discount, and a refused create would cost the user
+    // the discount (the route retries without it). Recovery stays enabled.
     delete params.allow_promotion_codes;
+    params.after_expiration = { recovery: { enabled: true } };
     params.discounts = [{ promotion_code: input.promotionCodeId! }];
   }
 

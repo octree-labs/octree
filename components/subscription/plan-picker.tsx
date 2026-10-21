@@ -28,6 +28,7 @@ interface PlanPickerProps {
   /**
    * A checkout offer's percent off the first payment (/buy?offer=...): the
    * selected plan's price is shown crossed out next to the discounted one.
+   * The host passes it only while the selected plan is one the offer covers.
    */
   offerPercentOff?: number;
 }

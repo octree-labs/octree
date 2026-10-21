@@ -15,7 +15,8 @@ interface BuyPageProps {
  * Without a parameter the picker is shown.
  *
  * `?offer=welcome50` (the warm_lead_offer email) shows the discount banner
- * and passes the offer to checkout for the subscription plans. An unknown
+ * and passes the offer to checkout for the plans it covers (welcome50: monthly
+ * only; annual and semester check out at full price). An unknown
  * offer id is ignored and the page behaves as without it.
  */
 export default async function BuyPage({ searchParams }: BuyPageProps) {

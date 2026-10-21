@@ -31,7 +31,7 @@ import {
  *
  * `offer` names a discount from lib/checkout-offers.ts (`welcome50`, the
  * warm_lead_offer email's link). An unknown id is a 400; a known one for a
- * plan it does not cover (the credit pack) is dropped. A valid one opens the
+ * plan it does not cover (welcome50 is monthly only) is dropped. A valid one opens the
  * session with its promotion code applied (`discounts`). When Stripe will
  * not apply it (WELCOME50 is first-time-transaction only, so a returning
  * customer is refused) the session is opened again without it: the user
@@ -108,7 +108,7 @@ export async function POST(request: Request) {
         )
       );
     } catch (error) {
-      if (!offerApplied || !isStripeInvalidRequest(error)) throw error;
+      if (!offerApplied || !isRefusedDiscount(error)) throw error;
       // The promotion code was refused (first-time-transaction restriction,
       // code deactivated, ...): the user still gets a checkout, at full price.
       console.warn(
@@ -146,12 +146,19 @@ export async function POST(request: Request) {
 }
 
 /**
- * A 400 from Stripe (StripeInvalidRequestError): a refused promotion code is
- * one (`promotion_code_not_valid`, `coupon_expired`, `resource_missing`, the
- * first-time-transaction check). Retrying such a request without the
- * discount is safe; a network or auth error is rethrown as before.
+ * Whether a failed create may be retried without the discount: only a
+ * StripeInvalidRequestError (HTTP 400). A refused promotion code is one:
+ * `promotion_code_customer_not_first_time` (the customer has prior
+ * payments; WELCOME50 is first-time only), `coupon_expired`,
+ * `resource_missing` (https://docs.stripe.com/error-codes). The retry is
+ * kept broad within 400s on purpose: a 400 unrelated to the discount fails
+ * the retry too and surfaces as before, while an unlisted refusal code
+ * would otherwise cost the user their checkout. Auth (401), permission
+ * (403), idempotency, rate-limit (429), connection and API (5xx) errors are
+ * never retried.
  */
-function isStripeInvalidRequest(error: unknown): boolean {
+function isRefusedDiscount(error: unknown): boolean {
   const e = error as { type?: string; statusCode?: number } | null;
-  return e?.type === 'StripeInvalidRequestError' || e?.statusCode === 400;
+  if (e?.type !== 'StripeInvalidRequestError') return false;
+  return e.statusCode === undefined || e.statusCode === 400;
 }

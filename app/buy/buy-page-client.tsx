@@ -55,6 +55,9 @@ export function BuyPageClient({ plan: requestedPlan, offer = null }: BuyPageClie
 
   const offerDetails = offer ? CHECKOUT_OFFERS[offer] : null;
   const showOfferBanner = !!offer && !requestedPlan;
+  // The offer covers some plans only (welcome50: monthly); the banner says
+  // so, and the price is shown discounted only for a plan it covers.
+  const offerCoversPlan = !!offer && offerAppliesToPlan(offer, plan);
   useEffect(() => {
     if (showOfferBanner && offer) track(AnalyticsEvents.OFFER_BANNER_SHOWN, { offer });
   }, [showOfferBanner, offer]);
@@ -90,8 +93,18 @@ export function BuyPageClient({ plan: requestedPlan, offer = null }: BuyPageClie
               role="status"
               className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm text-foreground"
             >
-              {offerDetails.label} is applied at checkout (code{' '}
-              <span className="font-semibold">{offerDetails.promotionCode}</span>)
+              {offerCoversPlan ? (
+                <>
+                  {offerDetails.label} is applied at checkout (code{' '}
+                  <span className="font-semibold">{offerDetails.promotionCode}</span>).
+                </>
+              ) : (
+                <>
+                  {offerDetails.label} (code{' '}
+                  <span className="font-semibold">{offerDetails.promotionCode}</span>) applies to the
+                  Monthly plan only. This plan is charged at its full price.
+                </>
+              )}
             </div>
           )}
 
@@ -100,7 +113,7 @@ export function BuyPageClient({ plan: requestedPlan, offer = null }: BuyPageClie
             onPlanChange={setPlan}
             source="buy"
             disabled={isSubmitting}
-            {...(showOfferBanner && offerDetails ? { offerPercentOff: offerDetails.percentOff } : {})}
+            {...(showOfferBanner && offerDetails && offerCoversPlan ? { offerPercentOff: offerDetails.percentOff } : {})}
           />
 
           <div>

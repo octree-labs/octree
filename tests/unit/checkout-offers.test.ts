@@ -10,12 +10,13 @@ import {
 import { ensureOfferPromotionCode, resetOfferPromotionCodesForTests } from '@/lib/checkout-offers-stripe';
 
 describe('checkout offer constants', () => {
-  it('knows welcome50 and only for the recurring plans', () => {
+  it('knows welcome50, for the monthly plan only', () => {
     expect(isCheckoutOfferId('welcome50')).toBe(true);
     expect(isCheckoutOfferId('WELCOME50')).toBe(false);
     expect(CHECKOUT_OFFERS.welcome50).toMatchObject({ coupon: 'first-month-50', promotionCode: 'WELCOME50', percentOff: 50 });
     expect(offerAppliesToPlan('welcome50', 'monthly')).toBe(true);
-    expect(offerAppliesToPlan('welcome50', 'semester')).toBe(true);
+    expect(offerAppliesToPlan('welcome50', 'annual')).toBe(false);
+    expect(offerAppliesToPlan('welcome50', 'semester')).toBe(false);
     expect(offerAppliesToPlan('welcome50', 'credits_100')).toBe(false);
     expect(offerAppliesToPlan('welcome50', 'generate_single')).toBe(false);
   });

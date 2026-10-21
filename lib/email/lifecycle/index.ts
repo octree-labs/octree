@@ -197,7 +197,7 @@ export function warmLeadOfferEmail(input: WarmLeadOfferEmailInput): LifecycleEma
     preheader: `${offer.label} of Octree Pro. Code ${offer.promotionCode}.`,
     paragraphs: [
       p(`Hi, I'm Basil, I build Octree. I saw you ran into ${copy.ranInto} ${input.when ?? 'recently'}. That's a frustrating place to stop.`),
-      p(`If you want to keep going, here's ${offer.percentOff}% off your first month of Pro (${PRO_MONTHLY_EDIT_LIMIT} AI edits a month, PDF export, no daily cap):`),
+      p(`If you want to keep going, here's ${offer.percentOff}% off your first month of Pro on the monthly plan (${PRO_MONTHLY_EDIT_LIMIT} AI edits a month, PDF export, no daily cap):`),
     ],
     cta: { label: `Claim ${offer.percentOff}% off`, href: warmLeadOfferUrl(input.appUrl) },
     closing: [

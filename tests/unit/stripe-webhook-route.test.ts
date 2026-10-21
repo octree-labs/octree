@@ -43,8 +43,14 @@ const mocks = vi.hoisted(() => {
     eq: () => ({ in: () => ({ not: () => ({ gte: () => ({ limit: ledgerRecentLimit }) }) }) }),
   });
 
+  // grant_export_unlock answered false: was this session granted before?
+  const exportUnlockMaybeSingle = vi.fn().mockResolvedValue({ data: null, error: null });
+
   const from = vi.fn((table: string) => {
     if (table === 'stripe_webhook_events') return { insert: eventsInsert };
+    if (table === 'project_export_unlocks') {
+      return { select: () => ({ eq: () => ({ maybeSingle: exportUnlockMaybeSingle }) }) };
+    }
     if (table === 'user_usage') return { update: usageUpdate, upsert: usageUpsert, select: usageSelect };
     if (table === 'lifecycle_emails') return { insert: ledgerInsert, update: ledgerUpdate, select: ledgerSelect };
     if (table === 'email_suppressions') {
@@ -76,6 +82,7 @@ const mocks = vi.hoisted(() => {
     subscriptionsList,
     resendSend,
     ledgerRecentLimit,
+    exportUnlockMaybeSingle,
   };
 });
 
@@ -262,6 +269,7 @@ describe('POST /api/webhooks/stripe', () => {
     mocks.invoiceRetrieve.mockResolvedValue(openInvoice());
     mocks.subscriptionsList.mockResolvedValue({ data: [] });
     mocks.resendSend.mockResolvedValue({ data: { id: 'msg_1' }, error: null });
+    mocks.exportUnlockMaybeSingle.mockResolvedValue({ data: null, error: null });
     errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.spyOn(console, 'log').mockImplementation(() => {});
   });
@@ -504,6 +512,7 @@ describe('POST /api/webhooks/stripe', () => {
     it('grants nothing on a redelivery (the RPC answers false) and captures nothing', async () => {
       mocks.constructEvent.mockReturnValue(checkoutEvent(exportOverrides));
       mocks.rpc.mockResolvedValue({ data: false, error: null });
+      mocks.exportUnlockMaybeSingle.mockResolvedValue({ data: { stripe_session_id: 'cs_export_1' }, error: null });
       mocks.eventsInsert.mockResolvedValue({ error: { code: '23505', message: 'duplicate key' } });
 
       const res = await POST(makeRequest());
@@ -512,6 +521,34 @@ describe('POST /api/webhooks/stripe', () => {
       expect(mocks.rpc).toHaveBeenCalledTimes(1);
       expect(mocks.captureServerEvent).not.toHaveBeenCalled();
       expect(mocks.trackRedditConversion).not.toHaveBeenCalled();
+      // A redelivery is not a refund case.
+      expect(errorSpy.mock.calls.some((args: unknown[]) => String(args[0]).includes('Refund'))).toBe(false);
+    });
+
+    it('logs a refund case and returns 200 when a paid session unlocks nothing (project already unlocked or not theirs)', async () => {
+      mocks.constructEvent.mockReturnValue(checkoutEvent(exportOverrides));
+      mocks.rpc.mockResolvedValue({ data: false, error: null });
+
+      const res = await POST(makeRequest());
+
+      expect(res.status).toBe(200);
+      expect(mocks.captureServerEvent).not.toHaveBeenCalledWith('user-1', 'export_unlocked', expect.anything());
+      expect(
+        errorSpy.mock.calls.some(
+          (args: unknown[]) => String(args[0]).includes('cs_export_1') && String(args[0]).includes('Refund')
+        )
+      ).toBe(true);
+    });
+
+    it('ignores a non-uuid export_project_id instead of failing the RPC cast (no 500 retry loop)', async () => {
+      mocks.constructEvent.mockReturnValue(
+        checkoutEvent({ ...exportOverrides, metadata: { ...exportOverrides.metadata, export_project_id: 'not-a-uuid' } })
+      );
+
+      const res = await POST(makeRequest());
+
+      expect(res.status).toBe(200);
+      expect(mocks.rpc).not.toHaveBeenCalledWith('grant_export_unlock', expect.anything());
     });
 
     it.each(['PGRST202', '42883', '42P01', 'PGRST205', 'PGRST204'])(

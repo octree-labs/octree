@@ -110,7 +110,8 @@ export function join(...parts: Array<string | { html: string; text: string }>): 
   return { html, text };
 }
 
-const FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+// Single quotes inside: the value goes into a double-quoted style attribute.
+const FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
 
 export function renderLifecycleEmail(layout: LifecycleLayoutInput): LifecycleEmailContent {
   const input: LifecycleLayoutInput = {

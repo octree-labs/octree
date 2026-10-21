@@ -311,6 +311,8 @@ function fakeSupabase(options: {
   ledgerError?: { code: string; message: string } | null;
   /** Rows the checkout-recovery cooldown query finds (delivered recovery emails in the window). */
   recentRecoveryRows?: Array<Record<string, unknown>>;
+  /** Rows project_export_unlocks has for the queried project. */
+  exportUnlockRows?: Array<Record<string, unknown>>;
 }) {
   /**
    * The two lifecycle_emails reads: the follow-up loader
@@ -344,6 +346,9 @@ function fakeSupabase(options: {
         return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: options.usage ?? null, error: null }) }) }) };
       }
       if (table === 'lifecycle_emails') return ledgerQuery();
+      if (table === 'project_export_unlocks') {
+        return { select: () => ({ eq: () => ({ limit: async () => ({ data: options.exportUnlockRows ?? [], error: null }) }) }) };
+      }
       throw new Error(`unexpected table ${table}`);
     },
   } as any;
@@ -456,6 +461,36 @@ describe('sendCheckoutRecoveryEmail', () => {
     ).toMatchObject({ sent: false, reason: 'already subscribed' });
     expect(live.subscriptions.list).toHaveBeenCalledWith({ customer: 'cus_1', status: 'all', limit: 10 });
     expect(sent).toHaveLength(0);
+  });
+
+  describe('an abandoned export_single', () => {
+    const exportSession = {
+      ...session,
+      id: 'cs_export_1',
+      mode: 'payment',
+      amount_total: 499,
+      metadata: { user_id: 'u1', plan: 'export_single', export_project_id: '2f1c7d4e-8a9b-4c3d-9e2f-1a2b3c4d5e6f' },
+    };
+
+    it('sends nothing when the project was unlocked since (finishing it would charge for nothing)', async () => {
+      const { deps, sent, claimed } = fakeDeps();
+      const supabase = fakeSupabase({
+        usage: { is_pro: false, subscription_status: 'inactive' },
+        exportUnlockRows: [{ id: 'unlock-1' }],
+      });
+      const result = await sendCheckoutRecoveryEmail({ stripe, supabase, deps, session: exportSession });
+      expect(result).toMatchObject({ sent: false, ref: 'cs_export_1', reason: 'export already unlocked' });
+      expect(sent).toHaveLength(0);
+      expect(claimed.size).toBe(0);
+    });
+
+    it('sends the recovery email while the project is still locked', async () => {
+      const { deps, sent } = fakeDeps();
+      const supabase = fakeSupabase({ usage: { is_pro: false, subscription_status: 'inactive' } });
+      const result = await sendCheckoutRecoveryEmail({ stripe, supabase, deps, session: exportSession });
+      expect(result).toMatchObject({ sent: true, ref: 'cs_export_1' });
+      expect(sent[0].html).toContain('export for one document');
+    });
   });
 
   it('sends at most one recovery sequence per user per cooldown, however many sessions expire', async () => {

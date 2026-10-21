@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 
 import { PaywallDialog } from '@/components/subscription/paywall-dialog';
 import { PaywallActions, usePaywallStore } from '@/stores/paywall';
+import { isExportUnlocked, useProjectStore } from '@/stores/project';
 import { createCheckoutSession } from '@/lib/requests/subscription';
 import { track } from '@/lib/analytics/track';
 
@@ -239,6 +240,17 @@ describe('PaywallDialog export with the one-off "Export this document" offer', (
       source: 'paywall',
       offer: 'welcome50',
     });
+  });
+
+  it('closes and marks the project unlocked when checkout answers "already unlocked" (409)', async () => {
+    vi.mocked(createCheckoutSession).mockRejectedValueOnce(new Error('Export is already unlocked for this project'));
+    useProjectStore.setState({ exportUnlocked: false, exportUnlockProjectId: null });
+    openExportSingle();
+    render(<PaywallDialog />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Unlock export — $4.99' }));
+    await waitFor(() => expect(usePaywallStore.getState().open).toBe(false));
+    expect(isExportUnlocked(useProjectStore.getState(), PROJECT_ID)).toBe(true);
   });
 
   it('falls back to the plain export paywall when no project was passed', () => {

@@ -12,6 +12,7 @@ import {
   resolveCheckoutPlan,
 } from '@/lib/checkout-plans';
 import { ensureOfferPromotionCode } from '@/lib/checkout-offers-stripe';
+import { EXPORT_ALREADY_UNLOCKED_MESSAGE, readExportUnlocked } from '@/lib/export-unlock';
 import { AnalyticsEvents } from '@/lib/analytics/events';
 import {
   captureServerEventAfterResponse,
@@ -40,7 +41,8 @@ import {
  * `plan: 'export_single'` also takes `projectId` (required, a uuid): the
  * project whose export the $4.99 purchase unlocks. It is read with the
  * user's own client (RLS) and filtered on `user_id`, so a project that is
- * not theirs, or does not exist, is a 404 and no session is opened.
+ * not theirs, or does not exist, is a 404 and no session is opened; a
+ * project already unlocked is a 409 (it cannot be bought twice).
  *
  * Prices are looked up by Stripe `lookup_key` and created on first use
  * (lib/stripe-prices.ts). When the user already has a Stripe customer
@@ -89,6 +91,13 @@ export async function POST(request: Request) {
       if (projectError) throw projectError;
       if (!project) {
         return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+      }
+      // project_id is unique in project_export_unlocks: a second payment for
+      // an unlocked project would be charged and grant nothing. (The paywall
+      // does not open for an unlocked project, but a stale tab, a second
+      // tab or a direct call can still get here.)
+      if (await readExportUnlocked(supabase, resolved.projectId)) {
+        return NextResponse.json({ error: EXPORT_ALREADY_UNLOCKED_MESSAGE }, { status: 409 });
       }
     }
 

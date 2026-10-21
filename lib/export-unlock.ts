@@ -14,6 +14,12 @@ import type { Database } from '@/database.types';
  */
 
 /**
+ * The checkout route's 409 for an `export_single` on a project that is
+ * already unlocked (the paywall dialog recognises it and closes).
+ */
+export const EXPORT_ALREADY_UNLOCKED_MESSAGE = 'Export is already unlocked for this project';
+
+/**
  * Postgres / PostgREST codes for a schema object the migration has not
  * created yet: an undefined table or column (42P01, PGRST205, 42703,
  * PGRST204, as lib/lifecycle/load.ts `isMissingLedgerSchema`) and an

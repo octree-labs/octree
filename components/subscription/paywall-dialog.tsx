@@ -26,7 +26,9 @@ import {
 import type { ProFeature } from '@/lib/subscription/features';
 import { CHECKOUT_OFFERS, offerAppliesToPlan } from '@/lib/checkout-offers';
 import { firstPurchaseOfferCopy } from '@/lib/first-purchase-offer';
+import { EXPORT_ALREADY_UNLOCKED_MESSAGE } from '@/lib/export-unlock';
 import { PaywallActions, paywallOfferFor, usePaywall } from '@/stores/paywall';
+import { ProjectActions } from '@/stores/project';
 
 const COPY: Record<ProFeature, { title: string; description: string }> = {
   'ai-edit': {
@@ -137,6 +139,19 @@ export function PaywallDialog() {
       const checkoutUrl = await createCheckoutSession(request);
       window.location.href = checkoutUrl;
     } catch (error) {
+      // Already unlocked (a second tab, a stale store): nothing to buy.
+      if (
+        request?.plan === 'export_single' &&
+        request.projectId &&
+        error instanceof Error &&
+        error.message === EXPORT_ALREADY_UNLOCKED_MESSAGE
+      ) {
+        ProjectActions.setExportUnlocked(request.projectId, true);
+        PaywallActions.close();
+        setIsSubmitting(null);
+        toast.success('Export is already unlocked for this document');
+        return;
+      }
       console.error('Failed to create checkout session:', error);
       toast.error('Failed to start checkout. Please try again.');
       setIsSubmitting(null);

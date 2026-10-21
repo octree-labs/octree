@@ -40,6 +40,17 @@ describe('recordPaywallHit', () => {
     expect(mocks.insert).not.toHaveBeenCalled();
   });
 
+  it('does nothing outside the browser (SSR)', async () => {
+    vi.stubGlobal('window', undefined);
+    try {
+      await recordPaywallHit('export', 'pro_feature');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(mocks.getSession).not.toHaveBeenCalled();
+    expect(mocks.insert).not.toHaveBeenCalled();
+  });
+
   it('swallows an insert error (pending migration, RLS) and a thrown client', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     mocks.insert.mockResolvedValue({ error: { message: 'relation "paywall_hits" does not exist', code: '42P01' } });

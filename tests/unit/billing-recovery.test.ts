@@ -218,9 +218,9 @@ describe('billing recovery templates', () => {
     expect(html.match(/border-radius:8px/g)).toHaveLength(1);
   });
 
-  it('both dunning emails say that someone who no longer needs Octree can do nothing and it lapses', () => {
+  it('both dunning emails say that someone who no longer needs Octree can cancel to stop retries, or let it end', () => {
     expect(paymentFailedEmail(failed).text).toContain('If you no longer need Octree, cancel from Settings so we stop retrying the card');
-    expect(paymentFailedReminderEmail(failed).text).toContain('ignore this and the subscription will end on its own');
+    expect(paymentFailedReminderEmail(failed).text).toContain('cancel from Settings so we stop retrying the card; otherwise the subscription ends on its own');
   });
 
   it('payment_failed falls back to the portal and says so when no retry is scheduled', () => {

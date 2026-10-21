@@ -4,6 +4,7 @@ import {
   CHECKOUT_SESSION_MAX_TTL_SECONDS,
   CHECKOUT_SESSION_MIN_TTL_SECONDS,
   CHECKOUT_SESSION_TTL_SECONDS,
+  EXPORT_PROJECT_REQUIRED_MESSAGE,
   WEEKLY_PLAN_RETIRED_MESSAGE,
   buildCheckoutSessionParams,
   lookupKeyForPlan,
@@ -257,5 +258,90 @@ describe('checkout offers', () => {
     expect(buildCheckoutSessionParams({ ...base, plan: 'monthly', offer: 'welcome50', promotionCodeId: null })).toEqual(plain);
     expect(plain.allow_promotion_codes).toBe(true);
     expect(plain.discounts).toBeUndefined();
+  });
+});
+
+describe('export_single (one-off export unlock for one project)', () => {
+  const projectId = '2f1c7d4e-8a9b-4c3d-9e2f-1a2b3c4d5e6f';
+  const base = {
+    priceId: 'price_export',
+    userId: 'user-1',
+    customerId: null,
+    email: 'buyer@example.com',
+    origin: 'https://app.example.com',
+    withTrial: false,
+    nowSeconds: 1_800_000_000,
+  };
+
+  it('requires a uuid projectId and carries it through', () => {
+    expect(resolveCheckoutPlan({ plan: 'export_single', projectId, source: 'paywall' })).toEqual({
+      ok: true,
+      plan: 'export_single',
+      withTrial: false,
+      source: 'paywall',
+      projectId,
+    });
+    for (const bad of [undefined, null, '', 'not-a-uuid', 42, `${projectId}x`]) {
+      expect(resolveCheckoutPlan({ plan: 'export_single', projectId: bad })).toEqual({
+        ok: false,
+        error: EXPORT_PROJECT_REQUIRED_MESSAGE,
+      });
+    }
+  });
+
+  it('ignores projectId for every other plan', () => {
+    for (const plan of ['monthly', 'annual', 'semester', 'credits_100', 'generate_single'] as const) {
+      const resolved = resolveCheckoutPlan({ plan, projectId });
+      expect(resolved).toEqual({ ok: true, plan, withTrial: false });
+    }
+  });
+
+  it('drops the welcome50 offer silently (it is not a subscription)', () => {
+    const resolved = resolveCheckoutPlan({ plan: 'export_single', projectId, offer: 'welcome50' });
+    expect(resolved.ok).toBe(true);
+    expect(resolved).not.toHaveProperty('offer');
+  });
+
+  it('maps to the octree_export_single lookup key', () => {
+    expect(lookupKeyForPlan('export_single')).toBe('octree_export_single');
+  });
+
+  it('opens a one-time payment session that returns to the project', () => {
+    const params = buildCheckoutSessionParams({ ...base, plan: 'export_single', projectId, source: 'paywall' });
+
+    expect(params).toMatchObject({
+      mode: 'payment',
+      line_items: [{ price: 'price_export', quantity: 1 }],
+      success_url: `https://app.example.com/projects/${projectId}?export=unlocked`,
+      cancel_url: `https://app.example.com/projects/${projectId}`,
+      customer_email: 'buyer@example.com',
+      customer_creation: 'always',
+      allow_promotion_codes: true,
+      expires_at: base.nowSeconds + CHECKOUT_SESSION_TTL_SECONDS,
+      after_expiration: { recovery: { enabled: true, allow_promotion_codes: true } },
+    });
+    const metadata = { user_id: 'user-1', plan: 'export_single', source: 'paywall', export_project_id: projectId };
+    expect(params.metadata).toEqual(metadata);
+    expect(params.payment_intent_data?.metadata).toEqual(metadata);
+    // Neither one-off credit key: the webhook grants only the export unlock.
+    expect(params.metadata).not.toHaveProperty('credits');
+    expect(params.metadata).not.toHaveProperty('generation_credits');
+    expect(params).not.toHaveProperty('subscription_data');
+  });
+
+  it('reuses a known customer', () => {
+    const params = buildCheckoutSessionParams({ ...base, plan: 'export_single', projectId, customerId: 'cus_9' });
+    expect(params.customer).toBe('cus_9');
+    expect(params).not.toHaveProperty('customer_creation');
+  });
+
+  it('refuses to build a session without the project', () => {
+    expect(() => buildCheckoutSessionParams({ ...base, plan: 'export_single' })).toThrow(EXPORT_PROJECT_REQUIRED_MESSAGE);
+  });
+
+  it('never writes export_project_id for other plans', () => {
+    const params = buildCheckoutSessionParams({ ...base, plan: 'generate_single', projectId });
+    expect(params.metadata).not.toHaveProperty('export_project_id');
+    expect(params.success_url).toBe('https://app.example.com/generate?purchased=1');
   });
 });

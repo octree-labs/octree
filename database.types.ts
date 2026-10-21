@@ -399,6 +399,41 @@ export type Database = {
         }
         Relationships: []
       }
+      project_export_unlocks: {
+        Row: {
+          amount_cents: number
+          created_at: string
+          id: string
+          project_id: string
+          stripe_session_id: string
+          user_id: string
+        }
+        Insert: {
+          amount_cents: number
+          created_at?: string
+          id?: string
+          project_id: string
+          stripe_session_id: string
+          user_id: string
+        }
+        Update: {
+          amount_cents?: number
+          created_at?: string
+          id?: string
+          project_id?: string
+          stripe_session_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_export_unlocks_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: true
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       generation_purchases: {
         Row: {
           amount_cents: number | null
@@ -600,6 +635,15 @@ export type Database = {
       grant_generation_credits: {
         Args: { p_credits: number; p_user_id: string }
         Returns: number
+      }
+      grant_export_unlock: {
+        Args: {
+          p_amount_cents: number
+          p_project_id: string
+          p_session_id: string
+          p_user_id: string
+        }
+        Returns: boolean
       }
       grant_generation_purchase: {
         Args: {

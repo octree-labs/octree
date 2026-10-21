@@ -14,6 +14,16 @@ export const GENERATE_SINGLE_PRICE = {
   productName: 'One AI document generation',
 } as const;
 
+// One-off export unlock: PDF/ZIP export for ONE project, forever, without
+// Pro. Keep in sync with lib/stripe-prices.ts (octree_export_single) and
+// supabase/migrations/20261021150000_project_export_unlocks.sql.
+export const EXPORT_SINGLE_PRICE = {
+  amount: 4.99,
+  price: '$4.99',
+  lookupKey: 'octree_export_single',
+  productName: 'Octree — Export this document',
+} as const;
+
 /**
  * Display copy for everything the app sells. The single source of truth for
  * labels and prices in the UI; the Stripe prices themselves are provisioned

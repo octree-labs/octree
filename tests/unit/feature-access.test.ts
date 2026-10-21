@@ -92,6 +92,39 @@ describe('canUseFeature', () => {
     expect(canUseFeature(unlimited, 'export')).toEqual({ allowed: true });
     expect(canUseFeature(unlimited, 'generate')).toEqual({ allowed: true });
   });
+
+  describe('export with a one-off project unlock', () => {
+    it('allows an unlocked project on the free plan', () => {
+      expect(canUseFeature(free, 'export', { projectUnlocked: true })).toEqual({ allowed: true });
+      expect(canUseFeature(freeAtLimit, 'export', { projectUnlocked: true })).toEqual({ allowed: true });
+    });
+
+    it('allows an unlocked project before the plan has loaded (or when it failed to load)', () => {
+      expect(canUseFeature(null, 'export', { projectUnlocked: true })).toEqual({ allowed: true });
+      expect(canUseFeature(undefined, 'export', { projectUnlocked: true })).toEqual({ allowed: true });
+      // Without the unlock the same state still waits for the plan.
+      expect(canUseFeature(null, 'export')).toEqual({ allowed: false, reason: 'unknown' });
+    });
+
+    it('allows an unlocked project for a past_due subscriber (no Pro meanwhile)', () => {
+      const pastDue: FeatureUsage = { isPro: false, paymentPastDue: true };
+      expect(canUseFeature(pastDue, 'export')).toEqual({ allowed: false, reason: 'paywall' });
+      expect(canUseFeature(pastDue, 'export', { projectUnlocked: true })).toEqual({ allowed: true });
+    });
+
+    it('leaves a locked project exactly as before', () => {
+      for (const usage of [free, freeAtLimit, pro, proAtMonthlyLimit, unlimited, null]) {
+        expect(canUseFeature(usage, 'export', { projectUnlocked: false })).toEqual(canUseFeature(usage, 'export'));
+        expect(canUseFeature(usage, 'export', {})).toEqual(canUseFeature(usage, 'export'));
+      }
+      expect(canUseFeature(free, 'export', { projectUnlocked: false })).toEqual({ allowed: false, reason: 'paywall' });
+    });
+
+    it('unlocks export only, never AI edits or Generate', () => {
+      expect(canUseFeature(freeAtLimit, 'ai-edit', { projectUnlocked: true })).toEqual({ allowed: false, reason: 'paywall' });
+      expect(canUseFeature(free, 'generate', { projectUnlocked: true })).toEqual({ allowed: false, reason: 'paywall' });
+    });
+  });
 });
 
 describe('toFeatureUsage', () => {

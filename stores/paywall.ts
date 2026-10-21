@@ -27,6 +27,17 @@ interface PaywallState {
    * the user is not eligible. The dialog shows it on the Pro offer.
    */
   firstPurchaseOffer: CheckoutOfferId | null;
+  /**
+   * What the gate was about, for offers tied to it: the export paywall's
+   * one-off "Export this document" needs the project to unlock. Reset on
+   * every open; null when the opener passed none.
+   */
+  context: PaywallContext | null;
+}
+
+export interface PaywallContext {
+  /** The project an `export_single` purchase would unlock. */
+  projectId?: string;
 }
 
 const DEFAULT_OFFERS: PaywallOffer[] = ['pro'];
@@ -37,6 +48,7 @@ export const usePaywallStore = create<PaywallState>(() => ({
   reason: null,
   offers: DEFAULT_OFFERS,
   firstPurchaseOffer: null,
+  context: null,
 }));
 
 /**
@@ -56,10 +68,11 @@ export const PaywallActions = {
   open(
     feature: ProFeature,
     reason: PaywallReason = paywallReasonForFeature(feature),
-    offers: PaywallOffer[] = DEFAULT_OFFERS
+    offers: PaywallOffer[] = DEFAULT_OFFERS,
+    context?: PaywallContext
   ) {
     const { open: wasOpen, firstPurchaseOffer } = usePaywallStore.getState();
-    usePaywallStore.setState({ open: true, feature, reason, offers });
+    usePaywallStore.setState({ open: true, feature, reason, offers, context: context ?? null });
     if (!wasOpen) {
       const offer = paywallOfferFor(reason, firstPurchaseOffer);
       track(AnalyticsEvents.PAYWALL_SHOWN, { feature, reason, offers, ...(offer ? { offer } : {}) });

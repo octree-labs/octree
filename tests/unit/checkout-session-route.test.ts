@@ -15,6 +15,12 @@ const mocks = vi.hoisted(() => ({
   captureEvent: vi.fn(),
   captureException: vi.fn(),
   ensureOfferPromotionCode: vi.fn(),
+  // The export_single ownership read: from('projects').select().eq().eq().maybeSingle().
+  projectMaybeSingle: vi.fn(),
+  projectEq: vi.fn(),
+  // The already-unlocked read: from('project_export_unlocks').select().eq().limit().
+  unlockLimit: vi.fn(),
+  from: vi.fn(),
 }));
 
 vi.mock('@/lib/checkout-offers-stripe', () => ({
@@ -26,7 +32,7 @@ vi.mock('next/headers', () => ({
 }));
 
 vi.mock('@/lib/supabase/server', () => ({
-  createClient: async () => ({ auth: { getUser: mocks.getUser } }),
+  createClient: async () => ({ auth: { getUser: mocks.getUser }, from: mocks.from }),
 }));
 
 vi.mock('@/lib/stripe', () => ({
@@ -246,5 +252,122 @@ describe('POST /api/checkout-session offers', () => {
     const response = await POST(post({ plan: 'monthly', offer: 'welcome50' }));
     expect(response.status).toBe(500);
     expect(mocks.sessionsCreate).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('POST /api/checkout-session export_single', () => {
+  const projectId = '2f1c7d4e-8a9b-4c3d-9e2f-1a2b3c4d5e6f';
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.getUser.mockResolvedValue({ data: { user }, error: null });
+    mocks.getOrCreatePrice.mockResolvedValue('price_export');
+    mocks.resolveStripeCustomer.mockResolvedValue(null);
+    mocks.sessionsCreate.mockResolvedValue({ id: 'cs_export_1', url: 'https://checkout.stripe.com/c/cs_export_1' });
+    mocks.ensureOfferPromotionCode.mockResolvedValue('promo_welcome');
+    const chain = { eq: mocks.projectEq, maybeSingle: mocks.projectMaybeSingle };
+    mocks.projectEq.mockReturnValue(chain);
+    mocks.from.mockImplementation((table: string) =>
+      table === 'project_export_unlocks'
+        ? { select: () => ({ eq: () => ({ limit: mocks.unlockLimit }) }) }
+        : { select: () => chain }
+    );
+    mocks.projectMaybeSingle.mockResolvedValue({ data: { id: projectId }, error: null });
+    mocks.unlockLimit.mockResolvedValue({ data: [], error: null });
+  });
+
+  it("checks the project is the user's, then opens a payment session that unlocks it", async () => {
+    const response = await POST(post({ plan: 'export_single', projectId, source: 'paywall', offer: 'welcome50' }));
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe('https://checkout.stripe.com/c/cs_export_1');
+    expect(mocks.from).toHaveBeenCalledWith('projects');
+    expect(mocks.projectEq).toHaveBeenCalledWith('id', projectId);
+    expect(mocks.projectEq).toHaveBeenCalledWith('user_id', 'user-1');
+    expect(mocks.getOrCreatePrice).toHaveBeenCalledWith('octree_export_single', expect.anything());
+    // The offer is dropped: no promotion code lookup, no discount.
+    expect(mocks.ensureOfferPromotionCode).not.toHaveBeenCalled();
+
+    const params = mocks.sessionsCreate.mock.calls[0][0];
+    expect(params.mode).toBe('payment');
+    expect(params.discounts).toBeUndefined();
+    expect(params.metadata).toEqual({
+      user_id: 'user-1',
+      plan: 'export_single',
+      source: 'paywall',
+      export_project_id: projectId,
+    });
+    expect(params.payment_intent_data.metadata).toEqual(params.metadata);
+    expect(params.success_url).toBe(`https://app.example.com/projects/${projectId}?export=unlocked`);
+    expect(params.cancel_url).toBe(`https://app.example.com/projects/${projectId}`);
+    expect(params.customer_creation).toBe('always');
+
+    expect(mocks.captureEvent).toHaveBeenCalledWith(
+      'user-1',
+      'checkout_started',
+      expect.objectContaining({ plan: 'export_single', mode: 'payment', price_lookup_key: 'octree_export_single' })
+    );
+    expect(mocks.captureEvent.mock.calls[0][2]).not.toHaveProperty('offer');
+  });
+
+  it("returns 404 for someone else's project (RLS / user_id filter finds no row) and opens no session", async () => {
+    mocks.projectMaybeSingle.mockResolvedValue({ data: null, error: null });
+
+    const response = await POST(post({ plan: 'export_single', projectId, source: 'paywall' }));
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: 'Project not found' });
+    expect(mocks.sessionsCreate).not.toHaveBeenCalled();
+    expect(mocks.captureEvent).not.toHaveBeenCalled();
+  });
+
+  it('returns 409 for a project that is already unlocked and opens no session (it cannot be paid for twice)', async () => {
+    mocks.unlockLimit.mockResolvedValue({ data: [{ id: 'unlock-1' }], error: null });
+
+    const response = await POST(post({ plan: 'export_single', projectId, source: 'paywall' }));
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: 'Export is already unlocked for this project' });
+    expect(mocks.from).toHaveBeenCalledWith('project_export_unlocks');
+    expect(mocks.sessionsCreate).not.toHaveBeenCalled();
+    expect(mocks.captureEvent).not.toHaveBeenCalled();
+  });
+
+  it('still opens checkout when the unlock table does not exist yet (migration pending)', async () => {
+    mocks.unlockLimit.mockResolvedValue({ data: null, error: { code: '42P01', message: 'missing' } });
+    const response = await POST(post({ plan: 'export_single', projectId }));
+    expect(response.status).toBe(200);
+    expect(mocks.sessionsCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns 400 without a valid projectId, before any query', async () => {
+    for (const body of [{ plan: 'export_single' }, { plan: 'export_single', projectId: 'abc' }]) {
+      const response = await POST(post(body));
+      expect(response.status).toBe(400);
+    }
+    expect(mocks.from).not.toHaveBeenCalled();
+    expect(mocks.sessionsCreate).not.toHaveBeenCalled();
+  });
+
+  it('returns 401 for an anonymous request', async () => {
+    mocks.getUser.mockResolvedValue({ data: { user: null }, error: null });
+    const response = await POST(post({ plan: 'export_single', projectId }));
+    expect(response.status).toBe(401);
+    expect(mocks.from).not.toHaveBeenCalled();
+  });
+
+  it('fails (500) when the ownership read errors, without opening a session', async () => {
+    mocks.projectMaybeSingle.mockResolvedValue({ data: null, error: { message: 'db down' } });
+    const response = await POST(post({ plan: 'export_single', projectId }));
+    expect(response.status).toBe(500);
+    expect(mocks.sessionsCreate).not.toHaveBeenCalled();
+  });
+
+  it('never queries projects for other plans, even with a projectId in the body', async () => {
+    mocks.sessionsCreate.mockResolvedValue({ id: 'cs_test_1', url: 'https://checkout.stripe.com/c/cs_test_1' });
+    const response = await POST(post({ plan: 'monthly', projectId }));
+    expect(response.status).toBe(200);
+    expect(mocks.from).not.toHaveBeenCalled();
+    expect(mocks.sessionsCreate.mock.calls[0][0].metadata).not.toHaveProperty('export_project_id');
   });
 });

@@ -12,9 +12,10 @@ import {
   type CheckoutSource,
   type GenerateEntry,
 } from '@/lib/analytics/events';
-import { isSubscriptionPlan, isPurchasePlan } from '@/lib/checkout-plans';
+import { isSubscriptionPlan, isPurchasePlan, isProjectId } from '@/lib/checkout-plans';
 import { STRIPE_PRICE_IDS } from '@/lib/stripe-config';
 import { PRICE_LOOKUP_KEYS, PRICE_METADATA_KEY, isPriceLookupKey } from '@/lib/stripe-prices';
+import { isMissingExportUnlockSchema } from '@/lib/export-unlock';
 
 /** One server-side analytics event with its typed properties. */
 export type ServerAnalyticsEvent = {
@@ -386,4 +387,101 @@ export async function grantCreditsFromCheckoutSession(
     credits: pack.credits,
     balance: typeof data === 'number' ? data : null,
   };
+}
+
+/**
+ * The project a Checkout Session unlocks export for, or null when it is
+ * not a paid, payment-mode session carrying a uuid in
+ * `metadata.export_project_id` (app/api/checkout-session sets that for the
+ * $4.99 `export_single`). A non-uuid is ignored rather than passed to the
+ * RPC, where it would fail the uuid cast (22P02), return 500 and be retried
+ * by Stripe forever.
+ *
+ * Only `checkout.session.completed` fulfils, like the other one-offs: the
+ * session is created without delayed payment methods in mind (cards and
+ * wallets settle synchronously, so `payment_status` is already `paid`).
+ * If a delayed method (ACH, SEPA, ...) is ever enabled on the account, a
+ * `checkout.session.async_payment_succeeded` handler is needed for all
+ * one-offs, this one included.
+ */
+export function exportProjectFromSession(
+  session: Pick<Stripe.Checkout.Session, 'mode' | 'payment_status' | 'metadata'>
+): string | null {
+  if (session.mode !== 'payment' || session.payment_status !== 'paid') return null;
+  const projectId = session.metadata?.export_project_id;
+  return isProjectId(projectId) ? projectId : null;
+}
+
+export type GrantExportUnlockResult =
+  | { granted: true; userId: string; projectId: string }
+  | {
+      granted: false;
+      /**
+       * `already_unlocked`: this session was granted before (a redelivery).
+       * `not_granted`: a paid session that unlocked nothing, because the
+       * project was already unlocked by another session or is not (or no
+       * longer) the buyer's. Logged as an error: the payment needs a refund.
+       */
+      reason: 'not_an_export_purchase' | 'missing_user' | 'already_unlocked' | 'not_granted' | 'schema_missing';
+    };
+
+/**
+ * Unlocks export for the project a paid `export_single` Checkout Session
+ * bought, through the service-role-only `grant_export_unlock` RPC (one
+ * project_export_unlocks row, unique per session id AND per project). The
+ * RPC returns false for a session or project already unlocked, so a
+ * redelivered event grants once.
+ *
+ * Until 20261021150000_project_export_unlocks.sql is applied the RPC does
+ * not exist: that is logged (with the session id, for a manual grant) and
+ * reported as `schema_missing` instead of thrown, so the webhook still
+ * answers 200. Any other database error is thrown so Stripe retries.
+ */
+export async function grantExportUnlock(
+  supabase: SupabaseClient<any, any, any>,
+  session: Stripe.Checkout.Session
+): Promise<GrantExportUnlockResult> {
+  const projectId = exportProjectFromSession(session);
+  if (!projectId) return { granted: false, reason: 'not_an_export_purchase' };
+
+  const userId = session.metadata?.user_id;
+  if (!userId) return { granted: false, reason: 'missing_user' };
+
+  const { data, error } = await supabase.rpc('grant_export_unlock', {
+    p_user_id: userId,
+    p_project_id: projectId,
+    p_session_id: session.id,
+    p_amount_cents: typeof session.amount_total === 'number' ? session.amount_total : 0,
+  });
+  if (error) {
+    if (isMissingExportUnlockSchema(error)) {
+      console.error(
+        `[export-unlock] project_export_unlocks migration not applied; session ${session.id} (project ${projectId}) was NOT unlocked`,
+        error
+      );
+      return { granted: false, reason: 'schema_missing' };
+    }
+    throw error;
+  }
+  if (data !== true) {
+    // The RPC answers false both for a redelivery (harmless) and for a paid
+    // session that can never unlock anything (a second purchase for the
+    // same project, or a project deleted after checkout). Tell them apart
+    // so the second case is logged for a refund; never throw here, a retry
+    // cannot change the outcome.
+    const { data: row, error: readError } = await supabase
+      .from('project_export_unlocks')
+      .select('stripe_session_id')
+      .eq('stripe_session_id', session.id)
+      .maybeSingle();
+    if (!readError && row) return { granted: false, reason: 'already_unlocked' };
+    console.error(
+      `[export-unlock] paid session ${session.id} (user ${userId}, project ${projectId}) unlocked nothing: ` +
+        'the project is already unlocked by another purchase, or is not the buyer\'s (deleted?). Refund it.',
+      readError ?? ''
+    );
+    return { granted: false, reason: 'not_granted' };
+  }
+
+  return { granted: true, userId, projectId };
 }

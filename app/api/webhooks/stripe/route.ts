@@ -5,10 +5,13 @@ import Stripe from 'stripe';
 import { createAdminClient } from '@/lib/supabase/admin';
 
 import {
+  checkoutAttributionFromMetadata,
   describeCheckoutSessionPlan,
   enteredDelinquency,
+  exportProjectFromSession,
   generationCreditsFromSession,
   grantCreditsFromCheckoutSession,
+  grantExportUnlock,
   grantGenerationCredits,
   recordStripeEvent,
   subscriptionLifecycleEvents,
@@ -91,8 +94,9 @@ export async function POST(request: Request) {
         const session = event.data.object as Stripe.Checkout.Session;
 
         // A paid one-off (`mode: 'payment'`): an AI edit credit pack
-        // (`metadata.credits`) or a single generation credit
-        // (`metadata.generation_credits`), granted independently. Each grant
+        // (`metadata.credits`), a single generation credit
+        // (`metadata.generation_credits`) or an export unlock for one project
+        // (`metadata.export_project_id`), granted independently. Each grant
         // runs BEFORE the event log below: its own ledger (unique on the
         // session id, written in the same transaction as the balance) is the
         // idempotency guard, and a database failure must reach Stripe (500)
@@ -118,6 +122,21 @@ export async function POST(request: Request) {
               });
             } else if (generation.reason === 'missing_user') {
               console.error('Generation credit purchase without user_id in metadata:', session.id);
+            }
+          }
+          // The $4.99 export unlock for one project (`metadata.export_project_id`).
+          // A missing migration is logged inside and never throws.
+          if (exportProjectFromSession(session)) {
+            const unlock = await grantExportUnlock(supabase, session);
+            if (unlock.granted) {
+              captureServerEventAfterResponse(unlock.userId, AnalyticsEvents.EXPORT_UNLOCKED, {
+                project_id: unlock.projectId,
+                session_id: session.id,
+                amount: typeof session.amount_total === 'number' ? session.amount_total / 100 : null,
+                ...checkoutAttributionFromMetadata(session.metadata),
+              });
+            } else if (unlock.reason === 'missing_user') {
+              console.error('Export unlock purchase without user_id in metadata:', session.id);
             }
           }
           try {

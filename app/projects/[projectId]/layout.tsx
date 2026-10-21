@@ -9,11 +9,13 @@ import { BackButton } from '@/components/projects/back-button';
 import { ProjectBreadcrumbs } from '@/components/projects/project-breadcrumbs';
 import { SaveStatus } from '@/components/projects/save-status';
 import { getProjectById } from '@/actions/get-projects';
+import { getProjectExportUnlocked } from '@/actions/get-export-unlock';
 import { getCurrentUser } from '@/actions/get-user';
 import { getUserWalkthroughStatus } from '@/actions/get-walkthrough';
 import { PaywallDialog } from '@/components/subscription/paywall-dialog';
 import { DunningBanner } from '@/components/subscription/dunning-banner';
 import { EditorWalkthroughWrapper } from '@/components/editor/editor-walkthrough-wrapper';
+import { ExportUnlockSync } from '@/components/projects/export-unlock-sync';
 
 import { DragDropProvider } from '@/components/providers/dnd-provider';
 
@@ -27,8 +29,12 @@ export default async function ProjectLayout({
   const { projectId } = await params;
   const user = await getCurrentUser();
   const userName = user?.user_metadata?.name ?? user?.email ?? null;
-  const project = await getProjectById(projectId);
-  const walkthroughStatus = user ? await getUserWalkthroughStatus(user.id) : null;
+  const [project, exportUnlocked, walkthroughStatus] = await Promise.all([
+    getProjectById(projectId),
+    // The one-off export unlock for this project (owner-only by RLS).
+    user ? getProjectExportUnlocked(projectId) : Promise.resolve(false),
+    user ? getUserWalkthroughStatus(user.id) : Promise.resolve(null),
+  ]);
   const shouldShowEditorWalkthrough = !walkthroughStatus?.editor_seen;
 
   return (
@@ -36,6 +42,7 @@ export default async function ProjectLayout({
       <SidebarProvider defaultOpen={true}>
         {/* Opened by the AI-edit limit and the export menu (stores/paywall.ts) */}
         <PaywallDialog />
+        <ExportUnlockSync projectId={projectId} exportUnlocked={exportUnlocked} />
 
         <AppSidebar userName={userName} />
         <SidebarInset className="flex h-screen flex-col overflow-hidden">

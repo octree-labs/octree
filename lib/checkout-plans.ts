@@ -20,6 +20,11 @@ import { isCheckoutOfferId, offerAppliesToPlan, type CheckoutOfferId } from '@/l
  * - `generate_single`: one $2.99 document generation credit (`mode:
  *   'payment'`, `metadata.generation_credits`; the webhook grants it through
  *   grant_generation_purchase and the buyer lands back on /generate).
+ * - `export_single`: a $4.99 unlock of PDF/ZIP export for ONE project,
+ *   forever (`mode: 'payment'`, `metadata.export_project_id`; the webhook
+ *   writes project_export_unlocks through grant_export_unlock and the buyer
+ *   lands back on the project with `?export=unlocked`). Requires a
+ *   `projectId` the signed-in user owns (the route checks it).
  * - `weekly`: retired for new purchases. Existing weekly subscribers keep
  *   their subscription (the webhook does not look at the price), but the
  *   route refuses to start a new one.
@@ -34,12 +39,16 @@ export type CreditPlan = (typeof CREDIT_PLANS)[number];
 export const GENERATION_PLANS = ['generate_single'] as const;
 export type GenerationPlan = (typeof GENERATION_PLANS)[number];
 
-export type PurchasePlan = SubscriptionPlan | CreditPlan | GenerationPlan;
+export const EXPORT_PLANS = ['export_single'] as const;
+export type ExportPlan = (typeof EXPORT_PLANS)[number];
+
+export type PurchasePlan = SubscriptionPlan | CreditPlan | GenerationPlan | ExportPlan;
 
 export const PURCHASE_PLANS: readonly PurchasePlan[] = [
   ...SUBSCRIPTION_PLANS,
   ...CREDIT_PLANS,
   ...GENERATION_PLANS,
+  ...EXPORT_PLANS,
 ];
 
 export const GENERATIONS_PER_PURCHASE: Record<GenerationPlan, number> = {
@@ -64,6 +73,19 @@ export function isSubscriptionPlan(plan: PurchasePlan): plan is SubscriptionPlan
 export function isGenerationPlan(plan: PurchasePlan): plan is GenerationPlan {
   return (GENERATION_PLANS as readonly string[]).includes(plan);
 }
+
+export function isExportPlan(plan: PurchasePlan): plan is ExportPlan {
+  return (EXPORT_PLANS as readonly string[]).includes(plan);
+}
+
+/** Project ids are Supabase uuids; anything else is refused before a query. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function isProjectId(value: unknown): value is string {
+  return typeof value === 'string' && UUID_RE.test(value);
+}
+
+export const EXPORT_PROJECT_REQUIRED_MESSAGE = 'export_single needs the projectId of one of your projects.';
 
 export function lookupKeyForPlan(plan: PurchasePlan): PriceLookupKey {
   return PRICE_LOOKUP_KEYS[plan];
@@ -90,6 +112,11 @@ export type ResolvedCheckoutPlan =
        * offer for another plan (annual, semester, the one-off purchases) is dropped, not refused.
        */
       offer?: CheckoutOfferId;
+      /**
+       * `export_single` only: the project to unlock (a uuid; ownership is
+       * the route's check). Ignored, and absent, for every other plan.
+       */
+      projectId?: string;
     } & CheckoutAttribution)
   | { ok: false; error: string };
 
@@ -137,6 +164,17 @@ export function resolveCheckoutPlan(body: unknown): ResolvedCheckoutPlan {
     if (!isPurchasePlan(input.plan)) {
       return { ok: false, error: `Unknown plan: ${String(input.plan)}` };
     }
+    if (isExportPlan(input.plan)) {
+      if (!isProjectId(input.projectId)) return { ok: false, error: EXPORT_PROJECT_REQUIRED_MESSAGE };
+      return {
+        ok: true,
+        plan: input.plan,
+        withTrial,
+        ...attribution,
+        ...withOffer(input.plan, offer.offer),
+        projectId: input.projectId,
+      };
+    }
     return { ok: true, plan: input.plan, withTrial, ...attribution, ...withOffer(input.plan, offer.offer) };
   }
 
@@ -183,6 +221,8 @@ export interface CheckoutSessionInput {
    */
   offer?: CheckoutOfferId;
   promotionCodeId?: string | null;
+  /** `export_single` only: the (ownership-checked) project to unlock. */
+  projectId?: string;
 }
 
 /**
@@ -213,18 +253,30 @@ export function buildCheckoutSessionParams(
   const metadata = checkoutMetadata(userId, plan, { source: input.source, entry: input.entry });
   const discounted = !!input.offer && !!input.promotionCodeId;
   if (discounted) metadata.offer = input.offer!;
+  const exportProjectId = isExportPlan(plan) ? input.projectId : undefined;
+  if (isExportPlan(plan) && !exportProjectId) {
+    throw new Error(EXPORT_PROJECT_REQUIRED_MESSAGE);
+  }
+  // On the session AND the payment intent, so the unlock can be traced from
+  // either Stripe object.
+  if (exportProjectId) metadata.export_project_id = exportProjectId;
+  const projectUrl = exportProjectId ? `${origin}/projects/${exportProjectId}` : null;
 
   const params: Stripe.Checkout.SessionCreateParams = {
     line_items: [{ price: priceId, quantity: 1 }],
     mode: isSubscriptionPlan(plan) ? 'subscription' : 'payment',
-    success_url: isGenerationPlan(plan)
-      ? `${origin}/generate?purchased=1`
-      : `${origin}/success?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: isSubscriptionPlan(plan)
-      ? `${origin}/onboarding?canceled=true`
+    success_url: projectUrl
+      ? `${projectUrl}?export=unlocked`
       : isGenerationPlan(plan)
-        ? `${origin}/generate`
-        : `${origin}/settings?canceled=true`,
+        ? `${origin}/generate?purchased=1`
+        : `${origin}/success?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: projectUrl
+      ? projectUrl
+      : isSubscriptionPlan(plan)
+        ? `${origin}/onboarding?canceled=true`
+        : isGenerationPlan(plan)
+          ? `${origin}/generate`
+          : `${origin}/settings?canceled=true`,
     automatic_tax: { enabled: true },
     allow_promotion_codes: true,
     locale: 'auto',
@@ -259,9 +311,13 @@ export function buildCheckoutSessionParams(
     params.subscription_data = { metadata };
     if (withTrial) params.subscription_data.trial_period_days = 3;
   } else {
+    // Each one-off carries only its own key, so the webhook grants exactly
+    // one product per session (export_single: export_project_id, above).
     params.metadata = isGenerationPlan(plan)
       ? { ...params.metadata, generation_credits: String(GENERATIONS_PER_PURCHASE[plan]) }
-      : { ...params.metadata, credits: String(CREDITS_PER_PACK[plan]) };
+      : isExportPlan(plan)
+        ? { ...params.metadata }
+        : { ...params.metadata, credits: String(CREDITS_PER_PACK[plan]) };
     params.payment_intent_data = { metadata };
     // So the next purchase reuses the same customer record.
     if (!customerId) params.customer_creation = 'always';

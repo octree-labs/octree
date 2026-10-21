@@ -28,6 +28,8 @@ interface CreateCheckoutSessionOptions {
    * route applies it when it covers the plan and drops it otherwise.
    */
   offer?: CheckoutOfferId;
+  /** Required for `export_single`: the project whose export is unlocked. Ignored otherwise. */
+  projectId?: string;
 }
 
 /**
@@ -43,6 +45,7 @@ export const createCheckoutSession = async ({
   source = 'settings',
   entry,
   offer,
+  projectId,
 }: CreateCheckoutSessionOptions = {}): Promise<string> => {
   const supabase = createClient();
 
@@ -59,7 +62,14 @@ export const createCheckoutSession = async ({
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ ...(plan ? { plan } : { annual }), withTrial, source, entry, ...(offer ? { offer } : {}) }),
+    body: JSON.stringify({
+      ...(plan ? { plan } : { annual }),
+      withTrial,
+      source,
+      entry,
+      ...(offer ? { offer } : {}),
+      ...(projectId ? { projectId } : {}),
+    }),
   });
 
   if (!response.ok) {

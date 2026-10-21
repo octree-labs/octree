@@ -18,6 +18,7 @@ import {
   type StripeStatusReport,
 } from '@/lib/subscription/entitlement';
 import { resolveStripeCustomer } from '@/lib/stripe-customer';
+import { resolveFirstPurchaseOffer } from '@/lib/first-purchase-offer-server';
 import {
   appliedCouponId,
   effectiveSubscriptionStatus,
@@ -446,10 +447,20 @@ export async function GET() {
         }
       }
 
+      // 50% off the first Pro month for an account that has never bought
+      // anything (lib/first-purchase-offer.ts); the paywall and /buy show it.
+      // Decided from the row and the ledgers only (no Stripe call, and the
+      // ledgers only for a row that passes): /buy uses the same rule.
+      const firstPurchaseOffer = await resolveFirstPurchaseOffer(admin, user.id, usageData, {
+        hasUnlimited,
+        stripeStatus: storedStatus,
+      });
+
       return NextResponse.json({
         hasSubscription: false,
         subscription: null,
         usage: buildUsageResponse(usageData, hasUnlimited, null, storedStatus),
+        first_purchase_offer: firstPurchaseOffer,
       });
     }
 
@@ -482,6 +493,8 @@ export async function GET() {
         })),
       },
       usage: buildUsageResponse(usageData, hasUnlimited, subscription),
+      // A Stripe subscription exists (live or in dunning): never a first purchase.
+      first_purchase_offer: null,
     });
   } catch (error) {
     console.error('Error fetching subscription status:', error);

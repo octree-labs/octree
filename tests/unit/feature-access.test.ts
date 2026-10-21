@@ -145,7 +145,17 @@ describe('toFeatureUsage', () => {
       generationCredits: 0,
       editCount: 5,
       monthlyEditCount: 0,
+      firstPurchaseOffer: null,
     });
+  });
+
+  it('carries a known first-purchase offer and drops anything else', () => {
+    expect(toFeatureUsage({ hasSubscription: false, usage, first_purchase_offer: 'welcome50' })).toMatchObject({
+      firstPurchaseOffer: 'welcome50',
+    });
+    expect(
+      toFeatureUsage({ hasSubscription: false, usage, first_purchase_offer: 'bogus' as any })
+    ).toMatchObject({ firstPurchaseOffer: null });
   });
 
   it('carries the generate allowance through', () => {

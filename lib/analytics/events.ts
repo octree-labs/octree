@@ -292,6 +292,8 @@ export interface AnalyticsEventProperties {
     feature: PaywallFeature;
     reason: PaywallReason;
     offers?: PaywallOffer[];
+    /** The first-purchase offer shown on the Pro offer (lib/first-purchase-offer.ts); absent when none. */
+    offer?: CheckoutOfferId;
   };
   [AnalyticsEvents.PAYWALL_DISMISSED]: { feature: PaywallFeature; reason?: PaywallReason };
   [AnalyticsEvents.EDIT_LIMIT_HIT]: { is_pro: boolean; source: 'chat' | 'accept' };
@@ -319,7 +321,11 @@ export interface AnalyticsEventProperties {
     /** Present when an offer was asked for: whether the discount made it onto the session. */
     offer_applied?: boolean;
   };
-  [AnalyticsEvents.OFFER_BANNER_SHOWN]: { offer: CheckoutOfferId };
+  /**
+   * The /buy offer banner. `auto: true` when the page applied the
+   * first-purchase offer itself (no `?offer=` in the URL).
+   */
+  [AnalyticsEvents.OFFER_BANNER_SHOWN]: { offer: CheckoutOfferId; auto?: boolean };
   /** The past-due banner's "Update card" was clicked (opens the billing portal). */
   [AnalyticsEvents.DUNNING_BANNER_CLICKED]: { location: 'dashboard' | 'editor' };
 

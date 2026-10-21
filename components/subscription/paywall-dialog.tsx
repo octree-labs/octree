@@ -23,7 +23,9 @@ import {
   PRO_PLANS,
 } from '@/data/constants';
 import type { ProFeature } from '@/lib/subscription/features';
-import { PaywallActions, usePaywall } from '@/stores/paywall';
+import { CHECKOUT_OFFERS, offerAppliesToPlan } from '@/lib/checkout-offers';
+import { firstPurchaseOfferCopy } from '@/lib/first-purchase-offer';
+import { PaywallActions, paywallOfferFor, usePaywall } from '@/stores/paywall';
 
 const COPY: Record<ProFeature, { title: string; description: string }> = {
   'ai-edit': {
@@ -65,9 +67,15 @@ const GENERATE_QUOTA_COPY = {
  * least once (eight dismissals) and only one came back to start a monthly
  * checkout. A $2.99 "finish this document" is the smaller ask; Pro stays one
  * tap below it.
+ *
+ * With a first-purchase offer (`firstPurchaseOffer` in the store, from GET
+ * /api/subscription-status: a user who has never bought anything) the Pro
+ * offer shows 50% off the first month and its button passes the offer to
+ * checkout, monthly plan only. The one-off and credit offers are unchanged,
+ * and without the offer the dialog renders exactly as it did before.
  */
 export function PaywallDialog() {
-  const { open, feature, reason, offers } = usePaywall();
+  const { open, feature, reason, offers, firstPurchaseOffer } = usePaywall();
   const [plan, setPlan] = useState<PickerPlan>('monthly');
   const [isSubmitting, setIsSubmitting] = useState<'pro' | 'single' | null>(null);
 
@@ -94,7 +102,18 @@ export function PaywallDialog() {
     }
   };
 
-  const handleSubscribe = () => startCheckout('pro', { plan, withTrial: false, source: 'paywall' });
+  // Never on monthly_limit (credits only); the offer covers the monthly plan.
+  const offer = paywallOfferFor(reason, firstPurchaseOffer);
+  const offerCopy = offer ? firstPurchaseOfferCopy(offer) : null;
+  const pickerOffer = offer && offerAppliesToPlan(offer, plan) ? offer : null;
+
+  const handleSubscribe = () =>
+    startCheckout('pro', {
+      plan,
+      withTrial: false,
+      source: 'paywall',
+      ...(pickerOffer ? { offer: pickerOffer } : {}),
+    });
 
   if (offersSingle) {
     return (
@@ -127,8 +146,11 @@ export function PaywallDialog() {
             <div className="rounded-lg border p-4">
               <div className="flex items-baseline justify-between gap-2">
                 <p className="font-semibold">Octree Pro</p>
-                <p className="text-sm text-muted-foreground">{PRO_PLANS.monthly.price}/mo</p>
+                <p className="text-sm text-muted-foreground">
+                  {offerCopy ? offerCopy.priceLine : `${PRO_PLANS.monthly.price}/mo`}
+                </p>
               </div>
+              {offerCopy && <p className="mt-1 text-xs font-medium text-primary">{offerCopy.note}</p>}
               <p className="mt-1 text-sm text-muted-foreground">
                 {PRO_MONTHLY_EDIT_LIMIT} AI edits a month, unlimited generations, PDF and ZIP export.
               </p>
@@ -136,10 +158,21 @@ export function PaywallDialog() {
                 className="mt-3 w-full"
                 variant="outline"
                 // The monthly plan it displays, whatever the picker state is.
-                onClick={() => startCheckout('pro', { plan: 'monthly', withTrial: false, source: 'paywall' })}
+                onClick={() =>
+                  startCheckout('pro', {
+                    plan: 'monthly',
+                    withTrial: false,
+                    source: 'paywall',
+                    ...(offer ? { offer } : {}),
+                  })
+                }
                 disabled={isSubmitting !== null}
               >
-                {isSubmitting === 'pro' ? 'Loading...' : `Go Pro — ${PRO_PLANS.monthly.price}/mo`}
+                {isSubmitting === 'pro'
+                  ? 'Loading...'
+                  : offerCopy
+                    ? offerCopy.button
+                    : `Go Pro — ${PRO_PLANS.monthly.price}/mo`}
               </Button>
               <p className="mt-2 text-center text-xs text-muted-foreground">
                 {PRO_PLANS.monthly.billingNote}
@@ -175,7 +208,12 @@ export function PaywallDialog() {
             source="paywall"
             creditsOnly={creditsOnly}
             disabled={isSubmitting !== null}
+            {...(pickerOffer ? { offerPercentOff: CHECKOUT_OFFERS[pickerOffer].percentOff } : {})}
           />
+
+          {pickerOffer && offerCopy && (
+            <p className="-mt-3 text-xs font-medium text-primary">{offerCopy.note}</p>
+          )}
 
           {!creditsOnly && (
             <div>
@@ -207,7 +245,11 @@ export function PaywallDialog() {
                 onClick={handleSubscribe}
                 disabled={isSubmitting !== null}
               >
-                {isSubmitting === 'pro' ? 'Loading...' : 'Get Octree Pro →'}
+                {isSubmitting === 'pro'
+                  ? 'Loading...'
+                  : pickerOffer && offerCopy
+                    ? offerCopy.button
+                    : 'Get Octree Pro →'}
               </Button>
             )}
           </div>

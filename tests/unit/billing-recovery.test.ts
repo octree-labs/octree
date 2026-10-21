@@ -219,7 +219,7 @@ describe('billing recovery templates', () => {
   });
 
   it('both dunning emails say that someone who no longer needs Octree can do nothing and it lapses', () => {
-    expect(paymentFailedEmail(failed).text).toContain('If you no longer need Octree, there is nothing to do: the subscription will lapse on its own.');
+    expect(paymentFailedEmail(failed).text).toContain('If you no longer need Octree, cancel from Settings so we stop retrying the card');
     expect(paymentFailedReminderEmail(failed).text).toContain('ignore this and the subscription will end on its own');
   });
 

@@ -283,7 +283,7 @@ function paymentFailedBody(input: PaymentFailedEmailInput, reminder: boolean) {
     p(
       reminder
         ? 'If you meant to let Pro lapse, ignore this and the subscription will end on its own. Your projects stay.'
-        : 'If you no longer need Octree, there is nothing to do: the subscription will lapse on its own. If the payment keeps failing the subscription ends and the account drops to the free plan. Your projects stay either way.'
+        : 'If you no longer need Octree, cancel from Settings so we stop retrying the card; if you do nothing and the payment keeps failing, the subscription ends and the account drops to the free plan. Your projects stay either way.'
     ),
   ];
   return { amount, paragraphs };

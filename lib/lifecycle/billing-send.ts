@@ -22,6 +22,7 @@ import {
   type BillingRecoveryTemplate,
 } from '@/lib/email/lifecycle';
 import { SAVE_COUPON_ID, SAVE_COUPON_MONTHS, SAVE_COUPON_PERCENT_OFF } from '@/lib/stripe-subscription';
+import { readExportUnlocked } from '@/lib/export-unlock';
 import {
   CHECKOUT_RECOVERY_COOLDOWN_MS,
   COMEBACK_PROMO_CODE,
@@ -225,6 +226,12 @@ export async function sendCheckoutRecoveryEmail(
 
   if (await userHasLiveSubscription(input.supabase, input.stripe, checkout.userId, checkout.customerId)) {
     return { sent: false, template, ref: checkout.sessionId, reason: 'already subscribed', checkout };
+  }
+  // An abandoned `export_single` for a project unlocked since (another tab,
+  // another session): finishing it would charge $4.99 for nothing.
+  const exportProjectId = input.session.metadata?.export_project_id;
+  if (exportProjectId && (await readExportUnlocked(input.supabase, exportProjectId))) {
+    return { sent: false, template, ref: checkout.sessionId, reason: 'export already unlocked', checkout };
   }
   // Every click on an upgrade button is a new session, and every one of
   // them expires: without this, five looks at the paywall in a week would be

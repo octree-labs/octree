@@ -18,6 +18,8 @@ const mocks = vi.hoisted(() => ({
   // The export_single ownership read: from('projects').select().eq().eq().maybeSingle().
   projectMaybeSingle: vi.fn(),
   projectEq: vi.fn(),
+  // The already-unlocked read: from('project_export_unlocks').select().eq().limit().
+  unlockLimit: vi.fn(),
   from: vi.fn(),
 }));
 
@@ -265,8 +267,13 @@ describe('POST /api/checkout-session export_single', () => {
     mocks.ensureOfferPromotionCode.mockResolvedValue('promo_welcome');
     const chain = { eq: mocks.projectEq, maybeSingle: mocks.projectMaybeSingle };
     mocks.projectEq.mockReturnValue(chain);
-    mocks.from.mockReturnValue({ select: () => chain });
+    mocks.from.mockImplementation((table: string) =>
+      table === 'project_export_unlocks'
+        ? { select: () => ({ eq: () => ({ limit: mocks.unlockLimit }) }) }
+        : { select: () => chain }
+    );
     mocks.projectMaybeSingle.mockResolvedValue({ data: { id: projectId }, error: null });
+    mocks.unlockLimit.mockResolvedValue({ data: [], error: null });
   });
 
   it("checks the project is the user's, then opens a payment session that unlocks it", async () => {
@@ -312,6 +319,25 @@ describe('POST /api/checkout-session export_single', () => {
     expect(await response.json()).toEqual({ error: 'Project not found' });
     expect(mocks.sessionsCreate).not.toHaveBeenCalled();
     expect(mocks.captureEvent).not.toHaveBeenCalled();
+  });
+
+  it('returns 409 for a project that is already unlocked and opens no session (it cannot be paid for twice)', async () => {
+    mocks.unlockLimit.mockResolvedValue({ data: [{ id: 'unlock-1' }], error: null });
+
+    const response = await POST(post({ plan: 'export_single', projectId, source: 'paywall' }));
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: 'Export is already unlocked for this project' });
+    expect(mocks.from).toHaveBeenCalledWith('project_export_unlocks');
+    expect(mocks.sessionsCreate).not.toHaveBeenCalled();
+    expect(mocks.captureEvent).not.toHaveBeenCalled();
+  });
+
+  it('still opens checkout when the unlock table does not exist yet (migration pending)', async () => {
+    mocks.unlockLimit.mockResolvedValue({ data: null, error: { code: '42P01', message: 'missing' } });
+    const response = await POST(post({ plan: 'export_single', projectId }));
+    expect(response.status).toBe(200);
+    expect(mocks.sessionsCreate).toHaveBeenCalledTimes(1);
   });
 
   it('returns 400 without a valid projectId, before any query', async () => {

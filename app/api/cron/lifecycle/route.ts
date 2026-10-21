@@ -11,7 +11,7 @@ import { sendLifecycleBatch } from '@/lib/lifecycle/send';
 import { createLifecycleDeps } from '@/lib/lifecycle/deps';
 import { runBillingFollowUps } from '@/lib/lifecycle/billing-send';
 import { getPostHogServer } from '@/lib/posthog-server';
-import { AnalyticsEvents, type PurchasePlan } from '@/lib/analytics/events';
+import { AnalyticsEvents, type AnalyticsEventProperties, type PurchasePlan } from '@/lib/analytics/events';
 import { isPurchasePlan } from '@/lib/checkout-plans';
 
 export const runtime = 'nodejs';
@@ -93,17 +93,17 @@ export async function GET(request: Request) {
       now,
       dry: dry || rows.missingTables.length > 0,
       onPaymentFailedSent: (userId, invoice) => {
+        const properties: AnalyticsEventProperties[typeof AnalyticsEvents.PAYMENT_FAILED_EMAIL_SENT] = {
+          template: 'payment_failed',
+          amount: invoice?.amountCents != null ? invoice.amountCents / 100 : null,
+          currency: invoice?.currency ? invoice.currency.toUpperCase() : null,
+          has_retry: invoice?.nextPaymentAttempt != null,
+          trigger: 'sweep',
+        };
         posthog?.capture({
           distinctId: userId,
           event: AnalyticsEvents.PAYMENT_FAILED_EMAIL_SENT,
-          properties: {
-            template: 'payment_failed',
-            amount: invoice?.amountCents != null ? invoice.amountCents / 100 : null,
-            currency: invoice?.currency ? invoice.currency.toUpperCase() : null,
-            has_retry: invoice?.nextPaymentAttempt != null,
-            trigger: 'sweep',
-            source: 'server',
-          },
+          properties: { ...properties, source: 'server' },
         });
       },
       onSent: (followUp, extra) => {

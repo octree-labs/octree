@@ -194,6 +194,8 @@ export interface BillingLedgerRow {
   sentAt: string;
   resendId: string | null;
   error: string | null;
+  /** Send attempts so far; a failed row is retried only below MAX_SEND_ATTEMPTS. Absent in older fixtures. */
+  attempts?: number;
 }
 
 export interface BillingFollowUp {

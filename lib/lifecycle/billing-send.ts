@@ -40,7 +40,7 @@ import {
   type FailedInvoiceSummary,
   type PaymentFailedPayload,
 } from './billing-recovery';
-import { isMissingLedgerSchema } from './load';
+import { isMissingLedgerSchema, MAX_SEND_ATTEMPTS } from './load';
 import type { LifecycleCandidate } from './select';
 import { LifecycleLedgerUnavailableError, sendLifecycleEmail, type LifecycleSendDeps, type LifecycleSendResult } from './send';
 
@@ -373,7 +373,7 @@ const BILLING_TEMPLATES_IN_LEDGER = ['payment_failed', 'payment_failed_reminder'
 export async function loadBillingLedgerRows(supabase: Db): Promise<BillingLedgerRow[] | null> {
   const { data, error } = await supabase
     .from('lifecycle_emails')
-    .select('user_id, email, template, ref, payload, sent_at, resend_id, error')
+    .select('user_id, email, template, ref, payload, sent_at, resend_id, error, attempts')
     .in('template', BILLING_TEMPLATES_IN_LEDGER)
     .order('sent_at')
     .limit(5000);
@@ -392,6 +392,7 @@ export async function loadBillingLedgerRows(supabase: Db): Promise<BillingLedger
     sentAt: row.sent_at,
     resendId: row.resend_id,
     error: row.error,
+    attempts: row.attempts,
   }));
 }
 
@@ -503,12 +504,33 @@ export interface DelinquentSubscription {
   subscriptionId: string;
   invoiceId: string;
   latestInvoice: Stripe.Subscription['latest_invoice'];
+  /** `subscription.metadata.user_id`, the id the webhook sends to; null when absent. */
+  metadataUserId: string | null;
+}
+
+/**
+ * Whether the subscription's latest invoice is one we should dun for: an
+ * expanded invoice that is `open` with something still owed. A string id
+ * (not expanded), a draft, paid, void or uncollectible invoice, and a zero
+ * amount are all skipped.
+ */
+function collectableInvoice(invoice: Stripe.Subscription['latest_invoice']): invoice is Stripe.Invoice {
+  if (!invoice || typeof invoice === 'string') return false;
+  if (invoice.status !== 'open') return false;
+  const owed = typeof invoice.amount_remaining === 'number' ? invoice.amount_remaining : invoice.amount_due;
+  return typeof owed === 'number' && owed > 0;
 }
 
 /**
  * The past_due / unpaid subscriptions whose latest invoice is open with an
  * amount due, one `subscriptions.list` call per status per page with the
- * invoice expanded. `truncated` when more exist than `limit`.
+ * invoice expanded. `truncated` when the cap was reached and more may exist.
+ *
+ * A subscription with `pause_collection` set is skipped: billing was paused
+ * on purpose (the app shows it as `paused`, not delinquent), so a "payment
+ * failed" notice would be wrong. One with `cancel_at_period_end` is kept:
+ * its open invoice is still collectable and Stripe still retries it, which
+ * is exactly what the notice is about (the webhook sends it too).
  */
 export async function listDelinquentSubscriptions(
   stripe: Pick<BillingStripe, 'subscriptions'>,
@@ -533,10 +555,11 @@ export async function listDelinquentSubscriptions(
       });
       for (const sub of page.data) {
         listed += 1;
+        if (sub.pause_collection) continue;
         const invoice = sub.latest_invoice;
-        if (!invoice || typeof invoice === 'string') continue;
-        if (invoice.status !== 'open' || !(typeof invoice.amount_due === 'number' && invoice.amount_due > 0)) continue;
-        subscriptions.push({ subscriptionId: sub.id, invoiceId: invoice.id, latestInvoice: invoice });
+        if (!collectableInvoice(invoice)) continue;
+        const metadataUserId = typeof sub.metadata?.user_id === 'string' && sub.metadata.user_id ? sub.metadata.user_id : null;
+        subscriptions.push({ subscriptionId: sub.id, invoiceId: invoice.id, latestInvoice: invoice, metadataUserId });
       }
       const last = page.data[page.data.length - 1];
       if (!page.has_more || !last) break;
@@ -576,11 +599,21 @@ export async function userIdsForSubscriptions(supabase: Db, subscriptionIds: str
  * renews with status still past_due and no previous status, so it would
  * never be noticed (and the reminder, which keys off the notice, never
  * becomes due). This sweep closes the gap: every delinquent subscription
- * with an open invoice and no `payment_failed` row for (user, invoice) gets
+ * with an open invoice and no `payment_failed` row for that invoice gets
  * the notice through `sendPaymentFailedEmail`, the webhook's own path.
  *
- * A row that only recorded a Resend error is retried (the ledger's claim
- * caps the attempts); any other row means the notice is handled.
+ * Who gets it: the user whose user_usage row points at the subscription,
+ * else `subscription.metadata.user_id` (what the webhook uses; it covers a
+ * user whose row has since moved to a newer subscription). If the ledger
+ * already has a row for the invoice under some user, that user is used, so
+ * the claim hits the same (user, template, invoice) key as the webhook and
+ * the unique key decides who sends.
+ *
+ * A row whose send failed with attempts left is handed to the claim, which
+ * retries it (claim_lifecycle_retry, capped at MAX_SEND_ATTEMPTS). The
+ * retry moves `sent_at` to the retry time, so the 5-day reminder counts
+ * from the notice that actually went out. Any other row means the notice
+ * is handled (sent, in flight, out of attempts, or closed as skipped).
  */
 async function runPaymentFailedSweep(
   input: BillingFollowUpInput,
@@ -592,11 +625,13 @@ async function runPaymentFailedSweep(
   const { subscriptions, truncated } = await listDelinquentSubscriptions(input.stripe);
   const summary: PaymentFailedSweepSummary = { candidates: subscriptions.length, due: 0, sent: 0, skipped: 0, truncated };
 
-  const handled = new Set(
-    rows
-      .filter((row) => row.template === 'payment_failed' && !(row.error && !row.resendId))
-      .map((row) => `${row.userId}:${row.ref}`)
-  );
+  const noticeByInvoice = new Map<string, BillingLedgerRow>();
+  for (const row of rows) {
+    if (row.template !== 'payment_failed' || !row.ref) continue;
+    const seen = noticeByInvoice.get(row.ref);
+    // Prefer a row that blocks the send over a retryable one.
+    if (!seen || (isRetryableNotice(seen) && !isRetryableNotice(row))) noticeByInvoice.set(row.ref, row);
+  }
   const users = await userIdsForSubscriptions(
     input.supabase,
     subscriptions.map((sub) => sub.subscriptionId)
@@ -604,8 +639,10 @@ async function runPaymentFailedSweep(
 
   const due: Array<DelinquentSubscription & { userId: string }> = [];
   for (const sub of subscriptions) {
-    const userId = users.get(sub.subscriptionId);
-    if (!userId || handled.has(`${userId}:${sub.invoiceId}`)) continue;
+    const notice = noticeByInvoice.get(sub.invoiceId);
+    if (notice && !isRetryableNotice(notice)) continue;
+    const userId = notice?.userId ?? users.get(sub.subscriptionId) ?? sub.metadataUserId;
+    if (!userId) continue;
     due.push({ ...sub, userId });
   }
   summary.due = due.length;
@@ -645,6 +682,11 @@ async function runPaymentFailedSweep(
   }
   summary.skipped = summary.candidates - summary.sent;
   return summary;
+}
+
+/** A notice row whose send failed and that the retry claim would take over. */
+function isRetryableNotice(row: BillingLedgerRow): boolean {
+  return row.resendId === null && row.error !== null && (row.attempts ?? 1) < MAX_SEND_ATTEMPTS;
 }
 
 async function sendPaymentFailedReminder(item: BillingFollowUp, input: BillingFollowUpInput): Promise<BillingSendOutcome> {

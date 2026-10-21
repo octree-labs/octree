@@ -12,7 +12,14 @@ import type { LifecycleSendDeps } from '@/lib/lifecycle/send';
  */
 
 type Invoice = { id: string; status: string; amount_due: number; amount_remaining?: number };
-type Sub = { id: string; status: 'past_due' | 'unpaid' | 'active'; latest_invoice: Invoice | null };
+type Sub = {
+  id: string;
+  status: 'past_due' | 'unpaid' | 'active';
+  latest_invoice: Invoice | string | null;
+  metadata?: Record<string, string>;
+  pause_collection?: { behavior: string } | null;
+  cancel_at_period_end?: boolean;
+};
 
 function invoice(id: string, status = 'open', amount = 999): Invoice {
   return { id, status, amount_due: amount, amount_remaining: amount };
@@ -25,7 +32,9 @@ function fakeStripe(subs: Sub[]) {
     const data = all.slice(start, start + params.limit);
     return { data, has_more: start + data.length < all.length };
   });
-  const byId = new Map(subs.flatMap((s) => (s.latest_invoice ? [[s.latest_invoice.id, s.latest_invoice] as const] : [])));
+  const byId = new Map(
+    subs.flatMap((s) => (s.latest_invoice && typeof s.latest_invoice !== 'string' ? [[s.latest_invoice.id, s.latest_invoice] as const] : []))
+  );
   const retrieveInvoice = vi.fn(async (id: string) => ({
     currency: 'usd',
     hosted_invoice_url: `https://invoice.stripe.com/i/${id}`,
@@ -49,10 +58,20 @@ interface LedgerRow {
   sent_at: string;
   resend_id: string | null;
   error: string | null;
+  attempts?: number;
 }
 
 /** An in-memory lifecycle_emails ledger that the loader reads and deps write. */
-function fakeWorld(options: { links: Record<string, string>; ledger?: LedgerRow[]; mayEmail?: (userId: string) => boolean; clock: () => Date }) {
+function fakeWorld(options: {
+  links: Record<string, string>;
+  ledger?: LedgerRow[];
+  mayEmail?: (userId: string) => boolean;
+  clock: () => Date;
+  /** Runs inside claim(), before the insert: simulates a concurrent writer (the webhook). */
+  beforeClaim?: (ledger: LedgerRow[]) => void;
+  /** The mailer's error for the next sends, if any. */
+  mailError?: () => string | null;
+}) {
   const ledger: LedgerRow[] = [...(options.ledger ?? [])];
   const sent: Array<{ to: string; subject: string; html: string }> = [];
   const key = (r: { user_id: string; template: string; ref: string }) => `${r.user_id}:${r.template}:${r.ref}`;
@@ -62,26 +81,40 @@ function fakeWorld(options: { links: Record<string, string>; ledger?: LedgerRow[
     throttleMs: 0,
     mailer: {
       async send(input) {
+        const error = options.mailError?.() ?? null;
+        if (error) return { id: null, error };
         sent.push({ to: input.to, subject: input.subject, html: input.html });
         return { id: `msg_${sent.length}`, error: null };
       },
     },
     ledger: {
+      // Insert, or on a unique violation take over a failed row with
+      // attempts left, as claim_lifecycle_retry does (sent_at moves to now).
       async claim({ userId, email, template, ref, payload }) {
+        options.beforeClaim?.(ledger);
         const row = { user_id: userId, template, ref };
-        if (ledger.some((r) => key(r) === key(row))) return false;
-        ledger.push({ ...row, email, payload: payload ?? null, sent_at: options.clock().toISOString(), resend_id: null, error: null });
+        const existing = ledger.find((r) => key(r) === key(row));
+        if (existing) {
+          const attempts = existing.attempts ?? 1;
+          if (existing.resend_id !== null || existing.error === null || attempts >= 3) return false;
+          Object.assign(existing, { error: null, attempts: attempts + 1, sent_at: options.clock().toISOString(), email });
+          return true;
+        }
+        ledger.push({ ...row, email, payload: payload ?? null, sent_at: options.clock().toISOString(), resend_id: null, error: null, attempts: 1 });
         return true;
       },
       async markSent({ userId, template, ref, resendId }) {
         const row = ledger.find((r) => key(r) === key({ user_id: userId, template, ref }));
         if (row) row.resend_id = resendId;
       },
-      async markFailed() {},
+      async markFailed({ userId, template, ref, error }) {
+        const row = ledger.find((r) => key(r) === key({ user_id: userId, template, ref }));
+        if (row) row.error = error;
+      },
       async markSkipped({ userId, email, template, ref, reason, payload }) {
         const row = { user_id: userId, template, ref };
         if (ledger.some((r) => key(r) === key(row))) return;
-        ledger.push({ ...row, email, payload: payload ?? null, sent_at: options.clock().toISOString(), resend_id: null, error: `skipped: ${reason}` });
+        ledger.push({ ...row, email, payload: payload ?? null, sent_at: options.clock().toISOString(), resend_id: null, error: `skipped: ${reason}`, attempts: 3 });
       },
     },
     appUrl: 'https://app.example.com',
@@ -294,5 +327,115 @@ describe('payment_failed sweep', () => {
       "Your Octree Pro payment didn't go through",
       'Reminder: Octree Pro payment still failing',
     ]);
+  });
+  it('falls back to subscription.metadata.user_id when no user_usage row points at the subscription; user_usage wins when both exist', async () => {
+    const { stripe } = fakeStripe([
+      // u_old's row moved on to a newer subscription; the webhook would still send to the metadata user.
+      { id: 'sub_meta', status: 'past_due', latest_invoice: invoice('in_meta'), metadata: { user_id: 'u_meta' } },
+      { id: 'sub_both', status: 'past_due', latest_invoice: invoice('in_both'), metadata: { user_id: 'u_stale' } },
+      { id: 'sub_blank', status: 'past_due', latest_invoice: invoice('in_blank'), metadata: { user_id: '' } },
+    ]);
+    const world = fakeWorld({ links: { sub_both: 'u_usage' }, clock: () => new Date(t0) });
+
+    const summary = await runBillingFollowUps({ stripe, supabase: world.supabase, deps: world.deps, now: new Date(t0) });
+    expect(summary.payment_failed_sweep).toMatchObject({ candidates: 3, due: 2, sent: 2, skipped: 1 });
+    expect(world.sent.map((m) => m.to).sort()).toEqual(['u_meta@example.com', 'u_usage@example.com']);
+    expect(world.ledger.map((r) => `${r.user_id}:${r.ref}`).sort()).toEqual(['u_meta:in_meta', 'u_usage:in_both']);
+  });
+
+  it('a notice row for the invoice under any user blocks the sweep, so a mapping disagreement cannot double-send', async () => {
+    const { stripe } = fakeStripe([{ id: 'sub_1', status: 'past_due', latest_invoice: invoice('in_1'), metadata: { user_id: 'u_meta' } }]);
+    const world = fakeWorld({
+      links: { sub_1: 'u_usage' },
+      ledger: [
+        { user_id: 'u_meta', email: 'u_meta@example.com', template: 'payment_failed', ref: 'in_1', payload: { subscription_id: 'sub_1' }, sent_at: new Date(t0 - DAY).toISOString(), resend_id: 'msg_webhook', error: null, attempts: 1 },
+      ],
+      clock: () => new Date(t0),
+    });
+    const summary = await runBillingFollowUps({ stripe, supabase: world.supabase, deps: world.deps, now: new Date(t0) });
+    expect(summary.payment_failed_sweep).toMatchObject({ candidates: 1, due: 0, sent: 0 });
+    expect(world.sent).toHaveLength(0);
+  });
+
+  it('skips a paused subscription, an unexpanded or uncollectible invoice, and an open invoice with nothing remaining; keeps cancel_at_period_end', async () => {
+    const { stripe } = fakeStripe([
+      { id: 'sub_paused', status: 'past_due', latest_invoice: invoice('in_paused'), pause_collection: { behavior: 'void' } },
+      { id: 'sub_string', status: 'past_due', latest_invoice: 'in_string' },
+      { id: 'sub_uncollectible', status: 'unpaid', latest_invoice: invoice('in_uncollectible', 'uncollectible') },
+      { id: 'sub_partial', status: 'past_due', latest_invoice: { id: 'in_partial', status: 'open', amount_due: 999, amount_remaining: 0 } },
+      { id: 'sub_cancelling', status: 'past_due', latest_invoice: invoice('in_cancelling'), cancel_at_period_end: true },
+    ]);
+    const world = fakeWorld({
+      links: { sub_paused: 'u1', sub_string: 'u2', sub_uncollectible: 'u3', sub_partial: 'u4', sub_cancelling: 'u5' },
+      clock: () => new Date(t0),
+    });
+    const summary = await runBillingFollowUps({ stripe, supabase: world.supabase, deps: world.deps, now: new Date(t0) });
+    expect(summary.payment_failed_sweep).toMatchObject({ candidates: 1, due: 1, sent: 1 });
+    expect(world.sent.map((m) => m.to)).toEqual(['u5@example.com']);
+  });
+
+  it('loses the race to a concurrent webhook send: the claim refuses and nothing goes out twice', async () => {
+    const { stripe } = fakeStripe([{ id: 'sub_1', status: 'past_due', latest_invoice: invoice('in_1') }]);
+    let raced = false;
+    const world = fakeWorld({
+      links: { sub_1: 'u1' },
+      clock: () => new Date(t0),
+      // The webhook claims (user, payment_failed, in_1) after the sweep loaded the ledger.
+      beforeClaim: (ledger) => {
+        if (raced) return;
+        raced = true;
+        ledger.push({ user_id: 'u1', email: 'u1@example.com', template: 'payment_failed', ref: 'in_1', payload: null, sent_at: new Date(t0).toISOString(), resend_id: null, error: null, attempts: 1 });
+      },
+    });
+    const summary = await runBillingFollowUps({ stripe, supabase: world.supabase, deps: world.deps, now: new Date(t0) });
+    expect(summary.payment_failed_sweep).toMatchObject({ due: 1, sent: 0, skipped: 1 });
+    expect(summary.failures).toEqual([]);
+    expect(world.sent).toHaveLength(0);
+    expect(world.ledger).toHaveLength(1);
+  });
+
+  it('retries a failed notice up to the attempt cap, and the reminder counts from the retry that went out', async () => {
+    let clock = new Date(t0);
+    let failing = true;
+    const { stripe } = fakeStripe([{ id: 'sub_1', status: 'past_due', latest_invoice: invoice('in_1') }]);
+    const world = fakeWorld({ links: { sub_1: 'u1' }, clock: () => clock, mailError: () => (failing ? 'resend 500' : null) });
+
+    const first = await runBillingFollowUps({ stripe, supabase: world.supabase, deps: world.deps, now: clock });
+    expect(first.payment_failed_sweep).toMatchObject({ due: 1, sent: 0 });
+    expect(first.failures).toEqual([expect.objectContaining({ ref: 'in_1', reason: 'resend 500' })]);
+    expect(world.ledger[0]).toMatchObject({ attempts: 1, error: 'resend 500', resend_id: null });
+
+    clock = new Date(t0 + 2 * DAY);
+    failing = false;
+    const second = await runBillingFollowUps({ stripe, supabase: world.supabase, deps: world.deps, now: clock });
+    expect(second.payment_failed_sweep).toMatchObject({ due: 1, sent: 1 });
+    expect(world.ledger[0]).toMatchObject({ attempts: 2, error: null, resend_id: 'msg_1', sent_at: clock.toISOString() });
+
+    // 5 days after the first (failed) attempt is too early: the notice went out on day 2.
+    clock = new Date(t0 + PAYMENT_FAILED_REMINDER_DELAY_MS);
+    const early = await runBillingFollowUps({ stripe, supabase: world.supabase, deps: world.deps, now: clock });
+    expect(early.payment_failed_reminder.due).toBe(0);
+    clock = new Date(t0 + 2 * DAY + PAYMENT_FAILED_REMINDER_DELAY_MS);
+    const onTime = await runBillingFollowUps({ stripe, supabase: world.supabase, deps: world.deps, now: clock });
+    expect(onTime.payment_failed_reminder).toMatchObject({ due: 1, sent: 1 });
+  });
+
+  it('a notice out of attempts, or closed as skipped, is not due again', async () => {
+    const { stripe, retrieveInvoice } = fakeStripe([
+      { id: 'sub_1', status: 'past_due', latest_invoice: invoice('in_1') },
+      { id: 'sub_2', status: 'past_due', latest_invoice: invoice('in_2') },
+    ]);
+    const old = new Date(t0 - DAY).toISOString();
+    const world = fakeWorld({
+      links: { sub_1: 'u1', sub_2: 'u2' },
+      ledger: [
+        { user_id: 'u1', email: 'u1@example.com', template: 'payment_failed', ref: 'in_1', payload: null, sent_at: old, resend_id: null, error: 'resend 500', attempts: 3 },
+        { user_id: 'u2', email: 'u2@example.com', template: 'payment_failed', ref: 'in_2', payload: null, sent_at: old, resend_id: null, error: 'skipped: x', attempts: 3 },
+      ],
+      clock: () => new Date(t0),
+    });
+    const summary = await runBillingFollowUps({ stripe, supabase: world.supabase, deps: world.deps, now: new Date(t0) });
+    expect(summary.payment_failed_sweep).toMatchObject({ candidates: 2, due: 0, sent: 0 });
+    expect(retrieveInvoice).not.toHaveBeenCalled();
   });
 });

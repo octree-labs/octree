@@ -338,6 +338,8 @@ function cartLabel(input: Pick<CheckoutRecoveryEmailInput, 'plan' | 'amountCents
       return `100 AI edits (${amount ?? '$5'})`;
     case 'generate_single':
       return `one document generation (${amount ?? '$2.99'})`;
+    case 'export_single':
+      return `export for one document (${amount ?? '$4.99'})`;
     default:
       return amount ? `Octree Pro (${amount})` : 'Octree Pro';
   }

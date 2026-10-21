@@ -37,6 +37,11 @@ import {
  * customer is refused) the session is opened again without it: the user
  * always reaches checkout.
  *
+ * `plan: 'export_single'` also takes `projectId` (required, a uuid): the
+ * project whose export the $4.99 purchase unlocks. It is read with the
+ * user's own client (RLS) and filtered on `user_id`, so a project that is
+ * not theirs, or does not exist, is a 404 and no session is opened.
+ *
  * Prices are looked up by Stripe `lookup_key` and created on first use
  * (lib/stripe-prices.ts). When the user already has a Stripe customer
  * (user_usage.stripe_customer_id, or found by email) the session is opened
@@ -74,6 +79,19 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: resolved.error }, { status: 400 });
     }
 
+    if (resolved.projectId) {
+      const { data: project, error: projectError } = await supabase
+        .from('projects')
+        .select('id')
+        .eq('id', resolved.projectId)
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (projectError) throw projectError;
+      if (!project) {
+        return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+      }
+    }
+
     const lookupKey = lookupKeyForPlan(resolved.plan);
     const [priceId, customer, promotionCodeId] = await Promise.all([
       getOrCreatePrice(lookupKey, stripe),
@@ -94,6 +112,7 @@ export async function POST(request: Request) {
       withTrial: resolved.withTrial,
       source: resolved.source,
       entry: resolved.entry,
+      ...(resolved.projectId ? { projectId: resolved.projectId } : {}),
     };
     let offerApplied = !!resolved.offer && !!promotionCodeId;
     if (resolved.offer && !promotionCodeId) {

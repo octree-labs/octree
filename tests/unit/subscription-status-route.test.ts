@@ -445,3 +445,86 @@ describe('GET /api/subscription-status: stale is_pro rows', () => {
     );
   });
 });
+
+describe('GET /api/subscription-status: first_purchase_offer', () => {
+  const ledgerRows: Record<string, unknown[]> = {};
+
+  function freeRow(overrides: Record<string, unknown> = {}) {
+    return usageRow({
+      is_pro: false,
+      subscription_status: 'inactive',
+      stripe_customer_id: null,
+      stripe_subscription_id: null,
+      current_period_start: null,
+      current_period_end: null,
+      edit_credits: 0,
+      generation_credits: 0,
+      free_generations_used: 1,
+      ...overrides,
+    });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.unstubAllEnvs();
+    ledgerRows.credit_purchases = [];
+    ledgerRows.generation_purchases = [];
+    mocks.getUser.mockResolvedValue({ data: { user: { id: 'user-1', email: 'new@example.com' } }, error: null });
+    mocks.userSingle.mockResolvedValue({ data: freeRow(), error: null });
+    mocks.resolveStripeCustomer.mockResolvedValue(null);
+    mocks.adminFrom.mockImplementation(((table: string) => ({
+      update: () => ({ eq: async () => ({ error: null }) }),
+      select: () => ({ eq: () => ({ limit: async () => ({ data: ledgerRows[table] ?? [], error: null }) }) }),
+    })) as any);
+  });
+
+  it('is welcome50 for a free user who never bought anything', async () => {
+    const body = await (await GET()).json();
+    expect(body.hasSubscription).toBe(false);
+    expect(body.first_purchase_offer).toBe('welcome50');
+    expect(mocks.adminFrom).toHaveBeenCalledWith('credit_purchases');
+    expect(mocks.adminFrom).toHaveBeenCalledWith('generation_purchases');
+  });
+
+  it('is null once a one-off purchase is on record', async () => {
+    ledgerRows.generation_purchases = [{ id: 'g1' }];
+    const body = await (await GET()).json();
+    expect(body.first_purchase_offer).toBeNull();
+  });
+
+  it('is null when Stripe has a customer for the user', async () => {
+    mocks.resolveStripeCustomer.mockResolvedValue({ customerId: 'cus_email' });
+    mocks.subscriptionsList.mockResolvedValue({ data: [] });
+    const body = await (await GET()).json();
+    expect(body.first_purchase_offer).toBeNull();
+  });
+
+  it('is null when the Stripe customer lookup fails', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocks.resolveStripeCustomer.mockRejectedValue(new Error('stripe down'));
+    const body = await (await GET()).json();
+    expect(body.first_purchase_offer).toBeNull();
+  });
+
+  it('is null with edit credits left', async () => {
+    mocks.userSingle.mockResolvedValue({ data: freeRow({ edit_credits: 40 }), error: null });
+    const body = await (await GET()).json();
+    expect(body.first_purchase_offer).toBeNull();
+  });
+
+  it('is null for a Pro subscriber', async () => {
+    mocks.userSingle.mockResolvedValue({ data: usageRow(), error: null });
+    mocks.resolveStripeCustomer.mockResolvedValue({ customerId: 'cus_1' });
+    mocks.subscriptionsList.mockResolvedValue({ data: [stripeSubscription()] });
+    const body = await (await GET()).json();
+    expect(body.hasSubscription).toBe(true);
+    expect(body.first_purchase_offer).toBeNull();
+  });
+
+  it('is null with the kill switch off', async () => {
+    vi.stubEnv('LIFECYCLE_WARM_LEAD_OFFER_ENABLED', 'false');
+    const body = await (await GET()).json();
+    expect(body.first_purchase_offer).toBeNull();
+    vi.unstubAllEnvs();
+  });
+});

@@ -9,6 +9,7 @@
  */
 
 import { entitlementFromStatusResponse } from '@/lib/subscription/entitlement';
+import { isCheckoutOfferId, type CheckoutOfferId } from '@/lib/checkout-offers';
 
 export type ProFeature = 'ai-edit' | 'export' | 'generate';
 
@@ -34,6 +35,11 @@ export interface FeatureUsage {
   editCount?: number;
   /** AI edits this billing period (Pro counter). */
   monthlyEditCount?: number;
+  /**
+   * The first-purchase offer the server says this user is eligible for
+   * (lib/first-purchase-offer.ts); null when not eligible.
+   */
+  firstPurchaseOffer?: CheckoutOfferId | null;
 }
 
 export type FeatureAccess =
@@ -125,6 +131,13 @@ export interface SubscriptionStatusResponse {
     /** Stripe's answer about the stored subscription when no live one was found (lib/subscription/entitlement.ts). */
     stripeStatus?: string | null;
   } & Record<string, unknown>;
+  /**
+   * `welcome50` when the user has never bought anything (no Stripe
+   * customer, no credits, no one-off purchase, not Pro) and the offer is
+   * switched on; computed server-side only (lib/first-purchase-offer.ts).
+   * Absent from older responses; treated as null.
+   */
+  first_purchase_offer?: CheckoutOfferId | null;
 }
 
 const NON_PRO_STATUSES: ReadonlySet<string> = new Set(['paused', 'past_due', 'unpaid']);
@@ -167,5 +180,6 @@ export function toFeatureUsage(
     generationCredits: Number(data.usage.generationCredits ?? 0) || 0,
     editCount: Number(data.usage.editCount ?? 0) || 0,
     monthlyEditCount: Number(data.usage.monthlyEditCount ?? 0) || 0,
+    firstPurchaseOffer: isCheckoutOfferId(data.first_purchase_offer) ? data.first_purchase_offer : null,
   };
 }

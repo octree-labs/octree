@@ -51,6 +51,18 @@ describe('project store export unlock', () => {
     expect(isExportUnlocked(state, undefined)).toBe(false);
   });
 
+  it('switching projects never carries the previous unlock over', () => {
+    setUrl(`/projects/${PROJECT}`);
+    const { rerender } = render(<ExportUnlockSync projectId={PROJECT} exportUnlocked />);
+    expect(isExportUnlocked(useProjectStore.getState(), PROJECT)).toBe(true);
+    // Before the next project's value lands, the stale true does not apply to it.
+    expect(isExportUnlocked(useProjectStore.getState(), OTHER)).toBe(false);
+    rerender(<ExportUnlockSync projectId={OTHER} exportUnlocked={false} />);
+    expect(isExportUnlocked(useProjectStore.getState(), OTHER)).toBe(false);
+    expect(isExportUnlocked(useProjectStore.getState(), PROJECT)).toBe(false);
+    cleanup();
+  });
+
   it('ExportUnlockSync puts the server value into the store', () => {
     setUrl(`/projects/${PROJECT}`);
     render(<ExportUnlockSync projectId={PROJECT} exportUnlocked />);

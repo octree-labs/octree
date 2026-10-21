@@ -99,8 +99,17 @@ describe('canUseFeature', () => {
       expect(canUseFeature(freeAtLimit, 'export', { projectUnlocked: true })).toEqual({ allowed: true });
     });
 
-    it('allows an unlocked project before the plan has loaded', () => {
+    it('allows an unlocked project before the plan has loaded (or when it failed to load)', () => {
       expect(canUseFeature(null, 'export', { projectUnlocked: true })).toEqual({ allowed: true });
+      expect(canUseFeature(undefined, 'export', { projectUnlocked: true })).toEqual({ allowed: true });
+      // Without the unlock the same state still waits for the plan.
+      expect(canUseFeature(null, 'export')).toEqual({ allowed: false, reason: 'unknown' });
+    });
+
+    it('allows an unlocked project for a past_due subscriber (no Pro meanwhile)', () => {
+      const pastDue: FeatureUsage = { isPro: false, paymentPastDue: true };
+      expect(canUseFeature(pastDue, 'export')).toEqual({ allowed: false, reason: 'paywall' });
+      expect(canUseFeature(pastDue, 'export', { projectUnlocked: true })).toEqual({ allowed: true });
     });
 
     it('leaves a locked project exactly as before', () => {

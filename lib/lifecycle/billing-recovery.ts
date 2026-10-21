@@ -10,7 +10,11 @@
  *                             subscription into past_due / unpaid. Ledger
  *                             key: the invoice id, so Stripe redeliveries
  *                             and later updates of the same delinquency
- *                             never send twice.
+ *                             never send twice. Also by the daily cron's
+ *                             sweep, for any past_due / unpaid subscription
+ *                             with an open invoice that has no notice yet
+ *                             (a renewal of an already-past_due
+ *                             subscription never carries the transition).
  *   payment_failed_reminder   by the daily lifecycle cron, 5 days after the
  *                             notice, if the subscription is still past_due
  *                             and that invoice is still open. Same key, so
@@ -190,6 +194,8 @@ export interface BillingLedgerRow {
   sentAt: string;
   resendId: string | null;
   error: string | null;
+  /** Send attempts so far; a failed row is retried only below MAX_SEND_ATTEMPTS. Absent in older fixtures. */
+  attempts?: number;
 }
 
 export interface BillingFollowUp {

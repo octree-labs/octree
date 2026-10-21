@@ -405,6 +405,12 @@ export interface AnalyticsEventProperties {
     currency: string | null;
     /** Stripe has another automatic retry scheduled. */
     has_retry: boolean;
+    /**
+     * What sent a `payment_failed` notice: the cron's sweep of past-due
+     * subscriptions that never got one. Absent for the webhook's send and
+     * the reminder (additive: existing insights keep matching).
+     */
+    trigger?: 'sweep';
   };
   /** A credit pack was paid for (Stripe webhook); `amount` in major units. */
   [AnalyticsEvents.CREDITS_PURCHASED]: {

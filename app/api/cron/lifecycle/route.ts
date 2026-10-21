@@ -11,7 +11,7 @@ import { sendLifecycleBatch } from '@/lib/lifecycle/send';
 import { createLifecycleDeps } from '@/lib/lifecycle/deps';
 import { runBillingFollowUps } from '@/lib/lifecycle/billing-send';
 import { getPostHogServer } from '@/lib/posthog-server';
-import { AnalyticsEvents, type PurchasePlan } from '@/lib/analytics/events';
+import { AnalyticsEvents, type AnalyticsEventProperties, type PurchasePlan } from '@/lib/analytics/events';
 import { isPurchasePlan } from '@/lib/checkout-plans';
 
 export const runtime = 'nodejs';
@@ -19,9 +19,11 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
 /**
- * Lifecycle and win-back emails, plus the billing-recovery follow-ups (the
- * payment-failed reminder after 5 days, the checkout offer after 48h; see
- * lib/lifecycle/billing-recovery.ts). Scheduled in `vercel.json` (14:30
+ * Lifecycle and win-back emails, plus billing recovery: the payment_failed
+ * sweep (a notice for every past_due / unpaid subscription with an open
+ * invoice that never got one), the payment-failed reminder after 5 days,
+ * the checkout offer after 48h (see lib/lifecycle/billing-recovery.ts
+ * and billing-send.ts). Scheduled in `vercel.json` (14:30
  * UTC). `?dry=1` computes the candidates and returns counts plus the first
  * five user ids per template without sending or recording anything.
  */
@@ -90,6 +92,20 @@ export async function GET(request: Request) {
       deps,
       now,
       dry: dry || rows.missingTables.length > 0,
+      onPaymentFailedSent: (userId, invoice) => {
+        const properties: AnalyticsEventProperties[typeof AnalyticsEvents.PAYMENT_FAILED_EMAIL_SENT] = {
+          template: 'payment_failed',
+          amount: invoice?.amountCents != null ? invoice.amountCents / 100 : null,
+          currency: invoice?.currency ? invoice.currency.toUpperCase() : null,
+          has_retry: invoice?.nextPaymentAttempt != null,
+          trigger: 'sweep',
+        };
+        posthog?.capture({
+          distinctId: userId,
+          event: AnalyticsEvents.PAYMENT_FAILED_EMAIL_SENT,
+          properties: { ...properties, source: 'server' },
+        });
+      },
       onSent: (followUp, extra) => {
         const plan = followUp.payload.plan;
         const event =

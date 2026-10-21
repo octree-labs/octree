@@ -22,7 +22,8 @@ vi.mock('@/lib/analytics/track', () => ({
  * Every paywall variant, as an ineligible user sees it. The snapshots in
  * __snapshots__/paywall-dialog-offer.test.tsx.snap were written from the
  * dialog BEFORE the first-purchase offer existed (main at c0d0321), so a
- * pass means the dialog without the offer is byte-for-byte unchanged.
+ * pass means the dialog without the offer is byte-for-byte unchanged
+ * (Radix/useId ids renumbered by `stableIds`).
  */
 const VARIANTS = [
   ['export', () => PaywallActions.open('export')],
@@ -31,6 +32,20 @@ const VARIANTS = [
   ['generate pro_feature', () => PaywallActions.open('generate')],
   ['generate generate_quota (pro + single)', () => PaywallActions.open('generate', 'generate_quota', ['pro', 'single'])],
 ] as const;
+
+/**
+ * React's useId (behind Radix's ids) counts across every root in the test
+ * file, so raw ids depend on which tests ran first. Renumber them by first
+ * appearance within the snapshot: the aria-labelledby / aria-describedby
+ * links stay checked, and each snapshot is the same run alone or shuffled.
+ */
+function stableIds(html: string): string {
+  const seen = new Map<string, string>();
+  return html.replace(/«[^»]+»|:r[0-9a-z]+:/g, (id) => {
+    if (!seen.has(id)) seen.set(id, `«id${seen.size}»`);
+    return seen.get(id)!;
+  });
+}
 
 function resetStore() {
   PaywallActions.close();
@@ -48,7 +63,7 @@ describe('PaywallDialog without a first-purchase offer (unchanged)', () => {
     it(`renders ${name} exactly as before`, () => {
       open();
       render(<PaywallDialog />);
-      expect(document.body.innerHTML).toMatchSnapshot();
+      expect(stableIds(document.body.innerHTML)).toMatchSnapshot();
     });
   }
 });

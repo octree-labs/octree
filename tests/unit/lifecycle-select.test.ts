@@ -379,8 +379,29 @@ describe('warm_lead_offer', () => {
     expect(eligibleSince(lead({ role: 'admin' }), 'warm_lead_offer', NOW)).toBeNull();
   });
 
+  it('never goes to a flag-only Pro, a past_due / paused subscriber or anyone who has paid before', () => {
+    // is_pro without a subscription grants nothing by the entitlement rule,
+    // but it is still a subscription relationship: no discount pitch.
+    expect(eligibleSince(lead({ isPro: true }), 'warm_lead_offer', NOW)).toBeNull();
+    expect(eligibleSince(lead({ subscriptionStatus: 'past_due' }), 'warm_lead_offer', NOW)).toBeNull();
+    expect(eligibleSince(lead({ subscriptionStatus: 'paused' }), 'warm_lead_offer', NOW)).toBeNull();
+    // WELCOME50 is first-time-transaction only: Stripe would refuse it.
+    expect(eligibleSince(lead({ stripeCustomerId: 'cus_1' }), 'warm_lead_offer', NOW)).toBeNull();
+    expect(eligibleSince(lead({ hasOneOffPurchase: true }), 'warm_lead_offer', NOW)).toBeNull();
+    expect(eligibleSince(lead({ subscriptionStatus: 'inactive', hasOneOffPurchase: false }), 'warm_lead_offer', NOW)).not.toBeNull();
+  });
+
   it('needs an email', () => {
     expect(select([lead({ email: null })]).eligible.warm_lead_offer).toHaveLength(0);
+  });
+
+  it('treats a ledger row under any ref as sent, for itself and for the limit_hit exclusion', () => {
+    const u = lead({ editCount: 5, dailyResetDate: '2026-10-18' });
+    const offerSent = select([u], { sent: [{ userId: u.userId, template: 'warm_lead_offer', ref: 'manual' }] });
+    expect(offerSent.eligible.warm_lead_offer).toHaveLength(0);
+    expect(offerSent.eligible.limit_hit).toHaveLength(0);
+    const limitSent = select([u], { sent: [{ userId: u.userId, template: 'limit_hit', ref: 'manual' }] });
+    expect(limitSent.eligible.warm_lead_offer).toHaveLength(0);
   });
 
   it('outranks limit_hit, so a user eligible for both gets the offer', () => {

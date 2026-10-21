@@ -150,6 +150,7 @@ export async function GET(request: Request) {
       users: rows.users.length,
       stripe: stripeLookups,
       cap: DEFAULT_SEND_CAP,
+      missing_optional_tables: rows.missingOptionalTables ?? [],
       sent,
       failed: failed.length,
       failures: failed.slice(0, 20),

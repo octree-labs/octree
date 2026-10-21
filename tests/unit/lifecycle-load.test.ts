@@ -142,13 +142,17 @@ describe('loadLifecycleRows', () => {
    * `.range()` whatever the chain before it, and the admin API lists the
    * given auth users. Enough to see what the loader derives per user.
    */
-  function fakeDb(tables: Record<string, Array<Record<string, unknown>>>, authUsers: Array<{ id: string; email: string; created_at: string }>) {
+  function fakeDb(
+    tables: Record<string, Array<Record<string, unknown>>>,
+    authUsers: Array<{ id: string; email: string; created_at: string }>,
+    missingCode = '42P01'
+  ) {
     const from = vi.fn((table: string) => {
       const rows = tables[table];
       const chain: any = {};
       for (const method of ['select', 'eq', 'gte', 'order']) chain[method] = () => chain;
       chain.range = async (fromIndex: number, toIndex: number) => {
-        if (!rows) return { data: null, error: { message: `relation "${table}" does not exist`, code: '42P01' } };
+        if (!rows) return { data: null, error: { message: `relation "${table}" does not exist`, code: missingCode } };
         return { data: rows.slice(fromIndex, toIndex + 1), error: null };
       };
       return chain;
@@ -229,6 +233,8 @@ describe('loadLifecycleRows', () => {
     email_suppressions: [],
     email_preferences: [],
     lifecycle_emails: [],
+    credit_purchases: [],
+    generation_purchases: [],
   });
   const authUsers = [
     { id: 'a', email: 'a@example.com', created_at: '2026-08-01T00:00:00Z' },
@@ -265,5 +271,44 @@ describe('loadLifecycleRows', () => {
     expect(rows.missingTables).toEqual([]);
     expect(rows.missingOptionalTables).toEqual(['paywall_hits']);
     expect(rows.users.every((u) => u.lastPaywallHit === null)).toBe(true);
+  });
+
+  it('reports a missing paywall_hits from PostgREST (PGRST205) as optional too, live runs unaffected', async () => {
+    const { paywall_hits: _omit, ...tables } = { ...baseTables(), paywall_hits: [] };
+    const db = fakeDb(tables, authUsers, 'PGRST205');
+    const rows = await loadLifecycleRows(db);
+    expect(rows.missingTables).toEqual([]);
+    expect(rows.missingOptionalTables).toEqual(['paywall_hits']);
+  });
+
+  it('keeps the latest hit when it sits on an earlier page than older hits', async () => {
+    const latest = { id: '0000', user_id: 'a', feature: 'export', reason: 'pro_feature', created_at: '2026-10-21T09:00:00.000+00:00' };
+    const older = Array.from({ length: 1500 }, (_, i) => ({
+      id: `x${String(i).padStart(4, '0')}`,
+      user_id: 'a',
+      feature: 'ai-edit',
+      reason: 'daily_limit',
+      created_at: new Date(Date.parse('2026-10-16T00:00:00Z') + i * 60_000).toISOString(),
+    }));
+    const db = fakeDb({ ...baseTables(), paywall_hits: [latest, ...older] }, authUsers);
+    const rows = await loadLifecycleRows(db, new Date('2026-10-21T14:30:00Z'));
+    expect(rows.users.find((u) => u.userId === 'a')?.lastPaywallHit).toEqual({
+      feature: 'export',
+      reason: 'pro_feature',
+      createdAt: '2026-10-21T09:00:00.000+00:00',
+    });
+  });
+
+  it('flags users with a credit pack or single generation purchase', async () => {
+    const db = fakeDb(
+      { ...baseTables(), paywall_hits: [], credit_purchases: [{ user_id: 'a' }], generation_purchases: [{ user_id: 'b' }] },
+      [...authUsers, { id: 'c', email: 'c@example.com', created_at: '2026-08-01T00:00:00Z' }]
+    );
+    const rows = await loadLifecycleRows(db);
+    expect(rows.users.map((u) => [u.userId, u.hasOneOffPurchase])).toEqual([
+      ['a', true],
+      ['b', true],
+      ['c', false],
+    ]);
   });
 });

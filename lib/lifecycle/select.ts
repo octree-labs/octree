@@ -18,11 +18,13 @@
  *              activity for 7 days (no project saved, no document generated,
  *              no AI edit counted). The only template for subscribers; at
  *              most one per calendar month (ledger ref = `YYYY-MM`).
- *   warm_lead_offer  free user (not entitled to Pro, no Stripe subscription)
- *              whose latest paywall hit (paywall_hits, last 7 days) is 1h..3d
- *              old: 50% off the first Pro month (WELCOME50). Once per user,
- *              and mutually exclusive with limit_hit: whoever got one of
- *              the two never gets the other.
+ *   warm_lead_offer  free user who has never paid (not entitled to Pro, no
+ *              subscription relationship, no Stripe customer, no one-off
+ *              purchase: WELCOME50 is first-time-transaction only) whose
+ *              latest paywall hit (paywall_hits, last 7 days) is 1h..3d
+ *              old: 50% off the first Pro month (WELCOME50). Once per user
+ *              under any ledger ref, and mutually exclusive with limit_hit:
+ *              whoever got one of the two never gets the other.
  *
  * One email per user per run, highest-priority template first
  * (warm_lead_offer > limit_hit > day7 > welcome > winback > pro_inactive),
@@ -84,6 +86,12 @@ export interface LifecycleUserRow {
    * (or the table is not there yet). Loaded for the warm_lead_offer rule.
    */
   lastPaywallHit?: PaywallHit | null;
+  /**
+   * The user has a credit_purchases or generation_purchases row: they have
+   * paid Octree before (credit pack, single generation), so a first-time-only
+   * promotion code would be refused at checkout. Loaded for warm_lead_offer.
+   */
+  hasOneOffPurchase?: boolean;
 }
 
 export interface PaywallHit {
@@ -172,6 +180,9 @@ const MUTUALLY_EXCLUSIVE: Partial<Record<ScheduledLifecycleTemplate, ScheduledLi
   warm_lead_offer: 'limit_hit',
   limit_hit: 'warm_lead_offer',
 };
+
+/** Templates that go out at most once per user whatever ref the ledger row has. */
+const ONCE_EVER = new Set<ScheduledLifecycleTemplate>(['warm_lead_offer']);
 
 export const DEFAULT_SEND_CAP = 200;
 
@@ -294,10 +305,14 @@ export function eligibleSince(user: LifecycleUserRow, template: ScheduledLifecyc
       return ended + LIFECYCLE_RULES.winback.minLapsedMs;
     }
     case 'warm_lead_offer': {
-      // A free user: not Pro by the entitlement rule, not on a manual grant,
-      // and no Stripe subscription (live or not) the discount could collide with.
+      // A free user who has never paid: not Pro by the entitlement rule (nor
+      // by the `is_pro` flag or a past_due / paused / unlimited status, which
+      // hasSubscription above already excluded), no Stripe subscription or
+      // customer, and no one-off purchase. WELCOME50 is restricted to
+      // first-time transactions, so anyone with prior payments would be
+      // promised a discount Stripe then refuses.
       if (user.subscriptionStatus === 'unlimited' || isEntitledToPro(user, now)) return null;
-      if (user.stripeSubscriptionId) return null;
+      if (user.stripeSubscriptionId || user.stripeCustomerId || user.hasOneOffPurchase) return null;
       const hit = ms(user.lastPaywallHit?.createdAt ?? null);
       if (hit === null) return null;
       const age = nowMs - hit;
@@ -338,6 +353,8 @@ export function selectLifecycleCandidates(input: LifecycleSelectionInput): Lifec
   const suppressed = new Set(Array.from(input.suppressedEmails, (e) => e.toLowerCase()));
   const optedOut = new Set(input.optedOutUserIds);
   const sentKeys = new Set(Array.from(input.sent, (s) => `${s.userId}:${s.template}:${s.ref ?? ''}`));
+  // (user, template) under any ref: the once-ever and mutual-exclusion checks.
+  const sentAnyRef = new Set(Array.from(input.sent, (s) => `${s.userId}:${s.template}`));
   const enabled = new Set(input.enabledTemplates);
   const cap = input.cap ?? DEFAULT_SEND_CAP;
 
@@ -358,8 +375,9 @@ export function selectLifecycleCandidates(input: LifecycleSelectionInput): Lifec
       const email = user.email.toLowerCase();
       if (suppressed.has(email) || optedOut.has(user.userId)) continue;
       if (sentKeys.has(`${user.userId}:${template}:${ref}`)) continue;
+      if (ONCE_EVER.has(template) && sentAnyRef.has(`${user.userId}:${template}`)) continue;
       const exclusive = MUTUALLY_EXCLUSIVE[template];
-      if (exclusive && sentKeys.has(`${user.userId}:${exclusive}:${scheduledRef(exclusive, input.now)}`)) continue;
+      if (exclusive && sentAnyRef.has(`${user.userId}:${exclusive}`)) continue;
       const since = eligibleSince(user, template, input.now);
       if (since === null) continue;
       eligible[template].push({

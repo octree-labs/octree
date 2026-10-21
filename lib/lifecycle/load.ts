@@ -12,13 +12,18 @@ type Db = SupabaseClient<Database>;
 
 const PAGE = 1000;
 
-const UNDEFINED_TABLE = '42P01';
+/**
+ * Postgres `undefined_table`, and PostgREST's schema-cache version of it
+ * (PGRST205, what a select on a table that does not exist returns from
+ * PostgREST 12 on, i.e. hosted Supabase today).
+ */
+const UNDEFINED_TABLE = new Set(['42P01', 'PGRST205']);
 /** Postgres `undefined_column`, and PostgREST's schema-cache version of it. */
 const UNDEFINED_COLUMN = new Set(['42703', 'PGRST204']);
 
 /** A read or write that failed because the lifecycle migration is pending. */
 export function isMissingLedgerSchema(error: { code?: string } | null | undefined): boolean {
-  return !!error?.code && (error.code === UNDEFINED_TABLE || UNDEFINED_COLUMN.has(error.code));
+  return !!error?.code && (UNDEFINED_TABLE.has(error.code) || UNDEFINED_COLUMN.has(error.code));
 }
 
 /**
@@ -110,7 +115,7 @@ export async function loadLifecycleRows(supabase: Db, now: Date = new Date()): P
   const missingTables: string[] = [];
   const missingOptionalTables: string[] = [];
   const paywallSince = new Date(now.getTime() - LIFECYCLE_RULES.warm_lead_offer.lookbackMs).toISOString();
-  const [authUsers, usage, projects, generated, suppressions, prefs, ledger, paywallHits] = await Promise.all([
+  const [authUsers, usage, projects, generated, suppressions, prefs, ledger, paywallHits, creditBuyers, generationBuyers] = await Promise.all([
     listAllAuthUsers(supabase),
     selectAll((from, to) =>
       supabase
@@ -161,7 +166,18 @@ export async function loadLifecycleRows(supabase: Db, now: Date = new Date()): P
           .range(from, to),
       { onMissingTable: () => missingOptionalTables.push('paywall_hits') }
     ),
+    // Anyone who bought a credit pack or a single generation has paid
+    // before: warm_lead_offer's first-time-only code would be refused.
+    selectAll(
+      (from, to) => supabase.from('credit_purchases').select('user_id').order('id').range(from, to),
+      { onMissingTable: () => missingOptionalTables.push('credit_purchases') }
+    ),
+    selectAll(
+      (from, to) => supabase.from('generation_purchases').select('user_id').order('id').range(from, to),
+      { onMissingTable: () => missingOptionalTables.push('generation_purchases') }
+    ),
   ]);
+  const oneOffBuyers = new Set([...creditBuyers, ...generationBuyers].map((row) => row.user_id));
 
   const lastHit = new Map<string, PaywallHit>();
   for (const hit of paywallHits) {
@@ -222,6 +238,7 @@ export async function loadLifecycleRows(supabase: Db, now: Date = new Date()): P
       subscriptionEndedAt: null,
       lastActivityAt: lastActivity.get(user.id) ?? null,
       lastPaywallHit: lastHit.get(user.id) ?? null,
+      hasOneOffPurchase: oneOffBuyers.has(user.id),
     };
   });
 

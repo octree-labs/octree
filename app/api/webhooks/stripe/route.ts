@@ -13,6 +13,8 @@ import {
   grantCreditsFromCheckoutSession,
   grantExportUnlock,
   grantGenerationCredits,
+  isOctreeCheckoutSession,
+  isOctreeSubscription,
   recordStripeEvent,
   subscriptionLifecycleEvents,
   trackPurchaseFromCheckoutSession,
@@ -61,6 +63,18 @@ function lifecycleDeps(supabase: ReturnType<typeof createAdminClient>): Lifecycl
   });
 }
 
+/**
+ * The Stripe account is shared with another product whose events reach this
+ * endpoint too (lib/stripe-webhook.ts, `isOctreeCheckoutSession`). Its
+ * objects are acknowledged with a 200 and nothing else: no grant, no
+ * analytics, no event log, no email. A 4xx/5xx would only make Stripe retry
+ * an event there is nothing to do with.
+ */
+function ignoreForeignSession(session: Stripe.Checkout.Session) {
+  console.log(`[stripe-webhook] ignoring checkout session ${session.id} from another app on this Stripe account`);
+  return NextResponse.json({ received: true, ignored: 'foreign_session' });
+}
+
 function purchasePlanOf(value: string | null | undefined): PurchasePlan | 'unknown' {
   return value && isPurchasePlan(value) ? value : 'unknown';
 }
@@ -92,6 +106,7 @@ export async function POST(request: Request) {
     switch (event.type) {
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session;
+        if (!isOctreeCheckoutSession(session)) return ignoreForeignSession(session);
 
         // A paid one-off (`mode: 'payment'`): an AI edit credit pack
         // (`metadata.credits`), a single generation credit
@@ -191,12 +206,16 @@ export async function POST(request: Request) {
         const userId = subscription.metadata?.user_id;
         const customerId = subscription.customer as string;
 
-        if (!userId) {
-          console.error('No user_id in subscription metadata');
-          return NextResponse.json(
-            { error: 'Missing user_id in subscription metadata' },
-            { status: 400 }
-          );
+        // Another app's subscription, or one with no user to update (a
+        // comped subscription created by hand has empty metadata). Answer
+        // 200: a 4xx makes Stripe retry an event there is nothing to do with.
+        if (!isOctreeSubscription(subscription) || !userId) {
+          if (subscription.metadata?.app && !isOctreeSubscription(subscription)) {
+            console.log(`[stripe-webhook] ignoring subscription ${subscription.id} from another app on this Stripe account`);
+            return NextResponse.json({ received: true, ignored: 'foreign_subscription' });
+          }
+          console.warn(`[stripe-webhook] no user_id in metadata of subscription ${subscription.id}; ignored`);
+          return NextResponse.json({ received: true, ignored: 'missing_user_id' });
         }
 
         try {
@@ -334,6 +353,7 @@ export async function POST(request: Request) {
         // (lib/checkout-plans.ts); the recovery email carries it. Keyed on
         // the session id in the ledger, so a redelivery sends nothing.
         const expired = event.data.object as Stripe.Checkout.Session;
+        if (!isOctreeCheckoutSession(expired)) return ignoreForeignSession(expired);
         const expiredUserId = expired.metadata?.user_id;
         if (!expiredUserId) break;
 

@@ -12,7 +12,7 @@ import {
   type CheckoutSource,
   type GenerateEntry,
 } from '@/lib/analytics/events';
-import { isSubscriptionPlan, isPurchasePlan, isProjectId } from '@/lib/checkout-plans';
+import { OCTREE_STRIPE_APP, isSubscriptionPlan, isPurchasePlan, isProjectId } from '@/lib/checkout-plans';
 import { STRIPE_PRICE_IDS } from '@/lib/stripe-config';
 import { PRICE_LOOKUP_KEYS, PRICE_METADATA_KEY, isPriceLookupKey } from '@/lib/stripe-prices';
 import { isMissingExportUnlockSchema } from '@/lib/export-unlock';
@@ -337,6 +337,60 @@ export async function trackPurchaseFromCheckoutSession(
   });
 
   return true;
+}
+
+/*
+ * The Stripe account is shared with another product (filerenamerai.com) that
+ * has its own webhook endpoint, so Stripe delivers ITS events here too. Its
+ * Checkout Sessions are `mode: 'payment'` with `metadata.user_id` (a user
+ * that does not exist in Octree) and `metadata.credits`, which is exactly the
+ * shape of an Octree credit pack; granting one fails on the user_usage
+ * foreign key, the route answers 500 and Stripe retries for days.
+ *
+ * Since `checkoutMetadata()` (lib/checkout-plans.ts) started writing
+ * `metadata.app = 'octree'`, every new Octree session, subscription and
+ * payment intent is tagged. The rule below is transitional, for objects
+ * created before that tag existed:
+ *
+ * - `metadata.app === 'octree'`        -> ours.
+ * - `metadata.app` set to anything else -> another app's.
+ * - `metadata.app` absent (legacy):
+ *   - subscription-mode session -> ours when it has `metadata.user_id`
+ *     (legacy Octree subscription sessions carry only user_id, sometimes
+ *     plan/source/entry);
+ *   - any other session -> ours only when it has `metadata.plan` (every
+ *     legacy Octree one-off session carries plan, since the credits feature
+ *     shipped on 2026-10-18; the other product's sessions never do).
+ */
+function octreeAppTag(metadata: Stripe.Metadata | null | undefined): boolean | null {
+  const app = metadata?.app;
+  if (app === undefined || app === null || app === '') return null;
+  return app === OCTREE_STRIPE_APP;
+}
+
+/** Whether a Checkout Session belongs to Octree (see the rule above). */
+export function isOctreeCheckoutSession(
+  session: Pick<Stripe.Checkout.Session, 'mode' | 'metadata'>
+): boolean {
+  const tagged = octreeAppTag(session.metadata);
+  if (tagged !== null) return tagged;
+  return session.mode === 'subscription'
+    ? Boolean(session.metadata?.user_id)
+    : Boolean(session.metadata?.plan);
+}
+
+/**
+ * Whether a Subscription belongs to Octree. Tagged -> the tag decides;
+ * untagged (every subscription before the tag, which carry only `user_id`)
+ * -> ours when it names a user. A subscription without a user (a comped
+ * subscription created by hand in the dashboard) has nothing to update, so
+ * the route acknowledges it instead of answering 4xx, which Stripe would
+ * retry forever.
+ */
+export function isOctreeSubscription(subscription: Pick<Stripe.Subscription, 'metadata'>): boolean {
+  const tagged = octreeAppTag(subscription.metadata);
+  if (tagged !== null) return tagged;
+  return Boolean(subscription.metadata?.user_id);
 }
 
 /** The credit pack a paid Checkout Session carries, or null for anything else. */

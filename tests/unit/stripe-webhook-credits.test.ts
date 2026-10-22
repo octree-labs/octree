@@ -4,6 +4,7 @@ import type Stripe from 'stripe';
 import {
   creditsFromCheckoutSession,
   grantCreditsFromCheckoutSession,
+  isOctreeCheckoutSession,
   planFromPrice,
 } from '@/lib/stripe-webhook';
 import { STRIPE_PRICE_IDS } from '@/lib/stripe-config';
@@ -115,5 +116,24 @@ describe('planFromPrice', () => {
   it('does not treat the credit pack as a subscription plan', () => {
     expect(planFromPrice({ id: 'price_x', lookup_key: 'octree_credits_100' })).toBe('unknown');
     expect(planFromPrice(null)).toBe('unknown');
+  });
+});
+
+describe('credit packs from another app on the shared Stripe account', () => {
+  // filerenamerai.com shares the Stripe account; its sessions have the same
+  // user_id + credits shape as an Octree pack but never `plan`. The route
+  // drops them on isOctreeCheckoutSession before any grant.
+  const foreign = creditsSession({ id: 'cs_foreign_1', metadata: { credits: '1000', user_id: 'not-an-octree-user' } });
+
+  it('is not an Octree session even though its metadata looks like a credit pack', () => {
+    expect(creditsFromCheckoutSession(foreign)).not.toBeNull();
+    expect(isOctreeCheckoutSession(foreign)).toBe(false);
+  });
+
+  it('legacy (untagged) and tagged Octree credit packs are Octree sessions', () => {
+    expect(isOctreeCheckoutSession(creditsSession())).toBe(true);
+    expect(
+      isOctreeCheckoutSession(creditsSession({ metadata: { app: 'octree', user_id: 'user-1', plan: 'credits_100', credits: '100' } }))
+    ).toBe(true);
   });
 });

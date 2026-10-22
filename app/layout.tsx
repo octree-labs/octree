@@ -7,6 +7,7 @@ import { ProjectProvider } from '@/app/context/project';
 import { Toaster } from '@/components/ui/sonner';
 import localFont from 'next/font/local';
 import { PostHogProvider } from '@/components/providers/posthog';
+import { DomTranslateGuard } from '@/components/dom-translate-guard';
 
 const satoshi = localFont({
   src: [
@@ -70,6 +71,8 @@ export default async function RootLayout({
         />
       </head>
       <body className={satoshi.className}>
+        {/* Keeps Chrome auto-translate from crashing React (removeChild/insertBefore). */}
+        <DomTranslateGuard />
         <ProjectProvider>
           <PostHogProvider>{children}</PostHogProvider>
         </ProjectProvider>

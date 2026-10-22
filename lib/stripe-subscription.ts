@@ -276,9 +276,13 @@ function unixSeconds(value: unknown): number | null {
  * still see the top-level one.
  *
  * Rule, per field: the top-level value when it is a number; otherwise the
- * value on the first item that carries both start and end (Octree
- * subscriptions have a single item; items of one subscription share the
- * billing cycle); otherwise null.
+ * value on the first item that carries both start and end; otherwise null.
+ * Start and end always come from the same item, so the pair is one real
+ * period. Octree subscriptions have exactly one item (checked against every
+ * subscription on the account, Oct 2026). Items of one subscription can only
+ * have different periods under `billing_mode: flexible` with mixed
+ * intervals, which Octree never creates; if it ever does, the monthly
+ * counter reset follows the cycle of the first item in `items.data`.
  */
 export function subscriptionPeriod(subscription: StripePeriodSource | null | undefined): SubscriptionPeriod {
   if (!subscription) return { start: null, end: null };

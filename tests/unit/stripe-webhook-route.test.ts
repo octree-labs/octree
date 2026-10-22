@@ -873,13 +873,27 @@ describe('POST /api/webhooks/stripe', () => {
       const endIso = new Date(end * 1000).toISOString();
       // The clover shape: no top-level period, each item carries it.
       const cloverShape = {
-        current_period_start: undefined,
-        current_period_end: undefined,
         items: {
           object: 'list',
           data: [{ id: 'si_1', object: 'subscription_item', current_period_start: start, current_period_end: end }],
         },
       };
+      /**
+       * A subscription event as the endpoint (API 2025-12-15.clover) renders
+       * it: the top-level period keys and `discount` are absent, not
+       * `undefined` (checked against a live subscription rendered with
+       * `Stripe-Version: 2025-12-15.clover`).
+       */
+      function cloverEvent(type: string, overrides: Record<string, unknown> = {}) {
+        const event = subscriptionEvent(type, { discounts: [], ...overrides });
+        const object = event.data.object as Record<string, unknown>;
+        delete object.current_period_start;
+        delete object.current_period_end;
+        delete object.discount;
+        expect(Object.keys(object)).not.toContain('current_period_start');
+        expect(Object.keys(object)).not.toContain('current_period_end');
+        return event;
+      }
 
       it('writes the period from the item and keeps the counter when the stored period matches', async () => {
         mocks.usageMaybeSingle.mockResolvedValue({
@@ -893,7 +907,7 @@ describe('POST /api/webhooks/stripe', () => {
           error: null,
         });
         mocks.constructEvent.mockReturnValue(
-          subscriptionEvent('customer.subscription.updated', { ...cloverShape, cancel_at_period_end: true })
+          cloverEvent('customer.subscription.updated', { ...cloverShape, cancel_at_period_end: true })
         );
 
         await atUnixTime(start + 86_400, async () => {
@@ -916,7 +930,7 @@ describe('POST /api/webhooks/stripe', () => {
           data: { is_pro: true, stripe_subscription_id: 'sub_1', current_period_start: null, current_period_end: null },
           error: null,
         });
-        mocks.constructEvent.mockReturnValue(subscriptionEvent('customer.subscription.updated', cloverShape));
+        mocks.constructEvent.mockReturnValue(cloverEvent('customer.subscription.updated', cloverShape));
 
         await atUnixTime(start + 86_400, async () => {
           await POST(makeRequest());
@@ -959,11 +973,7 @@ describe('POST /api/webhooks/stripe', () => {
           error: null,
         });
         mocks.constructEvent.mockReturnValue(
-          subscriptionEvent('customer.subscription.updated', {
-            current_period_start: undefined,
-            current_period_end: undefined,
-            items: { object: 'list', data: [] },
-          })
+          cloverEvent('customer.subscription.updated', { items: { object: 'list', data: [] } })
         );
 
         const res = await POST(makeRequest());
@@ -983,10 +993,7 @@ describe('POST /api/webhooks/stripe', () => {
       it('does not write null periods when the pre-read fails and the payload carries none', async () => {
         mocks.usageMaybeSingle.mockResolvedValue({ data: null, error: { message: 'db down' } });
         mocks.constructEvent.mockReturnValue(
-          subscriptionEvent('customer.subscription.updated', {
-            current_period_start: undefined,
-            current_period_end: undefined,
-          })
+          cloverEvent('customer.subscription.updated')
         );
 
         await POST(makeRequest());
@@ -994,6 +1001,150 @@ describe('POST /api/webhooks/stripe', () => {
         const update = mocks.usageUpdate.mock.calls[0][0];
         expect(update).not.toHaveProperty('current_period_start');
         expect(update).not.toHaveProperty('current_period_end');
+      });
+
+      it('writes the item period when the pre-read fails, keeps the rest of the update and does not reset', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        mocks.usageMaybeSingle.mockResolvedValue({ data: null, error: { message: 'db down' } });
+        mocks.constructEvent.mockReturnValue(cloverEvent('customer.subscription.updated', cloverShape));
+
+        await atUnixTime(start + 86_400, async () => {
+          expect((await POST(makeRequest())).status).toBe(200);
+        });
+
+        const update = mocks.usageUpdate.mock.calls[0][0];
+        expect(update).toMatchObject({
+          stripe_customer_id: 'cus_1',
+          stripe_subscription_id: 'sub_1',
+          subscription_status: 'active',
+          cancel_at_period_end: false,
+          is_pro: true,
+          current_period_start: startIso,
+          current_period_end: endIso,
+        });
+        expect(update).not.toHaveProperty('monthly_edit_count');
+        expect(update).not.toHaveProperty('monthly_reset_date');
+        errorSpy.mockRestore();
+      });
+
+      it('resets once on a clover renewal (item period start moves forward) and pins the reset date to the new end', async () => {
+        const nextStart = end;
+        const nextEnd = end + 31 * 86_400;
+        mocks.usageMaybeSingle.mockResolvedValue({
+          data: {
+            is_pro: true,
+            stripe_subscription_id: 'sub_1',
+            current_period_start: startIso,
+            current_period_end: endIso,
+            monthly_reset_date: endIso.slice(0, 10),
+          },
+          error: null,
+        });
+        mocks.constructEvent.mockReturnValue(
+          cloverEvent('customer.subscription.updated', {
+            items: {
+              object: 'list',
+              data: [{ id: 'si_1', object: 'subscription_item', current_period_start: nextStart, current_period_end: nextEnd }],
+            },
+          })
+        );
+
+        await atUnixTime(nextStart + 60, async () => {
+          await POST(makeRequest());
+        });
+
+        expect(mocks.usageUpdate.mock.calls[0][0]).toMatchObject({
+          current_period_start: '2023-12-14T22:13:20.000Z',
+          current_period_end: '2024-01-14T22:13:20.000Z',
+          monthly_edit_count: 0,
+          monthly_reset_date: '2024-01-14',
+        });
+      });
+
+      it('a clover customer.subscription.deleted writes canceled and the item period, without a reset', async () => {
+        mocks.usageMaybeSingle.mockResolvedValue({
+          data: { is_pro: true, stripe_subscription_id: 'sub_1', current_period_start: null, current_period_end: null },
+          error: null,
+        });
+        mocks.constructEvent.mockReturnValue(
+          cloverEvent('customer.subscription.deleted', { ...cloverShape, status: 'canceled' })
+        );
+
+        await POST(makeRequest());
+
+        const update = mocks.usageUpdate.mock.calls[0][0];
+        expect(update).toMatchObject({
+          is_pro: false,
+          subscription_status: 'canceled',
+          current_period_start: '2023-11-14T22:13:20.000Z',
+          current_period_end: '2023-12-14T22:13:20.000Z',
+        });
+        expect(update).not.toHaveProperty('monthly_edit_count');
+        expect(update).not.toHaveProperty('monthly_reset_date');
+        expect(mocks.usageUpsert).not.toHaveBeenCalled();
+      });
+
+      it('acacia shape (top-level and items both set) behaves as before: top-level period written, renewal resets', async () => {
+        const nextStart = end;
+        const nextEnd = end + 31 * 86_400;
+        mocks.usageMaybeSingle.mockResolvedValue({
+          data: {
+            is_pro: true,
+            stripe_subscription_id: 'sub_1',
+            current_period_start: startIso,
+            current_period_end: endIso,
+            monthly_reset_date: endIso.slice(0, 10),
+          },
+          error: null,
+        });
+        const event = subscriptionEvent('customer.subscription.updated', {
+          current_period_start: nextStart,
+          current_period_end: nextEnd,
+          items: {
+            object: 'list',
+            data: [{ id: 'si_1', object: 'subscription_item', current_period_start: nextStart, current_period_end: nextEnd }],
+          },
+        });
+        expect(Object.keys(event.data.object)).toContain('current_period_start');
+        mocks.constructEvent.mockReturnValue(event);
+
+        await atUnixTime(nextStart + 60, async () => {
+          await POST(makeRequest());
+        });
+
+        expect(mocks.usageUpdate.mock.calls[0][0]).toMatchObject({
+          current_period_start: '2023-12-14T22:13:20.000Z',
+          current_period_end: '2024-01-14T22:13:20.000Z',
+          monthly_edit_count: 0,
+          monthly_reset_date: '2024-01-14',
+        });
+      });
+
+      it('multi-item subscription: takes the first item that carries a full period', async () => {
+        mocks.usageMaybeSingle.mockResolvedValue({ data: null, error: null });
+        mocks.constructEvent.mockReturnValue(
+          cloverEvent('customer.subscription.updated', {
+            items: {
+              object: 'list',
+              data: [
+                { id: 'si_0', object: 'subscription_item', current_period_start: start },
+                { id: 'si_1', object: 'subscription_item', current_period_start: start, current_period_end: end },
+                { id: 'si_2', object: 'subscription_item', current_period_start: start, current_period_end: end + 365 * 86_400 },
+              ],
+            },
+          })
+        );
+
+        await atUnixTime(start + 86_400, async () => {
+          await POST(makeRequest());
+        });
+
+        expect(mocks.usageUpdate.mock.calls[0][0]).toMatchObject({
+          current_period_start: '2023-11-14T22:13:20.000Z',
+          current_period_end: '2023-12-14T22:13:20.000Z',
+          monthly_edit_count: 0,
+          monthly_reset_date: '2023-12-14',
+        });
       });
     });
 

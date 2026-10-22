@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { stripe } from '@/lib/stripe';
 import { resolveStripeCustomer } from '@/lib/stripe-customer';
+import { subscriptionPeriod } from '@/lib/stripe-subscription';
 
 export async function GET() {
   try {
@@ -58,8 +59,8 @@ export async function GET() {
       limit: 1,
     });
 
-    const nextBilling = subscriptions.data.length > 0 
-      ? subscriptions.data[0].current_period_end 
+    const nextBilling = subscriptions.data.length > 0
+      ? subscriptionPeriod(subscriptions.data[0]).end
       : null;
 
     // Calculate total paid

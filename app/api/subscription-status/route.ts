@@ -26,6 +26,8 @@ import {
   pausePaidThrough,
   pauseResumesAt,
   subscriptionHasDiscount,
+  subscriptionPeriod,
+  subscriptionPeriodIso,
 } from '@/lib/stripe-subscription';
 import type { Tables } from '@/database.types';
 import {
@@ -268,6 +270,8 @@ async function updateSubscriptionInDB(
   usageData: Tables<'user_usage'>
 ) {
   const effectiveStatus = effectiveSubscriptionStatus(subscription);
+  // A period Stripe did not send keeps the stored one rather than nulling it.
+  const period = subscriptionPeriodIso(subscription);
   const incoming: IncomingSubscription = {
     customerId,
     subscriptionId: subscription.id,
@@ -275,8 +279,8 @@ async function updateSubscriptionInDB(
     // while collection is paused, matching the webhook.
     status: effectiveStatus,
     isPro: isProStatus(effectiveStatus),
-    currentPeriodStart: new Date(subscription.current_period_start * 1000).toISOString(),
-    currentPeriodEnd: new Date(subscription.current_period_end * 1000).toISOString(),
+    currentPeriodStart: period.start ?? usageData.current_period_start,
+    currentPeriodEnd: period.end ?? usageData.current_period_end,
     cancelAtPeriodEnd: subscription.cancel_at_period_end,
   };
 
@@ -348,12 +352,9 @@ async function revokeStaleEntitlement(
   stripeSubscription: Stripe.Subscription | null
 ): Promise<Tables<'user_usage'>> {
   const status = revokedRowStatus(stripeStatus);
-  const periodStart = stripeSubscription?.current_period_start
-    ? new Date(stripeSubscription.current_period_start * 1000).toISOString()
-    : usageData.current_period_start;
-  const periodEnd = stripeSubscription?.current_period_end
-    ? new Date(stripeSubscription.current_period_end * 1000).toISOString()
-    : usageData.current_period_end;
+  const sentPeriod = subscriptionPeriodIso(stripeSubscription);
+  const periodStart = sentPeriod.start ?? usageData.current_period_start;
+  const periodEnd = sentPeriod.end ?? usageData.current_period_end;
 
   try {
     const { error } = await admin.rpc('update_user_subscription_status', {
@@ -472,8 +473,8 @@ export async function GET() {
         id: subscription.id,
         status: subscription.status,
         cancel_at_period_end: subscription.cancel_at_period_end,
-        current_period_end: subscription.current_period_end,
-        current_period_start: subscription.current_period_start,
+        current_period_end: subscriptionPeriod(subscription).end,
+        current_period_start: subscriptionPeriod(subscription).start,
         // `paused` once a paused subscription's paid period has ended; the
         // client gates Pro features on this, not on `status`.
         effective_status: effectiveSubscriptionStatus(subscription),

@@ -171,7 +171,8 @@ export function describeSubscriptionOffers(subscription: Stripe.Subscription): S
     status: subscription.status,
     effective_status: effectiveSubscriptionStatus(subscription),
     cancel_at_period_end: subscription.cancel_at_period_end,
-    current_period_end: subscription.current_period_end,
+    // The dialog renders it as a date; an active subscription always has one.
+    current_period_end: subscriptionPeriod(subscription).end ?? subscription.current_period_end,
     paused_until: pauseResumesAt(subscription),
     pause_paid_through: pausePaidThrough(subscription),
     has_discount: subscriptionHasDiscount(subscription),
@@ -229,4 +230,76 @@ export function describePlanPeriod(
     default:
       return `${verb.charAt(0).toUpperCase() + verb.slice(1)} ${when}`;
   }
+}
+
+/**
+ * The fields `subscriptionPeriod` reads. Structural so it accepts a
+ * `Stripe.Subscription` from any SDK version and a raw webhook payload.
+ */
+export interface StripePeriodSource {
+  current_period_start?: number | null;
+  current_period_end?: number | null;
+  /**
+   * Each item may carry `current_period_start` / `current_period_end`
+   * (`StripePeriodItem`). Typed `unknown` because the SDK's own item type
+   * (acacia) does not declare them yet.
+   */
+  items?: { data?: ReadonlyArray<unknown> | null } | null;
+}
+
+/** The period fields of a subscription item (API 2025-03-31.basil and later). */
+export interface StripePeriodItem {
+  current_period_start?: number | null;
+  current_period_end?: number | null;
+}
+
+/** A subscription's current billing period in Unix seconds; null when Stripe did not send it. */
+export interface SubscriptionPeriod {
+  start: number | null;
+  end: number | null;
+}
+
+function unixSeconds(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+}
+
+/**
+ * The current billing period of a Stripe subscription, whatever API version
+ * rendered it.
+ *
+ * Up to API version 2025-02-24.acacia (the version the SDK in this repo is
+ * pinned to) `current_period_start` / `current_period_end` sit on the
+ * Subscription. From 2025-03-31.basil on they moved to each subscription
+ * item (`items.data[i].current_period_*`), and the top-level fields are
+ * gone. Webhook payloads are rendered in the endpoint's API version (ours is
+ * newer than the SDK's), so the webhook sees the item shape while SDK reads
+ * still see the top-level one.
+ *
+ * Rule, per field: the top-level value when it is a number; otherwise the
+ * value on the first item that carries both start and end (Octree
+ * subscriptions have a single item; items of one subscription share the
+ * billing cycle); otherwise null.
+ */
+export function subscriptionPeriod(subscription: StripePeriodSource | null | undefined): SubscriptionPeriod {
+  if (!subscription) return { start: null, end: null };
+  const items = (subscription.items?.data ?? []) as ReadonlyArray<StripePeriodItem | null | undefined>;
+  const item = items.find(
+    (candidate) =>
+      unixSeconds(candidate?.current_period_start) !== null && unixSeconds(candidate?.current_period_end) !== null
+  );
+  return {
+    start: unixSeconds(subscription.current_period_start) ?? unixSeconds(item?.current_period_start),
+    end: unixSeconds(subscription.current_period_end) ?? unixSeconds(item?.current_period_end),
+  };
+}
+
+/** `subscriptionPeriod` as ISO timestamps (the format of the `user_usage` columns). */
+export function subscriptionPeriodIso(
+  subscription: StripePeriodSource | null | undefined
+): { start: string | null; end: string | null } {
+  const { start, end } = subscriptionPeriod(subscription);
+  return {
+    start: start === null ? null : new Date(start * 1000).toISOString(),
+    end: end === null ? null : new Date(end * 1000).toISOString(),
+  };
 }

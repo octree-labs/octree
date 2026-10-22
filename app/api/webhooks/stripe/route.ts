@@ -25,7 +25,7 @@ import { getUnsubscribeSecret } from '@/lib/email/unsubscribe';
 import { createLifecycleDeps } from '@/lib/lifecycle/deps';
 import { sendCheckoutRecoveryEmail, sendPaymentFailedEmail } from '@/lib/lifecycle/billing-send';
 import type { LifecycleSendDeps } from '@/lib/lifecycle/send';
-import { effectiveSubscriptionStatus, isProStatus } from '@/lib/stripe-subscription';
+import { effectiveSubscriptionStatus, isProStatus, subscriptionPeriodIso } from '@/lib/stripe-subscription';
 import {
   monthlyResetDateFor,
   startsNewBillingPeriod,
@@ -219,12 +219,10 @@ export async function POST(request: Request) {
         }
 
         try {
-          const currentPeriodStart = subscription.current_period_start
-            ? new Date(subscription.current_period_start * 1000).toISOString()
-            : null;
-          const currentPeriodEnd = subscription.current_period_end
-            ? new Date(subscription.current_period_end * 1000).toISOString()
-            : null;
+          // The endpoint's API version (2025-03-31.basil and later) renders
+          // the billing period on the subscription items, not on the
+          // subscription; subscriptionPeriodIso reads either shape.
+          const sentPeriod = subscriptionPeriodIso(subscription);
 
           // A paused subscription (`pause_collection` set) is still `active`
           // to Stripe but `paused` to the app: no Pro while no invoice is
@@ -240,7 +238,7 @@ export async function POST(request: Request) {
           // other writes keep it.
           const { data: storedRow, error: storedError } = await supabase
             .from('user_usage')
-            .select('is_pro, stripe_subscription_id, current_period_start, monthly_reset_date')
+            .select('is_pro, stripe_subscription_id, current_period_start, current_period_end, monthly_reset_date')
             .eq('user_id', userId)
             .maybeSingle();
           if (storedError) {
@@ -248,7 +246,12 @@ export async function POST(request: Request) {
             // lazily on monthly_reset_date inside increment_edit_count.
             console.error('Failed to read user_usage before subscription update:', storedError);
           }
-          const resetMonthly = !storedError && startsNewBillingPeriod(storedRow as StoredBillingRow | null, {
+          // A field Stripe did not send is unknown, not empty: keep what the
+          // row already holds instead of writing null over it.
+          const stored = storedError ? null : (storedRow as StoredBillingRow | null);
+          const currentPeriodStart = sentPeriod.start ?? stored?.current_period_start ?? null;
+          const currentPeriodEnd = sentPeriod.end ?? stored?.current_period_end ?? null;
+          const resetMonthly = !storedError && startsNewBillingPeriod(stored, {
             customerId,
             subscriptionId: subscription.id,
             status: effectiveStatus,
@@ -262,12 +265,14 @@ export async function POST(request: Request) {
             stripe_customer_id: customerId,
             stripe_subscription_id: subscription.id,
             subscription_status: effectiveStatus,
-            current_period_start: currentPeriodStart,
-            current_period_end: currentPeriodEnd,
             cancel_at_period_end: subscription.cancel_at_period_end,
             is_pro: isActive,
             updated_at: new Date().toISOString(),
           };
+          // Omitted (not nulled) when unknown, so a payload without the
+          // period, or a failed pre-read, never erases a stored one.
+          if (currentPeriodStart) updateData.current_period_start = currentPeriodStart;
+          if (currentPeriodEnd) updateData.current_period_end = currentPeriodEnd;
 
           if (resetMonthly) {
             updateData.monthly_edit_count = 0;

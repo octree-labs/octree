@@ -9,6 +9,8 @@
 import type Stripe from 'stripe';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { FREE_DAILY_EDIT_LIMIT } from '@/data/constants';
+import { OCTREE_STRIPE_APP } from '@/lib/checkout-plans';
+import { isOctreeCheckoutSession, isOctreeSubscription } from '@/lib/stripe-webhook';
 
 // ---------------------------------------------------------------------------
 // Windows
@@ -112,7 +114,13 @@ export interface SubscriptionLike {
   /** Set while payment collection is paused (cancel-flow save offer); still `active` to Stripe. */
   pause_collection?: { behavior: string; resumes_at: number | null } | null;
   items: { data: SubscriptionItemLike[] };
+  /** Decides whether the subscription is Octree's (see `isOctreeSubscription`). */
+  metadata?: Record<string, string> | null;
+  customer?: CustomerRef;
 }
+
+/** A Stripe customer reference: an id, an expanded (possibly deleted) customer, or none. */
+export type CustomerRef = string | { id: string } | null | undefined;
 
 export interface InvoiceLike {
   id: string;
@@ -121,6 +129,13 @@ export interface InvoiceLike {
   amount_paid: number;
   created: number;
   status_transitions?: { paid_at: number | null } | null;
+  customer?: CustomerRef;
+  subscription?: string | { id: string } | null;
+}
+
+export interface ChargeLike {
+  customer?: CustomerRef;
+  metadata?: Record<string, string> | null;
 }
 
 export interface RefundLike {
@@ -128,12 +143,17 @@ export interface RefundLike {
   amount: number;
   currency: string;
   created: number;
+  /** Expanded (`expand: ['data.charge']`) to tell whose refund it is; an id alone cannot. */
+  charge?: string | ChargeLike | null;
 }
 
 export interface CheckoutSessionLike {
   id: string;
   status: string | null;
   created: number;
+  mode?: Stripe.Checkout.Session.Mode | null;
+  metadata?: Record<string, string> | null;
+  customer?: CustomerRef;
 }
 
 export interface PaymentFailureLike {
@@ -339,6 +359,101 @@ export function summarizeCheckouts(sessions: CheckoutSessionLike[], windows: Win
 }
 
 // ---------------------------------------------------------------------------
+// Octree-only filtering (the Stripe account is shared with another product)
+// ---------------------------------------------------------------------------
+
+/** The id behind a customer/subscription reference, or null. */
+export function refId(ref: string | { id: string } | null | undefined): string | null {
+  if (!ref) return null;
+  return typeof ref === 'string' ? ref : ref.id ?? null;
+}
+
+export function isOctreeSubscriptionLike(sub: Pick<SubscriptionLike, 'metadata'>): boolean {
+  return isOctreeSubscription({ metadata: sub.metadata ?? {} });
+}
+
+export function isOctreeSessionLike(session: Pick<CheckoutSessionLike, 'mode' | 'metadata'>): boolean {
+  return isOctreeCheckoutSession({
+    mode: (session.mode ?? 'payment') as Stripe.Checkout.Session.Mode,
+    metadata: session.metadata ?? {},
+  });
+}
+
+/** What the invoice/refund filters need to know about Octree's side of the account. */
+export interface OctreeStripeContext {
+  subscriptionIds: Set<string>;
+  customers: Set<string>;
+}
+
+/** Built from subscriptions and sessions that are already known to be Octree's. */
+export function buildOctreeContext(
+  subscriptions: Pick<SubscriptionLike, 'id' | 'customer'>[],
+  sessions: Pick<CheckoutSessionLike, 'customer'>[]
+): OctreeStripeContext {
+  const customers = new Set<string>();
+  for (const obj of [...subscriptions, ...sessions]) {
+    const id = refId(obj.customer);
+    if (id) customers.add(id);
+  }
+  return { subscriptionIds: new Set(subscriptions.map((s) => s.id)), customers };
+}
+
+/** An invoice is Octree's when it bills an Octree subscription or an Octree customer. */
+export function isOctreeInvoice(
+  invoice: Pick<InvoiceLike, 'customer' | 'subscription'>,
+  ctx: OctreeStripeContext
+): boolean {
+  const subscriptionId = refId(invoice.subscription);
+  if (subscriptionId && ctx.subscriptionIds.has(subscriptionId)) return true;
+  const customerId = refId(invoice.customer);
+  return Boolean(customerId && ctx.customers.has(customerId));
+}
+
+/**
+ * A refund is Octree's when its (expanded) charge carries Octree's checkout
+ * metadata (`checkoutMetadata()` goes on the PaymentIntent and Stripe copies
+ * it onto the Charge): `app` decides when set, otherwise the charge counts
+ * when it belongs to an Octree customer or carries `plan` (the other
+ * product's charges never do). An unexpanded charge id cannot be attributed
+ * and is left out.
+ */
+export function isOctreeRefund(refund: Pick<RefundLike, 'charge'>, ctx: OctreeStripeContext): boolean {
+  const charge = refund.charge;
+  if (!charge || typeof charge === 'string') return false;
+  const app = charge.metadata?.app;
+  if (app) return app === OCTREE_STRIPE_APP;
+  const customerId = refId(charge.customer);
+  if (customerId && ctx.customers.has(customerId)) return true;
+  return Boolean(charge.metadata?.plan);
+}
+
+export interface StripeObjects<I extends InvoiceLike = InvoiceLike> {
+  subscriptions: SubscriptionLike[];
+  sessions: CheckoutSessionLike[];
+  invoices: I[];
+  refunds: RefundLike[];
+  /** `data.object` of each `invoice.payment_failed` event, with the event time. */
+  failures: { invoice: InvoiceLike; created: number }[];
+}
+
+/** Keeps only Octree's subscriptions, sessions, invoices, refunds and failures. */
+export function filterOctreeStripeObjects<I extends InvoiceLike>(
+  objects: StripeObjects<I>
+): StripeObjects<I> & { ctx: OctreeStripeContext } {
+  const subscriptions = objects.subscriptions.filter(isOctreeSubscriptionLike);
+  const sessions = objects.sessions.filter(isOctreeSessionLike);
+  const ctx = buildOctreeContext(subscriptions, sessions);
+  return {
+    subscriptions,
+    sessions,
+    invoices: objects.invoices.filter((i) => isOctreeInvoice(i, ctx)),
+    refunds: objects.refunds.filter((r) => isOctreeRefund(r, ctx)),
+    failures: objects.failures.filter((f) => isOctreeInvoice(f.invoice, ctx)),
+    ctx,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Daily series (7-day sparkline row)
 // ---------------------------------------------------------------------------
 
@@ -394,13 +509,22 @@ export interface StripeDigest {
 
 const PAGE_LIMIT = 5000;
 
+/**
+ * Pulls the last 30 days of Stripe activity and summarises it.
+ *
+ * The Stripe account is shared with another product (filerenamerai.com), so
+ * every list is filtered to Octree's objects (`filterOctreeStripeObjects`)
+ * before anything is counted.
+ */
 export async function fetchStripeDigest(stripe: Stripe, windows: Windows): Promise<StripeDigest> {
   const since = Math.floor(windows.d30.start / 1000);
 
   const [subscriptions, invoices, refunds, sessions, failureEvents] = await Promise.all([
     stripe.subscriptions.list({ status: 'all', limit: 100 }).autoPagingToArray({ limit: PAGE_LIMIT }),
     stripe.invoices.list({ created: { gte: since }, limit: 100 }).autoPagingToArray({ limit: PAGE_LIMIT }),
-    stripe.refunds.list({ created: { gte: since }, limit: 100 }).autoPagingToArray({ limit: PAGE_LIMIT }),
+    stripe.refunds
+      .list({ created: { gte: since }, limit: 100, expand: ['data.charge'] })
+      .autoPagingToArray({ limit: PAGE_LIMIT }),
     stripe.checkout.sessions
       .list({ created: { gte: since }, limit: 100 })
       .autoPagingToArray({ limit: PAGE_LIMIT }),
@@ -409,33 +533,45 @@ export async function fetchStripeDigest(stripe: Stripe, windows: Windows): Promi
       .autoPagingToArray({ limit: PAGE_LIMIT }),
   ]);
 
-  const failures: PaymentFailureLike[] = failureEvents.map((event) => ({
-    invoiceId: (event.data.object as { id: string }).id,
-    created: event.created,
+  const octree = filterOctreeStripeObjects<InvoiceLike>({
+    subscriptions: subscriptions as SubscriptionLike[],
+    sessions: sessions as CheckoutSessionLike[],
+    invoices: invoices as InvoiceLike[],
+    refunds: refunds as RefundLike[],
+    failures: failureEvents.map((event) => ({
+      invoice: event.data.object as InvoiceLike,
+      created: event.created,
+    })),
+  });
+
+  const failures: PaymentFailureLike[] = octree.failures.map((f) => ({
+    invoiceId: f.invoice.id,
+    created: f.created,
   }));
 
   // Failed invoices older than the invoice window still need a current status
   // to decide whether they were recovered.
-  const known = new Set(invoices.map((i) => i.id));
+  const known = new Set(octree.invoices.map((i) => i.id));
   const missing = [...new Set(failures.map((f) => f.invoiceId).filter((id) => !known.has(id)))];
   const extra: InvoiceLike[] = [];
   for (const id of missing) {
     try {
-      extra.push(await stripe.invoices.retrieve(id));
+      const invoice: InvoiceLike = await stripe.invoices.retrieve(id);
+      if (isOctreeInvoice(invoice, octree.ctx)) extra.push(invoice);
     } catch {
       // Deleted or inaccessible invoice: it simply does not count as recovered.
     }
   }
-  const allInvoices: InvoiceLike[] = [...invoices, ...extra];
+  const allInvoices: InvoiceLike[] = [...octree.invoices, ...extra];
 
-  const subs = subscriptions as SubscriptionLike[];
+  const subs = octree.subscriptions;
 
   return {
     mrr: computeMrr(subs),
     subscriptions: summarizeSubscriptions(subs, windows),
     invoices: summarizeInvoices(allInvoices, failures, windows),
-    refunds: summarizeRefunds(refunds, windows),
-    checkouts: summarizeCheckouts(sessions, windows),
+    refunds: summarizeRefunds(octree.refunds, windows),
+    checkouts: summarizeCheckouts(octree.sessions, windows),
     paidConversionTs: subs.filter((s) => !NEVER_STARTED.has(s.status)).map((s) => s.created),
   };
 }

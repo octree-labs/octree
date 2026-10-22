@@ -99,8 +99,8 @@ describe('buildCheckoutSessionParams', () => {
       allow_promotion_codes: true,
       locale: 'auto',
       customer_email: 'buyer@example.com',
-      metadata: { user_id: 'user-1', plan: 'annual' },
-      subscription_data: { metadata: { user_id: 'user-1', plan: 'annual' } },
+      metadata: { app: 'octree', user_id: 'user-1', plan: 'annual' },
+      subscription_data: { metadata: { app: 'octree', user_id: 'user-1', plan: 'annual' } },
     });
     expect(params).not.toHaveProperty('customer');
     expect(params.subscription_data).not.toHaveProperty('trial_period_days');
@@ -108,15 +108,15 @@ describe('buildCheckoutSessionParams', () => {
 
   it('writes the attribution to the session, the subscription and the payment intent metadata', () => {
     const sub = buildCheckoutSessionParams({ ...base, plan: 'monthly', source: 'paywall', entry: 'dashboard' });
-    expect(sub.metadata).toEqual({ user_id: 'user-1', plan: 'monthly', source: 'paywall', entry: 'dashboard' });
-    expect(sub.subscription_data?.metadata).toEqual({ user_id: 'user-1', plan: 'monthly', source: 'paywall', entry: 'dashboard' });
+    expect(sub.metadata).toEqual({ app: 'octree', user_id: 'user-1', plan: 'monthly', source: 'paywall', entry: 'dashboard' });
+    expect(sub.subscription_data?.metadata).toEqual({ app: 'octree', user_id: 'user-1', plan: 'monthly', source: 'paywall', entry: 'dashboard' });
 
     const credit = buildCheckoutSessionParams({ ...base, plan: 'generate_single', source: 'generate-preview' });
-    expect(credit.metadata).toEqual({ user_id: 'user-1', plan: 'generate_single', generation_credits: '1', source: 'generate-preview' });
-    expect(credit.payment_intent_data?.metadata).toEqual({ user_id: 'user-1', plan: 'generate_single', source: 'generate-preview' });
+    expect(credit.metadata).toEqual({ app: 'octree', user_id: 'user-1', plan: 'generate_single', generation_credits: '1', source: 'generate-preview' });
+    expect(credit.payment_intent_data?.metadata).toEqual({ app: 'octree', user_id: 'user-1', plan: 'generate_single', source: 'generate-preview' });
 
     // Without attribution the metadata is exactly what it was.
-    expect(buildCheckoutSessionParams({ ...base, plan: 'monthly' }).metadata).toEqual({ user_id: 'user-1', plan: 'monthly' });
+    expect(buildCheckoutSessionParams({ ...base, plan: 'monthly' }).metadata).toEqual({ app: 'octree', user_id: 'user-1', plan: 'monthly' });
   });
 
   it('adds the 3-day trial only when asked', () => {
@@ -172,8 +172,8 @@ describe('buildCheckoutSessionParams', () => {
     expect(params).toMatchObject({
       mode: 'payment',
       cancel_url: 'https://app.example.com/settings?canceled=true',
-      metadata: { user_id: 'user-1', plan: 'credits_100', credits: '100' },
-      payment_intent_data: { metadata: { user_id: 'user-1', plan: 'credits_100' } },
+      metadata: { app: 'octree', user_id: 'user-1', plan: 'credits_100', credits: '100' },
+      payment_intent_data: { metadata: { app: 'octree', user_id: 'user-1', plan: 'credits_100' } },
       customer_creation: 'always',
     });
     expect(params).not.toHaveProperty('subscription_data');
@@ -192,8 +192,8 @@ describe('buildCheckoutSessionParams', () => {
       mode: 'payment',
       success_url: 'https://app.example.com/generate?purchased=1',
       cancel_url: 'https://app.example.com/generate',
-      metadata: { user_id: 'user-1', plan: 'generate_single', generation_credits: '1' },
-      payment_intent_data: { metadata: { user_id: 'user-1', plan: 'generate_single' } },
+      metadata: { app: 'octree', user_id: 'user-1', plan: 'generate_single', generation_credits: '1' },
+      payment_intent_data: { metadata: { app: 'octree', user_id: 'user-1', plan: 'generate_single' } },
       customer_creation: 'always',
     });
     // Never the edit-credit key: the webhook grants the two products independently.
@@ -320,7 +320,7 @@ describe('export_single (one-off export unlock for one project)', () => {
       expires_at: base.nowSeconds + CHECKOUT_SESSION_TTL_SECONDS,
       after_expiration: { recovery: { enabled: true, allow_promotion_codes: true } },
     });
-    const metadata = { user_id: 'user-1', plan: 'export_single', source: 'paywall', export_project_id: projectId };
+    const metadata = { app: 'octree', user_id: 'user-1', plan: 'export_single', source: 'paywall', export_project_id: projectId };
     expect(params.metadata).toEqual(metadata);
     expect(params.payment_intent_data?.metadata).toEqual(metadata);
     // Neither one-off credit key: the webhook grants only the export unlock.

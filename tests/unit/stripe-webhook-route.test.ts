@@ -444,7 +444,7 @@ describe('POST /api/webhooks/stripe', () => {
 
     it('logs and returns 200 for a credit session with no user_id (nothing to grant to)', async () => {
       mocks.constructEvent.mockReturnValue(
-        checkoutEvent({ ...generationOverrides, metadata: { generation_credits: '1' } })
+        checkoutEvent({ ...generationOverrides, metadata: { plan: 'generate_single', generation_credits: '1' } })
       );
 
       const res = await POST(makeRequest());
@@ -458,7 +458,7 @@ describe('POST /api/webhooks/stripe', () => {
       mocks.constructEvent.mockReturnValue(
         checkoutEvent({
           ...generationOverrides,
-          metadata: { user_id: 'user-1', credits: '100', generation_credits: '1' },
+          metadata: { app: 'octree', user_id: 'user-1', credits: '100', generation_credits: '1' },
         })
       );
       mocks.rpc.mockResolvedValue({ data: 1, error: null });
@@ -595,7 +595,7 @@ describe('POST /api/webhooks/stripe', () => {
 
     it('logs and returns 200 for an export session with no user_id', async () => {
       mocks.constructEvent.mockReturnValue(
-        checkoutEvent({ ...exportOverrides, metadata: { export_project_id: projectId } })
+        checkoutEvent({ ...exportOverrides, metadata: { plan: 'export_single', export_project_id: projectId } })
       );
 
       const res = await POST(makeRequest());
@@ -673,9 +673,9 @@ describe('POST /api/webhooks/stripe', () => {
       expect(mocks.trackRedditConversion).not.toHaveBeenCalled();
     });
 
-    it('does not throw for a payment-mode session with no customer_details and no metadata', async () => {
+    it('does not throw for an Octree payment-mode session with no customer_details and no user_id', async () => {
       mocks.constructEvent.mockReturnValue(
-        checkoutEvent({ mode: 'payment', customer_details: null, customer_email: null, metadata: null, amount_total: null, currency: null })
+        checkoutEvent({ mode: 'payment', customer_details: null, customer_email: null, metadata: { app: 'octree' }, amount_total: null, currency: null })
       );
 
       const res = await POST(makeRequest());
@@ -866,14 +866,44 @@ describe('POST /api/webhooks/stripe', () => {
       });
     });
 
-    it('still returns 400 when the subscription has no user_id in metadata', async () => {
+    it('acknowledges (200, not 400) a subscription with empty metadata, e.g. a comped one, so Stripe stops retrying', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       mocks.constructEvent.mockReturnValue(subscriptionEvent('customer.subscription.updated', { metadata: {} }));
 
       const res = await POST(makeRequest());
 
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(200);
+      await expect(res.json()).resolves.toEqual({ received: true, ignored: 'missing_user_id' });
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('sub_1'));
       expect(mocks.usageUpdate).not.toHaveBeenCalled();
       expect(mocks.eventsInsert).not.toHaveBeenCalled();
+      expect(mocks.captureServerEvent).not.toHaveBeenCalled();
+    });
+
+    it("acknowledges a subscription tagged with another app's metadata.app and touches nothing", async () => {
+      mocks.constructEvent.mockReturnValue(
+        subscriptionEvent('customer.subscription.updated', { metadata: { app: 'other', user_id: 'foreign-user' } })
+      );
+
+      const res = await POST(makeRequest());
+
+      expect(res.status).toBe(200);
+      await expect(res.json()).resolves.toEqual({ received: true, ignored: 'foreign_subscription' });
+      expect(mocks.from).not.toHaveBeenCalled();
+      expect(mocks.captureServerEvent).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['legacy, only user_id', { user_id: 'user-1' }],
+      ['tagged app: octree', { app: 'octree', user_id: 'user-1', plan: 'monthly' }],
+    ])('processes an Octree subscription (%s) as before', async (_label, metadata) => {
+      mocks.constructEvent.mockReturnValue(subscriptionEvent('customer.subscription.updated', { metadata }));
+
+      const res = await POST(makeRequest());
+
+      expect(res.status).toBe(200);
+      expect(mocks.usageUpdate).toHaveBeenCalledTimes(1);
+      expect(mocks.usageUpdateEq).toHaveBeenCalledWith('user_id', 'user-1');
     });
 
     it('still returns 200 when the user_usage update fails (error is logged, not retried)', async () => {
@@ -884,6 +914,79 @@ describe('POST /api/webhooks/stripe', () => {
 
       expect(res.status).toBe(200);
       expect(errorSpy).toHaveBeenCalled();
+    });
+  });
+
+  describe('sessions from another app on the shared Stripe account', () => {
+    // The other product's sessions: payment mode, user_id + credits, no plan.
+    const foreign = {
+      id: 'cs_foreign_1',
+      mode: 'payment',
+      amount_total: 900,
+      success_url: 'https://filerenamerai.com/success',
+      metadata: { credits: '1000', user_id: '00000000-0000-4000-8000-000000000001' },
+    };
+
+    it('acknowledges a foreign completed session with 200 and grants, logs, tracks nothing', async () => {
+      mocks.constructEvent.mockReturnValue(checkoutEvent(foreign));
+
+      const res = await POST(makeRequest());
+
+      expect(res.status).toBe(200);
+      await expect(res.json()).resolves.toEqual({ received: true, ignored: 'foreign_session' });
+      expect(console.log).toHaveBeenCalledWith(
+        '[stripe-webhook] ignoring checkout session cs_foreign_1 from another app on this Stripe account'
+      );
+      expect(mocks.rpc).not.toHaveBeenCalled();
+      expect(mocks.from).not.toHaveBeenCalled();
+      expect(mocks.captureServerEvent).not.toHaveBeenCalled();
+      expect(mocks.trackRedditConversion).not.toHaveBeenCalled();
+    });
+
+    it('ignores a session tagged with another app even when it looks like an Octree credit pack', async () => {
+      mocks.constructEvent.mockReturnValue(
+        checkoutEvent({ ...foreign, metadata: { app: 'other', user_id: 'user-1', plan: 'credits_100', credits: '100' } })
+      );
+
+      const res = await POST(makeRequest());
+
+      expect(res.status).toBe(200);
+      await expect(res.json()).resolves.toEqual({ received: true, ignored: 'foreign_session' });
+      expect(mocks.rpc).not.toHaveBeenCalled();
+      expect(mocks.captureServerEvent).not.toHaveBeenCalled();
+    });
+
+    it('still grants a legacy Octree credit pack (plan + credits, no app tag)', async () => {
+      mocks.constructEvent.mockReturnValue(
+        checkoutEvent({ id: 'cs_credits_1', mode: 'payment', metadata: { user_id: 'user-1', plan: 'credits_100', credits: '100' } })
+      );
+
+      const res = await POST(makeRequest());
+
+      expect(res.status).toBe(200);
+      expect(mocks.rpc).toHaveBeenCalledWith('grant_credit_purchase', expect.objectContaining({ p_user_id: 'user-1', p_credits: 100 }));
+    });
+
+    it('grants a tagged Octree credit pack (app: octree)', async () => {
+      mocks.constructEvent.mockReturnValue(
+        checkoutEvent({ id: 'cs_credits_1', mode: 'payment', metadata: { app: 'octree', user_id: 'user-1', plan: 'credits_100', credits: '100' } })
+      );
+
+      const res = await POST(makeRequest());
+
+      expect(res.status).toBe(200);
+      expect(mocks.rpc).toHaveBeenCalledWith('grant_credit_purchase', expect.objectContaining({ p_user_id: 'user-1', p_credits: 100 }));
+    });
+
+    it('still processes a legacy Octree subscription session that carries only user_id', async () => {
+      mocks.constructEvent.mockReturnValue(checkoutEvent({ metadata: { user_id: 'user-1' } }));
+
+      const res = await POST(makeRequest());
+
+      expect(res.status).toBe(200);
+      await expect(res.json()).resolves.toEqual({ received: true });
+      expect(mocks.eventsInsert).toHaveBeenCalledWith({ id: 'evt_checkout_1', type: 'checkout.session.completed' });
+      expect(mocks.trackRedditConversion).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -1175,6 +1278,45 @@ describe('billing recovery: checkout.session.expired', () => {
     expect(res.status).toBe(200);
     expect(mocks.ledgerInsert).not.toHaveBeenCalled();
     expect(mocks.resendSend).not.toHaveBeenCalled();
+  });
+
+  it('a foreign expired session (user_id + credits, no plan) reports nothing and sends no email', async () => {
+    mocks.constructEvent.mockReturnValue(
+      expiredSessionEvent({
+        id: 'cs_foreign_expired',
+        mode: 'payment',
+        metadata: { credits: '1000', user_id: '00000000-0000-4000-8000-000000000001' },
+      })
+    );
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({ received: true, ignored: 'foreign_session' });
+    expect(mocks.captureServerEvent).not.toHaveBeenCalled();
+    expect(mocks.from).not.toHaveBeenCalled();
+    expect(mocks.ledgerInsert).not.toHaveBeenCalled();
+    expect(mocks.resendSend).not.toHaveBeenCalled();
+  });
+
+  it("an expired session tagged with another app's metadata.app reports nothing and sends no email", async () => {
+    mocks.constructEvent.mockReturnValue(expiredSessionEvent({ metadata: { app: 'other', user_id: 'user-1', plan: 'monthly' } }));
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(200);
+    expect(mocks.captureServerEvent).not.toHaveBeenCalled();
+    expect(mocks.resendSend).not.toHaveBeenCalled();
+  });
+
+  it('a tagged Octree expired session (app: octree) still reports the abandonment and emails', async () => {
+    mocks.constructEvent.mockReturnValue(expiredSessionEvent({ metadata: { app: 'octree', user_id: 'user-1', plan: 'monthly' } }));
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(200);
+    expect(mocks.captureServerEvent).toHaveBeenCalledWith('user-1', 'checkout_abandoned', expect.anything());
+    expect(mocks.resendSend).toHaveBeenCalledTimes(1);
   });
 
   it('ignores a session without user_id metadata', async () => {

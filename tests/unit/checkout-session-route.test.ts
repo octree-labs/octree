@@ -292,6 +292,7 @@ describe('POST /api/checkout-session export_single', () => {
     expect(params.mode).toBe('payment');
     expect(params.discounts).toBeUndefined();
     expect(params.metadata).toEqual({
+      app: 'octree',
       user_id: 'user-1',
       plan: 'export_single',
       source: 'paywall',

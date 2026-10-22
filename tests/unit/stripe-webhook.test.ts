@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type Stripe from 'stripe';
 
 import {
+  isOctreeCheckoutSession,
+  isOctreeSubscription,
   generationCreditsFromSession,
   grantGenerationCredits,
   recordStripeEvent,
@@ -233,5 +235,42 @@ describe('grantGenerationCredits', () => {
       grantGenerationCredits(client, makeSession({ mode: 'payment', metadata: { generation_credits: '1' } }))
     ).resolves.toEqual({ granted: false, reason: 'missing_user' });
     expect(rpc).not.toHaveBeenCalled();
+  });
+});
+
+describe('isOctreeCheckoutSession', () => {
+  const session = (mode: string, metadata: Record<string, string> | null) =>
+    ({ mode, metadata }) as unknown as Pick<Stripe.Checkout.Session, 'mode' | 'metadata'>;
+
+  it.each([
+    ['tagged app: octree (payment)', session('payment', { app: 'octree', user_id: 'u', plan: 'credits_100', credits: '100' }), true],
+    ['tagged app: octree (subscription)', session('subscription', { app: 'octree', user_id: 'u' }), true],
+    ['tagged app: octree, even without user_id or plan', session('payment', { app: 'octree' }), true],
+    ['tagged with another app, Octree-shaped', session('payment', { app: 'other', user_id: 'u', plan: 'credits_100', credits: '100' }), false],
+    ['tagged with another app, subscription', session('subscription', { app: 'other', user_id: 'u' }), false],
+    ['legacy Octree subscription session (only user_id)', session('subscription', { user_id: 'u' }), true],
+    ['legacy subscription session with no user_id', session('subscription', {}), false],
+    ['legacy Octree credit pack (plan + credits)', session('payment', { user_id: 'u', plan: 'credits_100', credits: '100' }), true],
+    ['legacy Octree export unlock', session('payment', { user_id: 'u', plan: 'export_single', export_project_id: 'p' }), true],
+    ['foreign payment session (user_id + credits, no plan)', session('payment', { user_id: 'u', credits: '1000' }), false],
+    ['payment session with no metadata', session('payment', null), false],
+    ['an empty app value counts as absent', session('payment', { app: '', user_id: 'u', plan: 'credits_100' }), true],
+  ])('%s -> %s', (_label, input, expected) => {
+    expect(isOctreeCheckoutSession(input)).toBe(expected);
+  });
+});
+
+describe('isOctreeSubscription', () => {
+  const sub = (metadata: Record<string, string> | null) =>
+    ({ metadata }) as unknown as Pick<Stripe.Subscription, 'metadata'>;
+
+  it.each([
+    ['tagged app: octree', sub({ app: 'octree', user_id: 'u', plan: 'monthly' }), true],
+    ['tagged with another app', sub({ app: 'other', user_id: 'u' }), false],
+    ['legacy, only user_id (every existing Octree subscription)', sub({ user_id: 'u' }), true],
+    ['empty metadata (comped subscription)', sub({}), false],
+    ['null metadata', sub(null), false],
+  ])('%s -> %s', (_label, input, expected) => {
+    expect(isOctreeSubscription(input)).toBe(expected);
   });
 });

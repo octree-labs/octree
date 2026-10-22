@@ -183,18 +183,27 @@ export function resolveCheckoutPlan(body: unknown): ResolvedCheckoutPlan {
   return { ok: true, plan: 'monthly', withTrial, ...attribution, ...withOffer('monthly', offer.offer) };
 }
 
+/** `metadata.app` on every Stripe object Octree's checkout creates. */
+export const OCTREE_STRIPE_APP = 'octree';
+
 /**
  * The metadata every Stripe object of a checkout carries (the session, the
  * subscription, the payment intent): who bought what, and where in the app
  * the purchase started. The webhook reads `source`/`entry` back into
  * `subscription_started` and `onboarding_completed`.
+ *
+ * `app: 'octree'` tags the object as Octree's. The Stripe account is shared
+ * with another product whose webhook endpoint receives the same events (and
+ * ours receives theirs); the webhook ignores anything not tagged as ours
+ * (`isOctreeCheckoutSession` / `isOctreeSubscription` in
+ * lib/stripe-webhook.ts, which also cover objects created before the tag).
  */
 export function checkoutMetadata(
   userId: string,
   plan: PurchasePlan,
   attribution: CheckoutAttribution
 ): Record<string, string> {
-  const metadata: Record<string, string> = { user_id: userId, plan };
+  const metadata: Record<string, string> = { app: OCTREE_STRIPE_APP, user_id: userId, plan };
   if (attribution.source) metadata.source = attribution.source;
   if (attribution.entry) metadata.entry = attribution.entry;
   return metadata;

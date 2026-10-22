@@ -3,6 +3,11 @@ import { describe, it, expect } from 'vitest';
 import {
   buildDailySeries,
   computeMrr,
+  fetchStripeDigest,
+  filterOctreeStripeObjects,
+  filterOctreeSubscriptions,
+  isOctreeInvoice,
+  isOctreeRefund,
   makeWindows,
   monthlyAmountCents,
   stripeTsInWindow,
@@ -277,5 +282,261 @@ describe('daily series + email', () => {
     expect(html).toContain('&lt;note&gt;');
     expect(html).not.toContain('<img');
     expect((html.match(/<table/g) ?? []).length).toBe(4);
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// Octree-only filtering on the shared Stripe account
+// ---------------------------------------------------------------------------
+
+function fakeStripe(data: {
+  subscriptions?: any[];
+  invoices?: any[];
+  refunds?: any[];
+  sessions?: any[];
+  events?: any[];
+  retrievable?: Record<string, any>;
+}) {
+  const calls = { retrieved: [] as string[], refundParams: [] as any[] };
+  const list = (items: any[] = []) => ({ autoPagingToArray: async () => items });
+  const stripe: any = {
+    subscriptions: { list: () => list(data.subscriptions) },
+    invoices: {
+      list: () => list(data.invoices),
+      retrieve: async (id: string) => {
+        calls.retrieved.push(id);
+        const invoice = data.retrievable?.[id];
+        if (!invoice) throw new Error('No such invoice');
+        return invoice;
+      },
+    },
+    refunds: {
+      list: (params: any) => {
+        calls.refundParams.push(params);
+        return list(data.refunds);
+      },
+    },
+    checkout: { sessions: { list: () => list(data.sessions) } },
+    events: { list: () => list(data.events) },
+  };
+  return { stripe, calls };
+}
+
+const YESTERDAY = sec('2026-10-17T05:00:00Z');
+
+function invoice(id: string, customer: string, subscription: string | null, extra: Record<string, any> = {}) {
+  return {
+    id,
+    status: 'paid',
+    currency: 'usd',
+    amount_paid: 1000,
+    created: YESTERDAY,
+    status_transitions: { paid_at: YESTERDAY },
+    customer,
+    subscription,
+    ...extra,
+  };
+}
+
+function refund(id: string, charge: any) {
+  return { id, amount: 500, currency: 'usd', created: YESTERDAY, charge };
+}
+
+function session(id: string, mode: 'payment' | 'subscription', metadata: Record<string, string>, customer: string | null) {
+  return { id, status: 'complete', created: YESTERDAY, mode, metadata, customer };
+}
+
+describe('fetchStripeDigest counts only Octree objects', () => {
+  const subscriptions = [
+    // Legacy Octree subscription: only user_id, no app tag.
+    sub({ id: 'sub_legacy', amount: 1000, created: YESTERDAY, metadata: { user_id: 'u1' }, customer: 'cus_legacy' }),
+    // Tagged Octree subscription.
+    sub({ id: 'sub_tagged', amount: 2000, metadata: { app: 'octree', user_id: 'u2' }, customer: { id: 'cus_tagged' } }),
+    // Tagged for another app: never MRR even with a user_id.
+    sub({ id: 'sub_other', amount: 9900, created: YESTERDAY, metadata: { app: 'other', user_id: 'x1' }, customer: 'cus_other' }),
+  ];
+  const sessions = [
+    session('cs_octree_pay', 'payment', { plan: 'credits_100', user_id: 'u3' }, 'cus_buyer'),
+    session('cs_octree_tagged', 'payment', { app: 'octree' }, null),
+    session('cs_octree_sub', 'subscription', { user_id: 'u1' }, 'cus_legacy'),
+    // filerenamerai.com shape: payment mode, user_id + credits, no plan/app.
+    session('cs_foreign', 'payment', { user_id: 'x2', credits: '50' }, 'cus_foreign'),
+  ];
+  const invoices = [
+    invoice('in_legacy', 'cus_legacy', 'sub_legacy'),
+    invoice('in_buyer', 'cus_buyer', null),
+    invoice('in_foreign', 'cus_foreign', null, { amount_paid: 7700 }),
+  ];
+  const refunds = [
+    refund('re_legacy', { customer: 'cus_legacy', metadata: {} }),
+    refund('re_guest', { customer: null, metadata: { plan: 'export_unlock' } }),
+    refund('re_foreign', { customer: { id: 'cus_foreign' }, metadata: { credits: '50' } }),
+    refund('re_foreign_guest', { customer: null, metadata: { credits: '50' } }),
+  ];
+  const events = [
+    { created: YESTERDAY, data: { object: { id: 'in_old_octree', customer: 'cus_tagged', subscription: 'sub_tagged' } } },
+    { created: YESTERDAY, data: { object: { id: 'in_old_foreign', customer: 'cus_foreign', subscription: null } } },
+  ];
+
+  it('drops the other product from MRR, subscriptions, checkouts, invoices, refunds and failures', async () => {
+    const { stripe, calls } = fakeStripe({
+      subscriptions,
+      sessions,
+      invoices,
+      refunds,
+      events,
+      retrievable: {
+        in_old_octree: invoice('in_old_octree', 'cus_tagged', 'sub_tagged', {
+          created: sec('2026-09-01T00:00:00Z'),
+          status_transitions: { paid_at: sec('2026-09-02T00:00:00Z') },
+        }),
+        in_old_foreign: invoice('in_old_foreign', 'cus_foreign', null),
+      },
+    });
+
+    const digest = await fetchStripeDigest(stripe, windows);
+
+    expect(calls.refundParams[0].expand).toEqual(['data.charge']);
+    expect(digest.mrr.usd).toBe(30);
+    expect(digest.mrr.activeCount).toBe(2);
+    expect(digest.subscriptions.newSubscriptions.yesterday).toBe(1);
+    expect(digest.paidConversionTs).toEqual([YESTERDAY, sec('2026-10-01T00:00:00Z')]);
+    expect(digest.checkouts.created).toEqual({ yesterday: 3, d7: 3, d30: 3 });
+    expect(digest.checkouts.completed.yesterday).toBe(3);
+    expect(digest.invoices.gross.yesterday).toEqual({ usd: 20 });
+    expect(digest.invoices.paidInvoices.yesterday).toBe(2);
+    expect(digest.refunds.count.yesterday).toBe(2);
+    expect(digest.refunds.amount.yesterday).toEqual({ usd: 10 });
+    // The foreign failure is dropped before any retrieve; the Octree one is
+    // retrieved, is paid, and counts as recovered.
+    expect(calls.retrieved).toEqual(['in_old_octree']);
+    expect(digest.invoices.failedAttempts.yesterday).toBe(1);
+    expect(digest.invoices.recovered.yesterday).toBe(1);
+  });
+});
+
+describe('Octree filter helpers', () => {
+  const ctx = { subscriptionIds: new Set(['sub_1']), customers: new Set(['cus_1']) };
+
+  it('keeps invoices of Octree subscriptions or customers only', () => {
+    expect(isOctreeInvoice({ customer: 'cus_x', subscription: 'sub_1' }, ctx)).toBe(true);
+    expect(isOctreeInvoice({ customer: { id: 'cus_1' }, subscription: null }, ctx)).toBe(true);
+    expect(isOctreeInvoice({ customer: 'cus_x', subscription: { id: 'sub_x' } }, ctx)).toBe(false);
+    expect(isOctreeInvoice({ customer: null, subscription: null }, ctx)).toBe(false);
+  });
+
+  it('attributes refunds through the expanded charge', () => {
+    expect(isOctreeRefund({ charge: { customer: 'cus_1', metadata: {} } }, ctx)).toBe(true);
+    expect(isOctreeRefund({ charge: { customer: 'cus_x', metadata: {} } }, ctx)).toBe(false);
+    expect(isOctreeRefund({ charge: { customer: null, metadata: { app: 'octree' } } }, ctx)).toBe(true);
+    expect(isOctreeRefund({ charge: { customer: null, metadata: { plan: 'pro_monthly' } } }, ctx)).toBe(true);
+    expect(isOctreeRefund({ charge: { customer: 'cus_1', metadata: { app: 'other' } } }, ctx)).toBe(false);
+    expect(isOctreeRefund({ charge: { customer: null, metadata: { user_id: 'x', credits: '5' } } }, ctx)).toBe(false);
+    expect(isOctreeRefund({ charge: { customer: { id: 'cus_1' }, metadata: {} } }, ctx)).toBe(true);
+    expect(isOctreeRefund({ charge: { customer: { id: 'cus_x' }, metadata: null } }, ctx)).toBe(false);
+    expect(isOctreeRefund({ charge: 'ch_unexpanded' }, ctx)).toBe(false);
+    expect(isOctreeRefund({ charge: null }, ctx)).toBe(false);
+  });
+
+  it('builds the customer set from kept subscriptions and sessions only', () => {
+    const out = filterOctreeStripeObjects({
+      subscriptions: [
+        sub({ id: 'sub_a', metadata: { user_id: 'u' }, customer: { id: 'cus_a' } }),
+        sub({ id: 'sub_b', metadata: { app: 'other' }, customer: 'cus_b' }),
+        sub({ id: 'sub_c', metadata: null, customer: 'cus_c' }),
+      ],
+      sessions: [
+        { id: 'cs_a', status: 'complete', created: YESTERDAY, mode: 'payment', metadata: { plan: 'p' }, customer: 'cus_d' },
+        { id: 'cs_b', status: 'complete', created: YESTERDAY, mode: 'payment', metadata: { credits: '5', user_id: 'x' }, customer: 'cus_e' },
+        { id: 'cs_c', status: 'open', created: YESTERDAY, mode: 'subscription', metadata: { app: 'octree' }, customer: null },
+      ],
+      invoices: [],
+      refunds: [],
+      failures: [],
+    });
+    expect(out.subscriptions.map((s) => s.id)).toEqual(['sub_a']);
+    expect(out.sessions.map((s) => s.id)).toEqual(['cs_a', 'cs_c']);
+    expect([...out.ctx.customers].sort()).toEqual(['cus_a', 'cus_d']);
+    expect([...out.ctx.subscriptionIds]).toEqual(['sub_a']);
+  });
+});
+
+describe('untagged subscriptions without a user (comped by hand)', () => {
+  const onProduct = (product: string, rest: Parameters<typeof sub>[0]) => {
+    const s = sub(rest);
+    s.items.data[0].price.product = product;
+    return s;
+  };
+
+  it('keeps one billing an Octree product, drops one billing only a foreign product', () => {
+    const subs = [
+      onProduct('prod_octree', { id: 'sub_user', metadata: { user_id: 'u1' }, customer: 'cus_user' }),
+      // Comped in the dashboard: empty metadata, but Octree's product. It keeps
+      // billing once its coupon ends, so it is MRR and its invoices count.
+      onProduct('prod_octree', { id: 'sub_comped', amount: 1000, currency: 'cad', metadata: {}, customer: 'cus_comped' }),
+      // The other product's old subscriptions: empty metadata, own product.
+      onProduct('prod_foreign', { id: 'sub_foreign', amount: 1000, metadata: {}, customer: 'cus_foreign' }),
+      // Tagged for another app on an Octree product: the tag wins.
+      onProduct('prod_octree', { id: 'sub_tagged_other', metadata: { app: 'other' }, customer: 'cus_o' }),
+      // No product to go on.
+      sub({ id: 'sub_bare', metadata: {}, customer: 'cus_bare' }),
+    ];
+    expect(filterOctreeSubscriptions(subs).map((s) => s.id)).toEqual(['sub_user', 'sub_comped']);
+
+    const out = filterOctreeStripeObjects({
+      subscriptions: subs,
+      sessions: [],
+      invoices: [invoice('in_comped', 'cus_comped', 'sub_comped'), invoice('in_foreign', 'cus_foreign', 'sub_foreign')],
+      refunds: [],
+      failures: [],
+    });
+    expect(out.invoices.map((i) => i.id)).toEqual(['in_comped']);
+    expect(computeMrr(out.subscriptions)).toMatchObject({ usd: 15, cad: 10, activeCount: 2 });
+  });
+});
+
+describe('fetchStripeDigest robustness', () => {
+  it('falls back to unexpanded refunds (left out) when the expansion is refused', async () => {
+    const { stripe, calls } = fakeStripe({ refunds: [refund('re_plain', 'ch_1')] });
+    stripe.refunds.list = (params: any) => {
+      calls.refundParams.push(params);
+      if (params.expand) {
+        return {
+          autoPagingToArray: async () => {
+            throw new Error('expand not permitted');
+          },
+        };
+      }
+      return { autoPagingToArray: async () => [refund('re_plain', 'ch_1')] };
+    };
+    const digest = await fetchStripeDigest(stripe, windows);
+    expect(calls.refundParams).toHaveLength(2);
+    expect(calls.refundParams[1].expand).toBeUndefined();
+    expect(digest.refunds.count).toEqual({ yesterday: 0, d7: 0, d30: 0 });
+  });
+
+  it('drops a retrieved out-of-window invoice that is not Octree\'s, and refunds whose charge is null', async () => {
+    const { stripe, calls } = fakeStripe({
+      subscriptions: [sub({ id: 'sub_o', metadata: { user_id: 'u' }, customer: 'cus_o' })],
+      refunds: [refund('re_null', null), refund('re_o', { customer: 'cus_o', metadata: {} })],
+      events: [
+        // The event snapshot names the Octree subscription, so it is kept and
+        // its (older) invoice is retrieved to decide recovery.
+        { created: YESTERDAY, data: { object: { id: 'in_old_paid', customer: 'cus_o', subscription: 'sub_o' } } },
+        { created: YESTERDAY, data: { object: { id: 'in_old_open', customer: 'cus_o', subscription: 'sub_o' } } },
+      ],
+      retrievable: {
+        in_old_paid: invoice('in_old_paid', 'cus_o', 'sub_o', { created: sec('2026-09-01T00:00:00Z') }),
+        in_old_open: invoice('in_old_open', 'cus_o', 'sub_o', { status: 'open', created: sec('2026-09-01T00:00:00Z') }),
+      },
+    });
+    const digest = await fetchStripeDigest(stripe, windows);
+    expect(calls.retrieved.sort()).toEqual(['in_old_open', 'in_old_paid']);
+    expect(digest.invoices.failedAttempts.yesterday).toBe(2);
+    expect(digest.invoices.recovered.yesterday).toBe(1);
+    // The recovered invoice was created before the window but paid yesterday.
+    expect(digest.invoices.paidInvoices.yesterday).toBe(1);
+    expect(digest.refunds.count.yesterday).toBe(1);
   });
 });

@@ -5,6 +5,7 @@ import {
   computeMrr,
   fetchStripeDigest,
   filterOctreeStripeObjects,
+  filterOctreeSubscriptions,
   isOctreeInvoice,
   isOctreeRefund,
   makeWindows,
@@ -432,6 +433,8 @@ describe('Octree filter helpers', () => {
     expect(isOctreeRefund({ charge: { customer: null, metadata: { plan: 'pro_monthly' } } }, ctx)).toBe(true);
     expect(isOctreeRefund({ charge: { customer: 'cus_1', metadata: { app: 'other' } } }, ctx)).toBe(false);
     expect(isOctreeRefund({ charge: { customer: null, metadata: { user_id: 'x', credits: '5' } } }, ctx)).toBe(false);
+    expect(isOctreeRefund({ charge: { customer: { id: 'cus_1' }, metadata: {} } }, ctx)).toBe(true);
+    expect(isOctreeRefund({ charge: { customer: { id: 'cus_x' }, metadata: null } }, ctx)).toBe(false);
     expect(isOctreeRefund({ charge: 'ch_unexpanded' }, ctx)).toBe(false);
     expect(isOctreeRefund({ charge: null }, ctx)).toBe(false);
   });
@@ -456,5 +459,84 @@ describe('Octree filter helpers', () => {
     expect(out.sessions.map((s) => s.id)).toEqual(['cs_a', 'cs_c']);
     expect([...out.ctx.customers].sort()).toEqual(['cus_a', 'cus_d']);
     expect([...out.ctx.subscriptionIds]).toEqual(['sub_a']);
+  });
+});
+
+describe('untagged subscriptions without a user (comped by hand)', () => {
+  const onProduct = (product: string, rest: Parameters<typeof sub>[0]) => {
+    const s = sub(rest);
+    s.items.data[0].price.product = product;
+    return s;
+  };
+
+  it('keeps one billing an Octree product, drops one billing only a foreign product', () => {
+    const subs = [
+      onProduct('prod_octree', { id: 'sub_user', metadata: { user_id: 'u1' }, customer: 'cus_user' }),
+      // Comped in the dashboard: empty metadata, but Octree's product. It keeps
+      // billing once its coupon ends, so it is MRR and its invoices count.
+      onProduct('prod_octree', { id: 'sub_comped', amount: 1000, currency: 'cad', metadata: {}, customer: 'cus_comped' }),
+      // The other product's old subscriptions: empty metadata, own product.
+      onProduct('prod_foreign', { id: 'sub_foreign', amount: 1000, metadata: {}, customer: 'cus_foreign' }),
+      // Tagged for another app on an Octree product: the tag wins.
+      onProduct('prod_octree', { id: 'sub_tagged_other', metadata: { app: 'other' }, customer: 'cus_o' }),
+      // No product to go on.
+      sub({ id: 'sub_bare', metadata: {}, customer: 'cus_bare' }),
+    ];
+    expect(filterOctreeSubscriptions(subs).map((s) => s.id)).toEqual(['sub_user', 'sub_comped']);
+
+    const out = filterOctreeStripeObjects({
+      subscriptions: subs,
+      sessions: [],
+      invoices: [invoice('in_comped', 'cus_comped', 'sub_comped'), invoice('in_foreign', 'cus_foreign', 'sub_foreign')],
+      refunds: [],
+      failures: [],
+    });
+    expect(out.invoices.map((i) => i.id)).toEqual(['in_comped']);
+    expect(computeMrr(out.subscriptions)).toMatchObject({ usd: 15, cad: 10, activeCount: 2 });
+  });
+});
+
+describe('fetchStripeDigest robustness', () => {
+  it('falls back to unexpanded refunds (left out) when the expansion is refused', async () => {
+    const { stripe, calls } = fakeStripe({ refunds: [refund('re_plain', 'ch_1')] });
+    stripe.refunds.list = (params: any) => {
+      calls.refundParams.push(params);
+      if (params.expand) {
+        return {
+          autoPagingToArray: async () => {
+            throw new Error('expand not permitted');
+          },
+        };
+      }
+      return { autoPagingToArray: async () => [refund('re_plain', 'ch_1')] };
+    };
+    const digest = await fetchStripeDigest(stripe, windows);
+    expect(calls.refundParams).toHaveLength(2);
+    expect(calls.refundParams[1].expand).toBeUndefined();
+    expect(digest.refunds.count).toEqual({ yesterday: 0, d7: 0, d30: 0 });
+  });
+
+  it('drops a retrieved out-of-window invoice that is not Octree\'s, and refunds whose charge is null', async () => {
+    const { stripe, calls } = fakeStripe({
+      subscriptions: [sub({ id: 'sub_o', metadata: { user_id: 'u' }, customer: 'cus_o' })],
+      refunds: [refund('re_null', null), refund('re_o', { customer: 'cus_o', metadata: {} })],
+      events: [
+        // The event snapshot names the Octree subscription, so it is kept and
+        // its (older) invoice is retrieved to decide recovery.
+        { created: YESTERDAY, data: { object: { id: 'in_old_paid', customer: 'cus_o', subscription: 'sub_o' } } },
+        { created: YESTERDAY, data: { object: { id: 'in_old_open', customer: 'cus_o', subscription: 'sub_o' } } },
+      ],
+      retrievable: {
+        in_old_paid: invoice('in_old_paid', 'cus_o', 'sub_o', { created: sec('2026-09-01T00:00:00Z') }),
+        in_old_open: invoice('in_old_open', 'cus_o', 'sub_o', { status: 'open', created: sec('2026-09-01T00:00:00Z') }),
+      },
+    });
+    const digest = await fetchStripeDigest(stripe, windows);
+    expect(calls.retrieved.sort()).toEqual(['in_old_open', 'in_old_paid']);
+    expect(digest.invoices.failedAttempts.yesterday).toBe(2);
+    expect(digest.invoices.recovered.yesterday).toBe(1);
+    // The recovered invoice was created before the window but paid yesterday.
+    expect(digest.invoices.paidInvoices.yesterday).toBe(1);
+    expect(digest.refunds.count.yesterday).toBe(1);
   });
 });

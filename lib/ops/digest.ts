@@ -101,6 +101,8 @@ export interface SubscriptionItemLike {
     unit_amount: number | null;
     currency: string;
     recurring: { interval: 'day' | 'week' | 'month' | 'year'; interval_count: number } | null;
+    /** An id on list results; lets an untagged subscription inherit Octree's products. */
+    product?: string | { id: string } | null;
   };
 }
 
@@ -372,6 +374,29 @@ export function isOctreeSubscriptionLike(sub: Pick<SubscriptionLike, 'metadata'>
   return isOctreeSubscription({ metadata: sub.metadata ?? {} });
 }
 
+function subscriptionProductIds(sub: Pick<SubscriptionLike, 'items'>): string[] {
+  return sub.items.data.map((item) => refId(item.price.product)).filter((id): id is string => !!id);
+}
+
+/**
+ * The digest's subscription rule. `isOctreeSubscription` (the webhook's) leaves
+ * out untagged subscriptions without a `user_id` because the webhook has no
+ * user to update, but such a subscription can still bill: a comped
+ * subscription created by hand in the dashboard keeps charging once its
+ * coupon runs out. So an untagged subscription also counts when every product
+ * it bills is one that known Octree subscriptions bill. The other product's
+ * subscriptions are on its own products, so they stay out.
+ */
+export function filterOctreeSubscriptions<S extends SubscriptionLike>(subscriptions: S[]): S[] {
+  const octreeProducts = new Set(subscriptions.filter(isOctreeSubscriptionLike).flatMap(subscriptionProductIds));
+  return subscriptions.filter((sub) => {
+    if (isOctreeSubscriptionLike(sub)) return true;
+    if (sub.metadata?.app) return false;
+    const products = subscriptionProductIds(sub);
+    return products.length > 0 && products.every((id) => octreeProducts.has(id));
+  });
+}
+
 export function isOctreeSessionLike(session: Pick<CheckoutSessionLike, 'mode' | 'metadata'>): boolean {
   return isOctreeCheckoutSession({
     mode: (session.mode ?? 'payment') as Stripe.Checkout.Session.Mode,
@@ -440,7 +465,7 @@ export interface StripeObjects<I extends InvoiceLike = InvoiceLike> {
 export function filterOctreeStripeObjects<I extends InvoiceLike>(
   objects: StripeObjects<I>
 ): StripeObjects<I> & { ctx: OctreeStripeContext } {
-  const subscriptions = objects.subscriptions.filter(isOctreeSubscriptionLike);
+  const subscriptions = filterOctreeSubscriptions(objects.subscriptions);
   const sessions = objects.sessions.filter(isOctreeSessionLike);
   const ctx = buildOctreeContext(subscriptions, sessions);
   return {
@@ -510,6 +535,23 @@ export interface StripeDigest {
 const PAGE_LIMIT = 5000;
 
 /**
+ * Refunds with their charge expanded (needed to attribute them). Should the
+ * expansion be refused (e.g. a restricted key without charge access), fall
+ * back to the plain list rather than failing the digest: unexpanded refunds
+ * cannot be attributed and are left out of the counts.
+ */
+async function listRefunds(stripe: Stripe, since: number): Promise<Stripe.Refund[]> {
+  try {
+    return await stripe.refunds
+      .list({ created: { gte: since }, limit: 100, expand: ['data.charge'] })
+      .autoPagingToArray({ limit: PAGE_LIMIT });
+  } catch (error) {
+    console.warn('[ops-digest] refunds with expanded charges unavailable; refunds will read 0', error);
+    return stripe.refunds.list({ created: { gte: since }, limit: 100 }).autoPagingToArray({ limit: PAGE_LIMIT });
+  }
+}
+
+/**
  * Pulls the last 30 days of Stripe activity and summarises it.
  *
  * The Stripe account is shared with another product (filerenamerai.com), so
@@ -522,9 +564,7 @@ export async function fetchStripeDigest(stripe: Stripe, windows: Windows): Promi
   const [subscriptions, invoices, refunds, sessions, failureEvents] = await Promise.all([
     stripe.subscriptions.list({ status: 'all', limit: 100 }).autoPagingToArray({ limit: PAGE_LIMIT }),
     stripe.invoices.list({ created: { gte: since }, limit: 100 }).autoPagingToArray({ limit: PAGE_LIMIT }),
-    stripe.refunds
-      .list({ created: { gte: since }, limit: 100, expand: ['data.charge'] })
-      .autoPagingToArray({ limit: PAGE_LIMIT }),
+    listRefunds(stripe, since),
     stripe.checkout.sessions
       .list({ created: { gte: since }, limit: 100 })
       .autoPagingToArray({ limit: PAGE_LIMIT }),

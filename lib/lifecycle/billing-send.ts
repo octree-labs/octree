@@ -23,6 +23,7 @@ import {
 } from '@/lib/email/lifecycle';
 import { SAVE_COUPON_ID, SAVE_COUPON_MONTHS, SAVE_COUPON_PERCENT_OFF } from '@/lib/stripe-subscription';
 import { readExportUnlocked } from '@/lib/export-unlock';
+import { isOctreeSubscription } from '@/lib/stripe-webhook';
 import {
   CHECKOUT_RECOVERY_COOLDOWN_MS,
   COMEBACK_PROMO_CODE,
@@ -565,7 +566,13 @@ export async function listDelinquentSubscriptions(
         if (sub.pause_collection) continue;
         const invoice = sub.latest_invoice;
         if (!collectableInvoice(invoice)) continue;
-        const metadataUserId = typeof sub.metadata?.user_id === 'string' && sub.metadata.user_id ? sub.metadata.user_id : null;
+        // Another app's subscription on the shared Stripe account (tagged
+        // with a different `metadata.app`) never falls back to its
+        // metadata user; only a user_usage row pointing at it could claim it.
+        const metadataUserId =
+          isOctreeSubscription(sub) && typeof sub.metadata?.user_id === 'string' && sub.metadata.user_id
+            ? sub.metadata.user_id
+            : null;
         subscriptions.push({ subscriptionId: sub.id, invoiceId: invoice.id, latestInvoice: invoice, metadataUserId });
       }
       const last = page.data[page.data.length - 1];

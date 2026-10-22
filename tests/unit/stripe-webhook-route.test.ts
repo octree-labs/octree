@@ -880,9 +880,14 @@ describe('POST /api/webhooks/stripe', () => {
       expect(mocks.captureServerEvent).not.toHaveBeenCalled();
     });
 
-    it("acknowledges a subscription tagged with another app's metadata.app and touches nothing", async () => {
+    it.each([
+      ['customer.subscription.created', 'active'],
+      ['customer.subscription.updated', 'active'],
+      // A foreign cancellation must never flip anyone's is_pro.
+      ['customer.subscription.deleted', 'canceled'],
+    ])("acknowledges %s for a subscription tagged with another app's metadata.app and touches nothing", async (type, status) => {
       mocks.constructEvent.mockReturnValue(
-        subscriptionEvent('customer.subscription.updated', { metadata: { app: 'other', user_id: 'foreign-user' } })
+        subscriptionEvent(type, { status, metadata: { app: 'other', user_id: 'foreign-user' } })
       );
 
       const res = await POST(makeRequest());
@@ -978,6 +983,18 @@ describe('POST /api/webhooks/stripe', () => {
       expect(mocks.rpc).toHaveBeenCalledWith('grant_credit_purchase', expect.objectContaining({ p_user_id: 'user-1', p_credits: 100 }));
     });
 
+    it('ignores a subscription-mode session with no metadata (a Stripe Payment Link) instead of logging or tracking it', async () => {
+      mocks.constructEvent.mockReturnValue(checkoutEvent({ id: 'cs_plink_1', metadata: {} }));
+
+      const res = await POST(makeRequest());
+
+      expect(res.status).toBe(200);
+      await expect(res.json()).resolves.toEqual({ received: true, ignored: 'foreign_session' });
+      expect(mocks.from).not.toHaveBeenCalled();
+      expect(mocks.trackRedditConversion).not.toHaveBeenCalled();
+      expect(mocks.captureServerEvent).not.toHaveBeenCalled();
+    });
+
     it('still processes a legacy Octree subscription session that carries only user_id', async () => {
       mocks.constructEvent.mockReturnValue(checkoutEvent({ metadata: { user_id: 'user-1' } }));
 
@@ -1028,6 +1045,21 @@ describe('billing recovery: dunning on customer.subscription.updated', () => {
     mocks.resendSend.mockResolvedValue({ data: { id: 'msg_1' }, error: null });
     vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  it("active -> past_due of another app's subscription sends no payment_failed email", async () => {
+    mocks.constructEvent.mockReturnValue(
+      subscriptionUpdate({ status: 'past_due', metadata: { app: 'other', user_id: 'foreign-user' } }, { status: 'active' })
+    );
+
+    const res = await POST(makeRequest());
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({ received: true, ignored: 'foreign_subscription' });
+    expect(mocks.invoiceRetrieve).not.toHaveBeenCalled();
+    expect(mocks.ledgerInsert).not.toHaveBeenCalled();
+    expect(mocks.resendSend).not.toHaveBeenCalled();
+    expect(mocks.captureServerEvent).not.toHaveBeenCalled();
   });
 
   it('active -> past_due sends the payment_failed email once, keyed on the invoice', async () => {

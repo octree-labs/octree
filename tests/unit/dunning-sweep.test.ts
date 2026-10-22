@@ -343,6 +343,18 @@ describe('payment_failed sweep', () => {
     expect(world.ledger.map((r) => `${r.user_id}:${r.ref}`).sort()).toEqual(['u_meta:in_meta', 'u_usage:in_both']);
   });
 
+  it("never emails the metadata user of another app's subscription on the shared Stripe account", async () => {
+    const { stripe } = fakeStripe([
+      { id: 'sub_foreign', status: 'past_due', latest_invoice: invoice('in_foreign'), metadata: { app: 'filerenamer', user_id: 'u_foreign' } },
+      { id: 'sub_tagged', status: 'past_due', latest_invoice: invoice('in_tagged'), metadata: { app: 'octree', user_id: 'u_tagged' } },
+    ]);
+    const world = fakeWorld({ links: {}, clock: () => new Date(t0) });
+
+    const summary = await runBillingFollowUps({ stripe, supabase: world.supabase, deps: world.deps, now: new Date(t0) });
+    expect(summary.payment_failed_sweep).toMatchObject({ candidates: 2, due: 1, sent: 1 });
+    expect(world.sent.map((m) => m.to)).toEqual(['u_tagged@example.com']);
+  });
+
   it('a notice row for the invoice under any user blocks the sweep, so a mapping disagreement cannot double-send', async () => {
     const { stripe } = fakeStripe([{ id: 'sub_1', status: 'past_due', latest_invoice: invoice('in_1'), metadata: { user_id: 'u_meta' } }]);
     const world = fakeWorld({

@@ -10,6 +10,8 @@ import {
   pausePaidThrough,
   pauseResumeTimestamp,
   subscriptionHasDiscount,
+  subscriptionPeriod,
+  subscriptionPeriodIso,
   trimCancelComment,
 } from '@/lib/stripe-subscription';
 
@@ -146,5 +148,89 @@ describe('describeSubscriptionOffers', () => {
       discount_coupon_id: null,
       price: { unit_amount: 999, currency: 'usd', interval: 'month' },
     });
+  });
+});
+
+/**
+ * Since API 2025-03-31.basil the billing period lives on the subscription
+ * items; the webhook endpoint renders payloads in that shape while the SDK
+ * (acacia) still returns the top-level fields.
+ */
+describe('subscriptionPeriod', () => {
+  it('reads the top-level fields (SDK, API 2025-02-24.acacia and earlier)', () => {
+    expect(
+      subscriptionPeriod({
+        current_period_start: 1_700_000_000,
+        current_period_end: 1_702_592_000,
+        items: { data: [{ current_period_start: 1, current_period_end: 2 }] },
+      })
+    ).toEqual({ start: 1_700_000_000, end: 1_702_592_000 });
+  });
+
+  it('reads the first item when the subscription has no top-level period (API 2025-03-31.basil and later)', () => {
+    expect(
+      subscriptionPeriod({
+        items: {
+          data: [
+            { current_period_start: 1_700_000_000, current_period_end: 1_702_592_000 },
+            { current_period_start: 1_600_000_000, current_period_end: 1_605_000_000 },
+          ],
+        },
+      })
+    ).toEqual({ start: 1_700_000_000, end: 1_702_592_000 });
+  });
+
+  it('skips items that do not carry both fields', () => {
+    expect(
+      subscriptionPeriod({
+        items: {
+          data: [
+            { current_period_start: 1_600_000_000 },
+            null,
+            { current_period_start: 1_700_000_000, current_period_end: 1_702_592_000 },
+          ],
+        },
+      })
+    ).toEqual({ start: 1_700_000_000, end: 1_702_592_000 });
+  });
+
+  it('returns nulls when items are empty or missing', () => {
+    expect(subscriptionPeriod({ items: { data: [] } })).toEqual({ start: null, end: null });
+    expect(subscriptionPeriod({})).toEqual({ start: null, end: null });
+    expect(subscriptionPeriod({ current_period_start: null, current_period_end: undefined, items: null })).toEqual({
+      start: null,
+      end: null,
+    });
+    expect(subscriptionPeriod(null)).toEqual({ start: null, end: null });
+  });
+
+  it('takes each field from the top level when present and from the item otherwise (mixed)', () => {
+    expect(
+      subscriptionPeriod({
+        current_period_start: 1_700_000_000,
+        items: { data: [{ current_period_start: 1_699_000_000, current_period_end: 1_702_592_000 }] },
+      })
+    ).toEqual({ start: 1_700_000_000, end: 1_702_592_000 });
+  });
+
+  it('accepts a Stripe.Subscription-shaped object', () => {
+    const sub = {
+      id: 'sub_1',
+      status: 'active',
+      items: { object: 'list', data: [{ id: 'si_1', current_period_start: 10, current_period_end: 20 }] },
+    } as any;
+    expect(subscriptionPeriod(sub)).toEqual({ start: 10, end: 20 });
+  });
+});
+
+describe('subscriptionPeriodIso', () => {
+  it('converts Unix seconds to ISO timestamps and keeps nulls', () => {
+    expect(
+      subscriptionPeriodIso({ items: { data: [{ current_period_start: 1_700_000_000, current_period_end: 1_702_592_000 }] } })
+    ).toEqual({
+      start: new Date(1_700_000_000 * 1000).toISOString(),
+      end: new Date(1_702_592_000 * 1000).toISOString(),
+    });
+    expect(subscriptionPeriodIso({})).toEqual({ start: null, end: null });
   });
 });

@@ -7,6 +7,7 @@ import {
   isPauseMonths,
   isSubscriptionPaused,
   pauseResumeTimestamp,
+  subscriptionPeriod,
 } from '@/lib/stripe-subscription';
 import { AnalyticsEvents } from '@/lib/analytics/events';
 import {
@@ -51,7 +52,10 @@ export async function POST(request: Request) {
 
     // The pause starts when the paid period ends, so N months are counted
     // from there, not from today.
-    const paidThrough = subscription.current_period_end;
+    const paidThrough = subscriptionPeriod(subscription).end;
+    if (paidThrough === null) {
+      throw new Error(`subscription ${subscription.id} has no current period end`);
+    }
     const resumesAt = pauseResumeTimestamp(months, new Date(paidThrough * 1000));
     const paused = await stripe.subscriptions.update(subscription.id, {
       pause_collection: { behavior: 'void', resumes_at: resumesAt },

@@ -38,7 +38,7 @@ import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 
 import { hasUnlimitedEdits } from '@/lib/paywall';
-import { effectiveSubscriptionStatus } from '@/lib/stripe-subscription';
+import { effectiveSubscriptionStatus, subscriptionPeriodIso } from '@/lib/stripe-subscription';
 import {
   isRevokingStripeStatus,
   reconcileDecision,
@@ -224,12 +224,9 @@ async function main() {
       continue;
     }
     const sub = r.stripeSubscription;
-    const periodStart = sub?.current_period_start
-      ? new Date(sub.current_period_start * 1000).toISOString()
-      : r.row.current_period_start;
-    const periodEnd = sub?.current_period_end
-      ? new Date(sub.current_period_end * 1000).toISOString()
-      : r.row.current_period_end;
+    const sentPeriod = subscriptionPeriodIso(sub);
+    const periodStart = sentPeriod.start ?? r.row.current_period_start;
+    const periodEnd = sentPeriod.end ?? r.row.current_period_end;
     const customerId =
       r.row.stripe_customer_id ?? (typeof sub?.customer === 'string' ? sub.customer : sub?.customer?.id ?? null);
 

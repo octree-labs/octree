@@ -186,7 +186,11 @@ export type FirstEditNudgeSuggestion =
   | 'add_toc';
 
 export interface AnalyticsEventProperties {
-  [AnalyticsEvents.SIGNUP_COMPLETED]: { provider: SignupProvider };
+  [AnalyticsEvents.SIGNUP_COMPLETED]: {
+    provider: SignupProvider;
+    /** 'tools' when an OAuth sign-up arrived from tools.useoctree.com (app/auth/oauth/route.ts). */
+    referral_source?: 'tools';
+  };
   [AnalyticsEvents.ONBOARDING_COMPLETED]: {
     plan: OnboardingPlan;
     /** The "how did you find Octree" answer from the onboarding form (free plan only). */

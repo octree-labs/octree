@@ -24,8 +24,12 @@ const DRAFT_ID = '11111111-2222-4333-8444-555555555555';
 
 let ipCounter = 0;
 
-function formPost(fields: Record<string, string>, ip = `203.0.113.${++ipCounter}`) {
-  return new Request('https://app.useoctree.com/api/drafts', {
+function formPost(
+  fields: Record<string, string>,
+  ip = `203.0.113.${++ipCounter}`,
+  query = ''
+) {
+  return new Request(`https://app.useoctree.com/api/drafts${query}`, {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-forwarded-for': ip },
     body: new URLSearchParams(fields).toString(),
@@ -59,6 +63,28 @@ describe('POST /api/drafts', () => {
     expect(setCookie).toMatch(/SameSite=lax/i);
     expect(setCookie).toMatch(/Path=\//);
     expect(setCookie).toMatch(/Max-Age=604800/);
+  });
+
+  it('carries the utm_* params of the form action onto the redirect and drops the rest', async () => {
+    const res = await POST(
+      formPost(
+        { content: 'x', source: 'tools:latex-preview:fix-error' },
+        undefined,
+        '?utm_source=tools&utm_medium=draft&utm_campaign=latex-preview-fix-error&ref=abc&draft=evil'
+      )
+    );
+
+    expect(res.status).toBe(303);
+    const location = new URL(res.headers.get('location')!);
+    expect(location.pathname).toBe('/import');
+    expect(location.searchParams.get('draft')).toBe(DRAFT_ID);
+    expect(location.searchParams.getAll('draft')).toHaveLength(1);
+    expect(location.searchParams.get('utm_source')).toBe('tools');
+    expect(location.searchParams.get('utm_medium')).toBe('draft');
+    expect(location.searchParams.get('utm_campaign')).toBe('latex-preview-fix-error');
+    expect(location.searchParams.has('ref')).toBe(false);
+    // `source` stays on the draft row, never in the URL.
+    expect(location.searchParams.has('source')).toBe(false);
   });
 
   it('keeps the CORS headers for tools.useoctree.com on the redirect response', async () => {

@@ -11,6 +11,7 @@ import {
   isDraftId,
 } from '@/lib/import/pending-draft';
 import { sourceLabel, sourceSite } from '@/lib/import/source';
+import { appendUtmParams } from '@/lib/utm';
 
 export const metadata: Metadata = {
   title: 'Open in Octree',
@@ -58,7 +59,12 @@ export default async function ImportStartPage({ searchParams }: PageProps) {
 
   // Already signed in: the import route creates the project.
   if (user) {
-    redirect(importPath(draftId));
+    // Carry the tools' utm_* params so the app's first pageview records them.
+    const query = new URLSearchParams(
+      Object.entries(params).filter((e): e is [string, string] => typeof e[1] === 'string')
+    );
+    const target = appendUtmParams(new URL(importPath(draftId), 'http://localhost'), query);
+    redirect(`${target.pathname}${target.search}`);
   }
 
   // `drafts` has an anon SELECT policy (drafts_select_any), so the cookie-based

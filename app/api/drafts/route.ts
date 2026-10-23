@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/server';
 import { importPath, setPendingDraftCookie } from '@/lib/import/pending-draft';
 import { clientIp, createRateLimiter } from '@/lib/import/rate-limit';
 import { captureServerExceptionAfterResponse } from '@/lib/posthog-server';
+import { appendUtmParams } from '@/lib/utm';
 
 const allowedOrigin = process.env.ALLOWED_TOOLS_ORIGIN || 'https://tools.useoctree.com';
 
@@ -104,7 +105,9 @@ export async function POST(request: NextRequest) {
     }
 
     const url = new URL(request.url);
-    const redirectUrl = new URL(importPath(data.id), url.origin);
+    // Keep the tools' utm_* params: the 303 drops this POST's query, and
+    // PostHog only records campaign params seen on the app's own first pageview.
+    const redirectUrl = appendUtmParams(new URL(importPath(data.id), url.origin), url.searchParams);
     const res = NextResponse.redirect(redirectUrl, { status: 303 });
     // Remember the draft across sign-up / login so the import survives auth
     // paths that drop the `next` param (OAuth, email confirmation, homepage).

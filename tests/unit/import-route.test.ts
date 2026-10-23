@@ -134,6 +134,26 @@ describe('GET /import', () => {
     expect(mocks.from).not.toHaveBeenCalled();
   });
 
+  it('keeps utm_* params on the way to the logged-out landing', async () => {
+    mocks.getUser.mockResolvedValue({ data: { user: null } });
+
+    const res = await GET(
+      makeRequest(`/import?draft=${DRAFT_ID}&utm_source=tools&utm_medium=draft&utm_campaign=templates&x=1`)
+    );
+
+    expect(res.headers.get('location')).toBe(
+      `https://app.useoctree.com/import/start?draft=${DRAFT_ID}&utm_source=tools&utm_medium=draft&utm_campaign=templates`
+    );
+  });
+
+  it('keeps utm_* params on the redirect into the new project', async () => {
+    const res = await GET(makeRequest(`/import?draft=${DRAFT_ID}&utm_source=tools&utm_campaign=templates`));
+
+    expect(res.headers.get('location')).toBe(
+      `https://app.useoctree.com/projects/${PROJECT_ID}?welcome=1&utm_source=tools&utm_campaign=templates`
+    );
+  });
+
   it('prefers the draft id from the query over the cookie', async () => {
     await GET(makeRequest(`/import?draft=${DRAFT_ID}`, `octree_pending_draft=${COOKIE_DRAFT_ID}`));
 

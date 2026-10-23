@@ -12,6 +12,7 @@ import {
   importStartPath,
   isDraftId,
 } from '@/lib/import/pending-draft';
+import { appendUtmParams } from '@/lib/utm';
 
 type DraftRow = Pick<
   Tables<'drafts'>,
@@ -21,10 +22,11 @@ type DraftRow = Pick<
 /** A user whose account is younger than this when the import completes counts as a sign-up. */
 const NEW_USER_WINDOW_MS = 10 * 60 * 1000;
 
-function redirectAndForget(url: URL) {
+function redirectAndForget(url: URL, query: URLSearchParams) {
   // Every exit except the logged-out landing drops the cookie, so a stale or
-  // already-consumed draft can never bounce the homepage back here.
-  return clearPendingDraftCookie(NextResponse.redirect(url));
+  // already-consumed draft can never bounce the homepage back here. The
+  // tools' utm_* params ride along so the first rendered page records them.
+  return clearPendingDraftCookie(NextResponse.redirect(appendUtmParams(url, query)));
 }
 
 function projectUrl(origin: string, projectId: string, welcome: boolean) {
@@ -54,7 +56,7 @@ export async function GET(request: NextRequest) {
       : null;
 
   if (!draftId) {
-    return redirectAndForget(new URL('/', url.origin));
+    return redirectAndForget(new URL('/', url.origin), url.searchParams);
   }
 
   const supabase = await createClient();
@@ -66,7 +68,9 @@ export async function GET(request: NextRequest) {
     // Logged out: show the "Open <title> in Octree" landing with sign-up /
     // login instead of a bare login redirect. The cookie stays so the draft
     // survives whichever auth path the visitor takes.
-    return NextResponse.redirect(new URL(importStartPath(draftId), url.origin));
+    return NextResponse.redirect(
+      appendUtmParams(new URL(importStartPath(draftId), url.origin), url.searchParams)
+    );
   }
 
   // The generated Database type resolves table rows to `never` in this repo,
@@ -77,15 +81,15 @@ export async function GET(request: NextRequest) {
     .maybeSingle()) as { data: DraftRow | null; error: unknown };
 
   if (draftError || !draft) {
-    return redirectAndForget(new URL('/', url.origin));
+    return redirectAndForget(new URL('/', url.origin), url.searchParams);
   }
 
   if (draft.consumed_at) {
     // Back button / double submit: send the owner to the project they already got.
     if (draft.consumed_by === user.id && draft.project_id) {
-      return redirectAndForget(projectUrl(url.origin, draft.project_id, false));
+      return redirectAndForget(projectUrl(url.origin, draft.project_id, false), url.searchParams);
     }
-    return redirectAndForget(new URL('/', url.origin));
+    return redirectAndForget(new URL('/', url.origin), url.searchParams);
   }
 
   const title = draft.title || 'Imported from Tools';
@@ -103,7 +107,7 @@ export async function GET(request: NextRequest) {
 
   if (projectError || !project) {
     console.error('Error creating project for draft:', projectError);
-    return redirectAndForget(new URL('/', url.origin));
+    return redirectAndForget(new URL('/', url.origin), url.searchParams);
   }
 
   const mimeType = getContentTypeByFilename('main.tex');
@@ -121,7 +125,7 @@ export async function GET(request: NextRequest) {
   if (uploadError) {
     console.error('Error uploading file to storage:', uploadError);
     captureServerExceptionAfterResponse(uploadError, { distinctId: user.id, route: 'import', extra: { step: 'upload' } });
-    return redirectAndForget(new URL('/', url.origin));
+    return redirectAndForget(new URL('/', url.origin), url.searchParams);
   }
 
   const { data: urlData } = supabase.storage.from('octree').getPublicUrl(filePath);
@@ -141,7 +145,7 @@ export async function GET(request: NextRequest) {
   if (fileError) {
     console.error('Error creating file record:', fileError);
     captureServerExceptionAfterResponse(fileError, { distinctId: user.id, route: 'import', extra: { step: 'file-record' } });
-    return redirectAndForget(projectUrl(url.origin, project.id, true));
+    return redirectAndForget(projectUrl(url.origin, project.id, true), url.searchParams);
   }
 
   // Keep the draft and mark it consumed so the funnel is measurable
@@ -178,9 +182,9 @@ export async function GET(request: NextRequest) {
       await (supabase.from('projects') as any).delete().eq('id', project.id);
       await supabase.storage.from('octree').remove([filePath]);
       if (current.consumed_by === user.id && current.project_id) {
-        return redirectAndForget(projectUrl(url.origin, current.project_id, true));
+        return redirectAndForget(projectUrl(url.origin, current.project_id, true), url.searchParams);
       }
-      return redirectAndForget(new URL('/', url.origin));
+      return redirectAndForget(new URL('/', url.origin), url.searchParams);
     }
 
     console.error(
@@ -218,5 +222,5 @@ export async function GET(request: NextRequest) {
 
   // Always land in the editor; `welcome=1` lets the editor show its own
   // onboarding / Pro prompt instead of bouncing through /onboarding.
-  return redirectAndForget(projectUrl(url.origin, project.id, true));
+  return redirectAndForget(projectUrl(url.origin, project.id, true), url.searchParams);
 }

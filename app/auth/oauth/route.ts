@@ -17,7 +17,8 @@ export async function GET(request: Request) {
   // A draft posted from tools.useoctree.com is still waiting: finish the
   // import instead of landing on the dashboard. The import route reads the
   // id from the cookie and clears it.
-  if (next === '/' && pendingDraftFromCookieHeader(request.headers.get('cookie'))) {
+  const hasPendingDraft = pendingDraftFromCookieHeader(request.headers.get('cookie')) !== null;
+  if (next === '/' && hasPendingDraft) {
     next = '/import';
   }
 
@@ -25,12 +26,29 @@ export async function GET(request: Request) {
     const supabase = await createClient();
     const { data, error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error && data.user) {
+      // Coming from Tools: deep link to editor or referer is tools domain.
+      const isFromTools =
+        next.includes('/projects/') ||
+        next.includes('/files/') ||
+        request.headers.get('referer')?.includes('tools.useoctree.com');
+      // Analytics only: the main tools path is "Open in Octree" -> draft ->
+      // OAuth, where `next` is /import (or the pending-draft cookie is set)
+      // and the referer is the OAuth provider, so isFromTools misses it.
+      // isFromTools still alone gates the onboarding auto-complete below.
+      const cameFromTools =
+        isFromTools ||
+        next === '/import' ||
+        next.startsWith('/import?') ||
+        next.startsWith('/import/') ||
+        hasPendingDraft;
+
       // The email form reports its own sign-ups (components/auth/signup-form.tsx);
       // OAuth accounts only pass through here, so a freshly created one is a sign-up.
       const createdAt = Date.parse(data.user.created_at ?? '');
       if (Number.isFinite(createdAt) && Date.now() - createdAt < NEW_ACCOUNT_WINDOW_MS) {
         captureServerEventAfterResponse(data.user.id, AnalyticsEvents.SIGNUP_COMPLETED, {
           provider: data.user.app_metadata?.provider ?? 'oauth',
+          ...(cameFromTools ? { referral_source: 'tools' } : {}),
         });
       }
 
@@ -45,14 +63,8 @@ export async function GET(request: Request) {
         .eq('user_id', data.user.id)
         .maybeSingle<UsageRecord>();
 
-      // Only auto-complete onboarding if:
-      // 1. They haven't completed it yet, AND
-      // 2. They're coming from Tools (deep link to editor or referer is tools domain)
-      const isFromTools = 
-        next.includes('/projects/') || 
-        next.includes('/files/') ||
-        request.headers.get('referer')?.includes('tools.useoctree.com');
-
+      // Only auto-complete onboarding if they haven't completed it yet AND
+      // they're coming from Tools (see isFromTools above).
       if (!existingUsage?.onboarding_completed && isFromTools) {
         await supabase
           .from('user_usage')

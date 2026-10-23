@@ -7,6 +7,10 @@
  * app's first pageview has to carry the query. A 303 drops the POST URL's
  * query, hence copying them onto the redirect target.
  */
+// Lowercase letters only, as tools and PostHog's campaign keys use them:
+// `UTM_Source`, `utm_` and `utm_content2` are dropped on purpose.
+// Values are capped before URLSearchParams re-encodes them, so the cap
+// can never split a percent-escape.
 const UTM_KEY = /^utm_[a-z]+$/;
 const UTM_MAX_VALUE_CHARS = 200;
 

@@ -9,9 +9,9 @@ import { createHmac, timingSafeEqual } from 'crypto';
  *    `?token=<base64url(userId)>.<hmac(userId)>`, which carries no address
  *    so the link itself leaks nothing about the recipient.
  *
- * Both are HMAC-SHA256 under EMAIL_UNSUBSCRIBE_SECRET; the lifecycle one
- * falls back to CRON_SECRET so a deployment with only the cron configured
- * still produces working links. The pure helpers take the secret as an
+ * Both are HMAC-SHA256 under EMAIL_UNSUBSCRIBE_SECRET, falling back to
+ * CRON_SECRET so a deployment with only the cron configured still produces
+ * working links. The pure helpers take the secret as an
  * argument so they can be unit-tested without touching the environment.
  */
 
@@ -29,7 +29,9 @@ export function getUnsubscribeSecret(): string | null {
 // --- Legacy email-based token -------------------------------------------------
 
 export function generateUnsubscribeToken(email: string): string {
-  return createHmac('sha256', process.env.EMAIL_UNSUBSCRIBE_SECRET!)
+  const secret = getUnsubscribeSecret();
+  if (!secret) throw new Error('EMAIL_UNSUBSCRIBE_SECRET (or CRON_SECRET) is not set');
+  return createHmac('sha256', secret)
     .update(email.toLowerCase())
     .digest('hex');
 }

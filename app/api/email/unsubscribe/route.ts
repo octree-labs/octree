@@ -44,7 +44,7 @@ async function handle(request: Request) {
 }
 
 async function unsubscribeByEmail(email: string, token: string) {
-  if (!process.env.EMAIL_UNSUBSCRIBE_SECRET) {
+  if (!getUnsubscribeSecret()) {
     return NextResponse.json({ error: 'Invalid token' }, { status: 403 });
   }
   const expected = Buffer.from(generateUnsubscribeToken(email));

@@ -1,8 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
-import { render } from '@react-email/render';
 import { resend, FROM_ADDRESS, REPLY_TO_ADDRESS } from './client';
-import { WelcomeEmail } from './templates/welcome';
-import { SignInEmail } from './templates/sign-in';
+import { signInAlertEmail, signupWelcomeEmail } from './templates/account';
 
 import { generateUnsubscribeUrl } from './unsubscribe';
 
@@ -30,28 +28,28 @@ async function isSuppressed(email: string): Promise<boolean> {
 
 export async function sendWelcomeEmail(email: string): Promise<void> {
   if (await isSuppressed(email)) return;
+  const { subject, html, text } = signupWelcomeEmail({ email, unsubscribeUrl: generateUnsubscribeUrl(email) });
   const { error } = await resend.emails.send({
     from: FROM_ADDRESS,
     replyTo: REPLY_TO_ADDRESS,
     to: email,
-    subject: 'Welcome to Octree',
-    html: await render(
-      WelcomeEmail({ email, unsubscribeUrl: generateUnsubscribeUrl(email) })
-    ),
+    subject,
+    html,
+    text,
   });
   if (error) throw new Error(error.message);
 }
 
 export async function sendSignInEmail(email: string): Promise<void> {
   if (await isSuppressed(email)) return;
+  const { subject, html, text } = signInAlertEmail({ email, unsubscribeUrl: generateUnsubscribeUrl(email) });
   const { error } = await resend.emails.send({
     from: FROM_ADDRESS,
     replyTo: REPLY_TO_ADDRESS,
     to: email,
-    subject: 'New sign-in to your Octree account',
-    html: await render(
-      SignInEmail({ email, unsubscribeUrl: generateUnsubscribeUrl(email) })
-    ),
+    subject,
+    html,
+    text,
   });
   if (error) throw new Error(error.message);
 }

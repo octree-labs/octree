@@ -249,6 +249,7 @@ const WARM_LEAD_COPY: Record<WarmLeadVariant, { subject: string; headline: strin
   },
   ats: {
     subject: 'Get your resume past the ATS — 50% off your first month',
+    headline: 'Get your resume past the ATS',
     ranInto: 'the paywall on the ATS analysis of your resume',
   },
 };

@@ -50,7 +50,7 @@ function ActionCard({
       {icon}
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium text-neutral-900">{title}</p>
-        <p className="truncate text-xs text-neutral-500">{description}</p>
+        <p className="line-clamp-2 text-xs text-neutral-500">{description}</p>
       </div>
       <ArrowRight className="size-4 shrink-0 text-neutral-400" />
     </>
@@ -152,7 +152,8 @@ export function DashboardWithWalkthrough({
         </div>
       ) : (
         <div className="container mx-auto flex min-h-0 flex-1 flex-col px-4 pt-8">
-          <div className="mb-8 grid gap-3 sm:grid-cols-2 lg:max-w-3xl">
+          {/* Columns follow the space left by the sidebar, not the window width. */}
+          <div className="mb-8 grid max-w-3xl grid-cols-[repeat(auto-fit,minmax(16rem,1fr))] gap-3">
             <div data-onboarding-target="dashboard-generate-button">
               <ActionCard
                 href="/generate?from=dashboard"
@@ -171,19 +172,20 @@ export function DashboardWithWalkthrough({
             />
           </div>
 
+          {/* The controls drop below the title when they don't fit beside it. */}
           <div
-            className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"
+            className="mb-6 flex flex-wrap items-center justify-between gap-x-6 gap-y-3"
             data-onboarding-target="dashboard-header"
           >
-            <div>
+            <div className="shrink-0">
               <h1 className="text-lg font-semibold text-neutral-900">Projects</h1>
               <p className="text-sm text-neutral-500">
                 Manage and edit your projects
               </p>
             </div>
 
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-              <div className="relative w-full sm:w-64">
+            <div className="flex grow flex-wrap items-center justify-end gap-2">
+              <div className="relative min-w-40 max-w-xs flex-1 basis-64">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
                 <Input
                   type="text"
@@ -193,7 +195,7 @@ export function DashboardWithWalkthrough({
                   className="w-full pl-10"
                 />
               </div>
-              <span data-onboarding-target="dashboard-new-project" className="flex items-center gap-2">
+              <span data-onboarding-target="dashboard-new-project" className="flex shrink-0 items-center gap-2">
                 <CreateProjectDialog mode="import" />
                 <CreateProjectDialog />
               </span>

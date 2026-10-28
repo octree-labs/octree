@@ -65,7 +65,8 @@ export function useEditSuggestions({
   // Accept a single edit — Monaco path with direct fallback
   const handleAcceptEdit = useCallback(
     async (suggestionId: string) => {
-      if (!canEdit) {
+      const suggestion = editSuggestions.find((s) => s.id === suggestionId);
+      if (!canEdit && suggestion?.source !== 'ats') {
         notifyLimitReached();
         return;
       }
@@ -88,7 +89,9 @@ export function useEditSuggestions({
           onOtherFileEdited
         );
       }
-      track(AnalyticsEvents.AI_EDIT_ACCEPTED, { count: 1, mode: 'single' });
+      if (suggestion?.source !== 'ats') {
+        track(AnalyticsEvents.AI_EDIT_ACCEPTED, { count: 1, mode: 'single' });
+      }
     },
     [canEdit, notifyLimitReached, editor, monacoInstance, editSuggestions, setEditSuggestions, currentFilePath, onSwitchFile, onOtherFileEdited]
   );
@@ -99,15 +102,19 @@ export function useEditSuggestions({
 
     if (pendingSuggestions.length === 0) return;
 
-    if (!canEdit) {
+    // ATS fixes don't spend AI edits; only AI chat edits need the allowance.
+    const aiEditCount = pendingSuggestions.filter((s) => s.source !== 'ats').length;
+    if (!canEdit && aiEditCount > 0) {
       notifyLimitReached();
       return;
     }
 
-    track(AnalyticsEvents.AI_EDIT_ACCEPTED, {
-      count: pendingSuggestions.length,
-      mode: 'all',
-    });
+    if (aiEditCount > 0) {
+      track(AnalyticsEvents.AI_EDIT_ACCEPTED, {
+        count: aiEditCount,
+        mode: 'all',
+      });
+    }
 
     // Use Monaco if editor model is available, otherwise fall back to direct
     if (editor && monacoInstance && editor.getModel()) {

@@ -2,7 +2,7 @@
 
 import { type ReactNode, useState, useEffect, useRef } from 'react';
 import { cn } from '@/lib/utils';
-import { Check, Loader2, X, ChevronDown, ChevronRight } from 'lucide-react';
+import { Loader2, X, ChevronDown, ChevronRight } from 'lucide-react';
 import { ProposalIndicator as ProposalIndicatorType } from './use-edit-proposals';
 import { DiffViewer } from '../ui/diff-viewer';
 import type { EditSuggestion } from '@/types/edit';
@@ -63,13 +63,20 @@ function StepIndicator({ status }: { status: StepStatus }) {
     );
   }
 
+  // A check drawn for this 12px circle and nudged up and right to its optical
+  // center; lucide's Check (made for a 24px grid) sits visibly low-left here.
   return (
-    <span
-      className="flex size-3 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white"
-      aria-hidden="true"
-    >
-      <Check className="size-2" strokeWidth={3} />
-    </span>
+    <svg viewBox="0 0 12 12" className="size-3 shrink-0" aria-hidden="true">
+      <circle cx="6" cy="6" r="6" className="fill-blue-600" />
+      <path
+        d="M3.6 6.1 5.3 7.75 8.5 4.35"
+        fill="none"
+        stroke="white"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 

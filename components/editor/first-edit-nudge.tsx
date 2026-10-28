@@ -14,9 +14,9 @@ interface FirstEditNudgeProps {
 }
 
 /**
- * The strip above the PDF preview after a user's first successful compile:
- * one line and three one-click AI edit prompts. It sits in the preview
- * pane's flow (not over the PDF) and is gone after a click or the X.
+ * The card above the chat input after a user's first successful compile:
+ * one line and three one-click AI edit prompts, right where the edit will
+ * happen. It is gone after a click or the X.
  */
 export function FirstEditNudge({
   suggestions,
@@ -29,7 +29,7 @@ export function FirstEditNudge({
       role="status"
       aria-live="polite"
       data-testid="first-edit-nudge"
-      className="flex shrink-0 items-start gap-3 border-b border-primary/20 bg-primary/5 px-3 py-2.5"
+      className="flex items-start gap-3 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5"
     >
       <WandSparkles className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden="true" />
       <div className="min-w-0 flex-1">

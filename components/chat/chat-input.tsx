@@ -1,4 +1,4 @@
-import { useRef, useImperativeHandle, forwardRef, type FormEvent } from 'react';
+import { useRef, useImperativeHandle, forwardRef, type FormEvent, useLayoutEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -24,11 +24,15 @@ interface ChatInputProps {
   onResetError?: () => void;
   onClearHistory?: () => void;
   formRef?: React.RefObject<HTMLFormElement | null>;
+  /** Bottom-left of the input box, opposite the send button (the AI edit allowance). */
+  footerStart?: React.ReactNode;
 }
 
 export interface ChatInputRef {
   focus: () => void;
 }
+
+const MAX_INPUT_HEIGHT = 240;
 
 export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(
   (
@@ -48,10 +52,19 @@ export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(
       onResetError,
       onClearHistory,
       formRef,
+      footerStart,
     },
     ref
   ) => {
     const inputRef = useRef<HTMLTextAreaElement>(null);
+
+    // Grow with the text (typed or a filled-in draft) up to a cap, then scroll.
+    useLayoutEffect(() => {
+      const el = inputRef.current;
+      if (!el) return;
+      el.style.height = 'auto';
+      el.style.height = `${Math.min(el.scrollHeight, MAX_INPUT_HEIGHT)}px`;
+    }, [input]);
 
     useImperativeHandle(ref, () => ({
       focus: () => {
@@ -143,18 +156,19 @@ export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(
             />
           )}
 
-          <div className="flex w-full flex-wrap items-end gap-2">
-            <Textarea
-              id="chat-input"
-              ref={inputRef}
-              value={input}
-              placeholder="Prompt to edit your document..."
-              onChange={(e) => onInputChange(e.target.value)}
-              onKeyDown={handleKeyDown}
-              className="min-h-[72px] flex-1 resize-none border-none p-1 shadow-none scrollbar-thin scrollbar-track-transparent scrollbar-thumb-neutral-300 focus-visible:ring-0"
-            />
+          <Textarea
+            id="chat-input"
+            ref={inputRef}
+            value={input}
+            placeholder="Prompt to edit your document..."
+            onChange={(e) => onInputChange(e.target.value)}
+            onKeyDown={handleKeyDown}
+            className="min-h-[72px] w-full resize-none border-none p-1 shadow-none scrollbar-thin scrollbar-track-transparent scrollbar-thumb-neutral-300 focus-visible:ring-0"
+          />
 
-            <div className="flex items-end gap-1 self-end">
+          <div className="flex w-full items-center justify-between gap-2">
+            <div className="min-w-0">{footerStart}</div>
+            <div className="flex shrink-0 items-center gap-1">
               {onClearHistory && (
                 <Button
                   type="button"

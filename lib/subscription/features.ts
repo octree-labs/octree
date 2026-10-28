@@ -11,7 +11,7 @@
 import { entitlementFromStatusResponse } from '@/lib/subscription/entitlement';
 import { isCheckoutOfferId, type CheckoutOfferId } from '@/lib/checkout-offers';
 
-export type ProFeature = 'ai-edit' | 'export' | 'generate';
+export type ProFeature = 'ai-edit' | 'export' | 'generate' | 'ats';
 
 export interface FeatureUsage {
   /** Pro by the entitlement rule (lib/subscription/entitlement.ts). */
@@ -54,7 +54,7 @@ export type FeatureAccess =
       reason: 'paywall' | 'monthly-limit' | 'unknown';
     };
 
-const PRO_ONLY_FEATURES: ReadonlySet<ProFeature> = new Set(['export']);
+const PRO_ONLY_FEATURES: ReadonlySet<ProFeature> = new Set(['export', 'ats']);
 
 /**
  * Generations a non-Pro user can still start: the free one plus any bought

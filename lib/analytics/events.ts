@@ -78,7 +78,7 @@ export type AnalyticsEvent = (typeof AnalyticsEvents)[keyof typeof AnalyticsEven
 
 export type SignupProvider = 'email' | 'google' | (string & {});
 export type OnboardingPlan = 'free' | 'pro';
-export type PaywallFeature = 'ai-edit' | 'export' | 'generate';
+export type PaywallFeature = 'ai-edit' | 'export' | 'generate' | 'ats';
 export type PaywallReason = 'daily_limit' | 'pro_feature' | 'monthly_limit' | 'generate_quota';
 /** What the paywall can sell: the subscription, or one generation credit. */
 export type PaywallOffer = 'pro' | 'single';

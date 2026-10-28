@@ -14,6 +14,7 @@ import { track } from '@/lib/analytics/track';
 import { useEditProposals } from './use-edit-proposals';
 import { useFileAttachments } from './use-file-attachments';
 import { ChatMessageComponent } from './chat-message';
+import { UsageIndicator } from '@/components/subscription/usage-indicator';
 import { ChatInput, ChatInputRef } from './chat-input';
 import { EmptyState } from './empty-state';
 import { SearchPanel } from './search-panel';
@@ -42,8 +43,13 @@ interface ChatProps {
   embedded?: boolean;
   autoSendMessage?: string | null;
   setAutoSendMessage?: (message: string | null) => void;
+  /** Put in the input for the user to finish and send (unlike autoSendMessage, not sent). */
+  draftMessage?: string | null;
+  setDraftMessage?: (message: string | null) => void;
   projectId?: string;
   autoFocus?: boolean;
+  /** Shown above the input on the chat tab, e.g. the first-edit nudge. */
+  banner?: React.ReactNode;
 }
 
 interface ChatMessage {
@@ -68,9 +74,12 @@ export function Chat({
   currentFilePath = null,
   autoSendMessage,
   setAutoSendMessage,
+  draftMessage,
+  setDraftMessage,
   projectId,
   onRestoreCheckpoint,
   autoFocus = true,
+  banner,
 }: ChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -97,6 +106,8 @@ export function Chat({
     }
   }, [isOpen, autoFocus]);
 
+  // Waits for the chat to be open and idle, so a message queued while a reply
+  // is streaming (e.g. Cite in the Papers tab) is sent once it finishes.
   useEffect(() => {
     if (autoSendMessage && isOpen && !isLoading) {
       setInput(autoSendMessage);
@@ -110,7 +121,15 @@ export function Chat({
         }
       }, 100);
     }
-  }, [autoSendMessage]);
+  }, [autoSendMessage, isOpen, isLoading, setAutoSendMessage]);
+
+  useEffect(() => {
+    if (!draftMessage || !isOpen) return;
+    setInput(draftMessage);
+    setDraftMessage?.(null);
+    // After the tab becomes visible, so focus lands.
+    setTimeout(() => chatInputRef.current?.focus(), 0);
+  }, [draftMessage, isOpen, setDraftMessage]);
 
   const { startStream, parseStream, stopStream } = useChatStream();
   const {
@@ -459,47 +478,28 @@ export function Chat({
   return (
     // `data-ph-mask`: prompts and AI replies are masked in PostHog session replay.
     <div className="flex h-full flex-col bg-white" data-ph-mask="">
-      <div className="flex flex-shrink-0 items-center justify-between border-b border-slate-200 px-4 py-2">
-        <div className="flex items-center gap-1.5">
-          {!embedded && (
-            <>
-              <OctreeLogo className="h-5 w-5" />
-              <div>
-                <h3 className="text-sm font-semibold text-slate-800">Octra</h3>
-              </div>
-            </>
-          )}
-          <div
-            className={cn(
-              'flex items-center gap-1',
-              !embedded && 'ml-1.5 border-l border-slate-200 pl-3'
-            )}
-          >
-            <button
-              onClick={() => setActiveTab('chat')}
-              className={`rounded-md px-1.5 py-0.5 text-xs transition-colors ${
-                activeTab === 'chat'
-                  ? 'font-medium text-slate-700'
-                  : 'text-slate-400 hover:text-slate-600'
-              }`}
-            >
-              Chat
-            </button>
-            <button
-              onClick={() => setActiveTab('search')}
-              className={`rounded-md px-1.5 py-0.5 text-xs transition-colors ${
-                activeTab === 'search'
-                  ? 'font-medium text-slate-700'
-                  : 'text-slate-400 hover:text-slate-600'
-              }`}
-            >
-              Search
-            </button>
+      {/* In the editor the pane tabs above replace this header (paper search is
+          its own Papers tab there); the mobile overlay keeps it. */}
+      {!embedded && (
+        <div className="flex flex-shrink-0 items-center justify-between border-b border-slate-200 px-4 py-2">
+          <div className="flex items-center gap-1.5">
+            <OctreeLogo className="h-5 w-5" />
+            <h3 className="text-sm font-semibold text-slate-800">Octra</h3>
+            <div className="ml-1.5 flex items-center gap-1 border-l border-slate-200 pl-3">
+              {(['chat', 'search'] as const).map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={cn(
+                    'rounded-md px-1.5 py-0.5 text-xs capitalize transition-colors',
+                    activeTab === tab ? 'font-medium text-slate-700' : 'text-slate-400 hover:text-slate-600'
+                  )}
+                >
+                  {tab}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
-
-        {!embedded && (
-        <div className="flex items-center gap-1">
           <Button
             variant="ghost"
             size="sm"
@@ -510,11 +510,10 @@ export function Chat({
             <X size={14} />
           </Button>
         </div>
-        )}
-      </div>
+      )}
 
       <div className="flex min-h-0 flex-1 flex-col">
-        {activeTab === 'search' ? (
+        {!embedded && activeTab === 'search' ? (
           <SearchPanel onCite={handleCite} />
         ) : (
           <>
@@ -568,7 +567,10 @@ export function Chat({
               )}
             </div>
 
+            {banner && <div className="shrink-0 px-3 pb-2">{banner}</div>}
+
             <ChatInput
+              footerStart={<UsageIndicator />}
               ref={chatInputRef}
               formRef={formRef}
               input={input}

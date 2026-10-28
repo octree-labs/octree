@@ -1,25 +1,33 @@
 'use client';
 
-import { Code, WandSparkles } from 'lucide-react';
+import { BookOpen, Code, ScanSearch, WandSparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-export type EditorPaneTab = 'code' | 'chat';
+export type EditorPaneTab = 'code' | 'chat' | 'ats' | 'papers';
 
 const TABS: { id: EditorPaneTab; label: string; icon: typeof Code }[] = [
   { id: 'chat', label: 'Edit with AI', icon: WandSparkles },
   { id: 'code', label: 'Code', icon: Code },
+  { id: 'ats', label: 'Resume check', icon: ScanSearch },
+  { id: 'papers', label: 'Papers', icon: BookOpen },
 ];
 
 export function EditorPaneTabs({
   activeTab,
   onTabChange,
+  showAts = false,
+  showPapers = false,
 }: {
   activeTab: EditorPaneTab;
   onTabChange: (tab: EditorPaneTab) => void;
+  /** Resume projects only: the ATS analysis ("Resume check"). */
+  showAts?: boolean;
+  /** Paper search for citations; shown on non-resume projects. */
+  showPapers?: boolean;
 }) {
   return (
     <div role="tablist" className="flex items-center gap-0.5 rounded-lg bg-slate-100 p-0.5">
-      {TABS.map(({ id, label, icon: Icon }) => {
+      {TABS.filter(({ id }) => (id !== 'ats' || showAts) && (id !== 'papers' || showPapers)).map(({ id, label, icon: Icon }) => {
         const isActive = activeTab === id;
         const isAi = id === 'chat';
         return (

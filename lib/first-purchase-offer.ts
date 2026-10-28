@@ -107,7 +107,7 @@ export function firstPurchaseOfferCopy(offerId: CheckoutOfferId) {
     priceLine: `${firstMonth} first month, then ${monthly.price}/mo`,
     /** "50% off your first month, applied at checkout" */
     note: `${offer.label}, applied at checkout`,
-    /** "Go Pro — 50% off first month" */
-    button: `Go Pro — ${offer.percentOff}% off first month`,
+    /** "Go Pro with 50% off" (the price line says it is the first month) */
+    button: `Go Pro with ${offer.percentOff}% off`,
   };
 }

@@ -138,12 +138,12 @@ describe('DocumentPreview checkout plan', () => {
 
     const buttons = screen.getAllByRole('button').map((b) => b.textContent ?? '');
     const single = buttons.findIndex((t) => /generate this one — \$2\.99/i.test(t));
-    const pro = buttons.findIndex((t) => /go pro — \$9\.99\/mo/i.test(t));
+    const pro = buttons.findIndex((t) => /go pro for \$9\.99\/mo/i.test(t));
     const notNow = buttons.findIndex((t) => /not now/i.test(t));
     expect(single).toBeGreaterThanOrEqual(0);
     expect(single).toBeLessThan(pro);
     expect(pro).toBeLessThan(notNow);
-    expect(screen.getByText(/billed monthly\. cancel anytime/i)).toBeInTheDocument();
+    expect(screen.getByText(/cancel anytime\./i)).toBeInTheDocument();
     expect(screen.queryByRole('radio')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /generate this one/i }));
@@ -160,7 +160,7 @@ describe('DocumentPreview checkout plan', () => {
     PaywallActions.open('generate', 'generate_quota', ['pro', 'single']);
     render(<PaywallDialog />);
 
-    fireEvent.click(screen.getByRole('button', { name: /go pro — \$9\.99\/mo/i }));
+    fireEvent.click(screen.getByRole('button', { name: /go pro for \$9\.99\/mo/i }));
     await waitFor(() => expect(mockedCreateCheckoutSession).toHaveBeenCalledTimes(1));
     expect(mockedCreateCheckoutSession.mock.calls[0][0]).toEqual({ plan: 'monthly', withTrial: false, source: 'paywall' });
     expect(screen.getByRole('button', { name: /loading/i })).toBeInTheDocument();

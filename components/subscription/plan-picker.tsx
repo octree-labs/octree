@@ -117,10 +117,10 @@ export function PlanPicker({
           <div className="space-y-1">
             {offerPercentOff ? (
               <div className="flex flex-wrap items-baseline gap-2">
-                <p className="text-xl font-medium text-muted-foreground line-through">{selected.price}</p>
                 <p className="text-3xl font-bold">
                   ${discountedAmount(selected.amount, offerPercentOff).toFixed(2)}
                 </p>
+                <p className="text-lg font-medium text-muted-foreground line-through">{selected.price}</p>
                 <p className="text-sm text-muted-foreground">
                   {FIRST_PERIOD[plan]}, then {selected.price} {selected.intervalLabel}
                 </p>

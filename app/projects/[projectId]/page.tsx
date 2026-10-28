@@ -21,6 +21,8 @@ import { SelectionButton } from '@/components/editor/selection-button';
 import { LoadingState } from '@/components/editor/loading-state';
 import { ErrorState } from '@/components/editor/error-state';
 import { FirstEditNudge } from '@/components/editor/first-edit-nudge';
+import { AtsPanel } from '@/components/resume/ats-panel';
+import { SearchPanel } from '@/components/chat/search-panel';
 import PDFViewer from '@/components/pdf-viewer';
 import { Chat } from '@/components/chat';
 import { CompilationError } from '@/components/latex/compilation-error';
@@ -45,6 +47,12 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { Code, Eye, MessageSquare, Play, Loader2, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { FileTree } from '@/components/projects/file-tree';
+
+// Inactive pane tabs stay mounted (editor and chat keep their state) but hidden.
+// Transitions are switched off inside them: `transition-all` (buttons) also
+// animates `visibility`, which kept buttons on screen for a moment after the
+// switch.
+const HIDDEN_PANE = 'invisible [&_*]:transition-none';
 
 export default function ProjectPage() {
   const params = useParams();
@@ -195,6 +203,15 @@ export default function ProjectPage() {
   } = useEditorInteractions();
 
   const [autoSendMessage, setAutoSendMessage] = useState<string | null>(null);
+  // The pane shown while the chat is closed. The chat itself is `chatOpen`
+  // (useEditorInteractions), which other features open directly.
+  const [otherTab, setOtherTab] = useState<'code' | 'ats' | 'papers'>('code');
+  const [chatDraft, setChatDraft] = useState<string | null>(null);
+
+  // Anything that opens the chat (Fix with AI, the edit nudge, Cite) leaves the other tab.
+  useEffect(() => {
+    if (chatOpen) setOtherTab('code');
+  }, [chatOpen]);
   const [hasCompiledOnMount, setHasCompiledOnMount] = useState(false);
 
   const projectFileContext = useMemo(
@@ -209,6 +226,12 @@ export default function ProjectPage() {
         : [],
     [projectFiles]
   );
+
+  // The resume is main.tex; read it live from the editor when it's the open file.
+  const resumeTex =
+    selectedFile?.name === 'main.tex'
+      ? content
+      : (projectFileContext.find((file) => file.path === 'main.tex')?.content ?? '');
 
   useEffect(() => {
     FileActions.reset();
@@ -315,6 +338,57 @@ export default function ProjectPage() {
     [chooseNudgeSuggestion, isMobile, setChatOpen]
   );
 
+  // ATS fixes go through the same path as AI edits (applied as they arrive),
+  // marked so they don't need AI edits left. The PDF recompiles once they
+  // are in: when the pending queue is empty again.
+  const compileAfterAtsRef = useRef(false);
+  useEffect(() => {
+    // A compile already running would drop this one; go once it finishes.
+    if (!compileAfterAtsRef.current || totalPendingCount > 0 || compiling) return;
+    compileAfterAtsRef.current = false;
+    handleCompile();
+  }, [totalPendingCount, resumeTex, compiling, handleCompile]);
+
+  const applyAtsFixes = useCallback(
+    (fixes: Array<{ find: string; replace: string; title: string }>) => {
+      if (fixes.length === 0) return; // An empty batch would clear the queue.
+      compileAfterAtsRef.current = true;
+      const batch = Date.now();
+      handleEditSuggestion(
+        fixes.map((fix, i) => ({
+          id: `ats-${batch}-${i}`,
+          file_path: 'main.tex',
+          old_string: fix.find,
+          new_string: fix.replace,
+          explanation: fix.title,
+          status: 'pending' as const,
+          source: 'ats' as const,
+        }))
+      );
+    },
+    [handleEditSuggestion]
+  );
+
+  // Cite in the Papers tab: attach the BibTeX and ask the chat to add it. The
+  // chat sends it once it is open and idle.
+  const handleCitePaper = useCallback(
+    (bibtex: string) => {
+      setTextFromEditor(bibtex);
+      setChatOpen(true);
+      setAutoSendMessage('Add this paper to the bibliography as a reference.');
+    },
+    [setTextFromEditor, setChatOpen]
+  );
+
+  // "Ask AI" on an ATS issue: open the chat with a draft the user finishes and sends.
+  const askAiAboutAtsIssue = useCallback(
+    (prompt: string) => {
+      setChatDraft(prompt);
+      setChatOpen(true);
+    },
+    [setChatOpen]
+  );
+
   if (isProjectLoading || isFilesLoading) return <LoadingState />;
   if (projectError || filesError)
     return <ErrorState error="Error fetching project" />;
@@ -340,7 +414,17 @@ export default function ProjectPage() {
     currentFilePath: selectedFile?.name ?? null,
     autoSendMessage,
     setAutoSendMessage,
+    draftMessage: chatDraft,
+    setDraftMessage: setChatDraft,
     projectId,
+    banner: nudgeSuggestions ? (
+      <FirstEditNudge
+        suggestions={nudgeSuggestions}
+        onChoose={handleNudgeChoose}
+        onDismiss={dismissNudge}
+        showFreeAllowance={!subscriptionUsage?.isPro}
+      />
+    ) : null,
   };
 
   const renderContent = () => {
@@ -390,14 +474,6 @@ export default function ProjectPage() {
 
   const renderPreview = () => (
       <div className="flex h-full flex-col overflow-hidden border-l border-slate-200" data-onboarding-target="pdf">
-          {nudgeSuggestions && (
-              <FirstEditNudge
-                  suggestions={nudgeSuggestions}
-                  onChoose={handleNudgeChoose}
-                  onDismiss={dismissNudge}
-                  showFreeAllowance={!subscriptionUsage?.isPro}
-              />
-          )}
           <div className="relative min-h-0 flex-1 overflow-hidden">
           {compilationError && !pdfData ? (
               <div className="relative flex h-full overflow-auto">
@@ -578,7 +654,14 @@ export default function ProjectPage() {
       );
   }
 
-  const paneTab = chatOpen ? 'chat' : 'code';
+  const isResume = projectData?.kind === 'resume';
+  const paneTab = chatOpen
+    ? 'chat'
+    : otherTab === 'ats' && isResume
+      ? 'ats'
+      : otherTab === 'papers' && !isResume
+        ? 'papers'
+        : 'code';
 
   return (
     <div className="flex h-[calc(100vh-45px)] flex-col bg-slate-100">
@@ -594,7 +677,12 @@ export default function ProjectPage() {
       >
         <EditorPaneTabs
           activeTab={paneTab}
-          onTabChange={(tab) => setChatOpen(tab === 'chat')}
+          onTabChange={(tab) => {
+            setChatOpen(tab === 'chat');
+            if (tab !== 'chat') setOtherTab(tab);
+          }}
+          showAts={isResume}
+          showPapers={!isResume}
         />
       </EditorToolbar>
 
@@ -607,7 +695,7 @@ export default function ProjectPage() {
             <div className="flex h-full flex-col" data-onboarding-target="editor">
               <div className="relative min-h-0 flex-1">
                 {/* Both stay mounted: Monaco applies agent edits and chat keeps its state. */}
-                <div className={cn('absolute inset-0 flex flex-col', paneTab !== 'code' && 'invisible')}>
+                <div className={cn('absolute inset-0 flex flex-col', paneTab !== 'code' && HIDDEN_PANE)}>
                   {isText && (
                     <div className="flex h-10 shrink-0 items-center border-b border-slate-200 bg-white px-2">
                       <FormattingBar onTextFormat={handleTextFormat} />
@@ -617,7 +705,7 @@ export default function ProjectPage() {
                     {renderContent()}
                   </div>
                 </div>
-                <div className={cn('absolute inset-0 bg-white', paneTab !== 'chat' && 'invisible')}>
+                <div className={cn('absolute inset-0 bg-white', paneTab !== 'chat' && HIDDEN_PANE)}>
                   <Chat
                     isOpen={chatOpen}
                     setIsOpen={setChatOpen}
@@ -625,6 +713,23 @@ export default function ProjectPage() {
                     {...chatProps}
                   />
                 </div>
+                {!isResume && (
+                  <div className={cn('absolute inset-0 bg-white', paneTab !== 'papers' && HIDDEN_PANE)}>
+                    <SearchPanel onCite={handleCitePaper} />
+                  </div>
+                )}
+                {isResume && (
+                  <div className={cn('absolute inset-0', paneTab !== 'ats' && HIDDEN_PANE)}>
+                    <AtsPanel
+                      projectId={projectId}
+                      tex={resumeTex}
+                      pdfData={pdfData}
+                      compiling={compiling}
+                      onApplyFixes={applyAtsFixes}
+                      onAskAi={askAiAboutAtsIssue}
+                    />
+                  </div>
+                )}
               </div>
             </div>
           </ResizablePanel>

@@ -40,7 +40,7 @@ describe('canUseFeature', () => {
     });
   });
 
-  describe.each(['export', 'generate'] as const)('%s (Pro, or a generation allowance)', (feature) => {
+  describe.each(['export', 'generate', 'ats'] as const)('%s (Pro, or a generation allowance)', (feature) => {
     it('opens the paywall for a free user with no allowance left, even with edits left', () => {
       expect(canUseFeature(free, feature)).toEqual({ allowed: false, reason: 'paywall' });
     });
@@ -78,7 +78,8 @@ describe('canUseFeature', () => {
       expect(remainingGenerations(freeSpent)).toBe(0);
     });
 
-    it('does not let the allowance unlock export', () => {
+    it('does not let the allowance unlock export or the ATS analysis', () => {
+      expect(canUseFeature(freeWithCredit, 'ats')).toEqual({ allowed: false, reason: 'paywall' });
       expect(canUseFeature(freeWithCredit, 'export')).toEqual({ allowed: false, reason: 'paywall' });
     });
 

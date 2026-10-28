@@ -81,9 +81,10 @@ describe('PaywallDialog with the first-purchase offer', () => {
     PaywallActions.open('export');
     render(<PaywallDialog />);
 
-    expect(screen.getByText('50% off your first month, applied at checkout')).toBeInTheDocument();
+    // The crossed-out price and the button carry the offer; no separate note.
     expect(screen.getByText('$4.99')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Go Pro — 50% off first month' }));
+    expect(screen.queryByText(/applied at checkout/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Go Pro with 50% off' }));
 
     await waitFor(() => expect(createCheckoutSession).toHaveBeenCalledTimes(1));
     expect(vi.mocked(createCheckoutSession).mock.calls[0][0]).toEqual({
@@ -94,13 +95,24 @@ describe('PaywallDialog with the first-purchase offer', () => {
     });
   });
 
+  it.each([
+    ['ai-edit', true],
+    ['export', false],
+    ['generate', false],
+    ['ats', false],
+  ] as const)('shows the AI edit credit pack on the %s paywall: %s', (feature, shown) => {
+    PaywallActions.open(feature);
+    render(<PaywallDialog />);
+    expect(!!screen.queryByRole('button', { name: /^Buy 100 AI edits/ })).toBe(shown);
+  });
+
   it('drops the offer when the annual plan is picked', async () => {
     PaywallActions.open('ai-edit', 'daily_limit');
     render(<PaywallDialog />);
 
     fireEvent.click(screen.getByRole('radio', { name: /annual/i }));
     expect(screen.queryByText('50% off your first month, applied at checkout')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Get Octree Pro →' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Get Octree Pro' }));
 
     await waitFor(() => expect(createCheckoutSession).toHaveBeenCalledTimes(1));
     expect(vi.mocked(createCheckoutSession).mock.calls[0][0]).toEqual({
@@ -115,10 +127,11 @@ describe('PaywallDialog with the first-purchase offer', () => {
     render(<PaywallDialog />);
 
     expect(screen.getByText('$4.99 first month, then $9.99/mo')).toBeInTheDocument();
-    expect(screen.getByText('50% off your first month, applied at checkout')).toBeInTheDocument();
+    // The two-card layout keeps it short: the price line and the button carry the offer.
+    expect(screen.queryByText(/applied at checkout/)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Generate this one — $2.99' })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Go Pro — 50% off first month' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Go Pro with 50% off' }));
     await waitFor(() => expect(createCheckoutSession).toHaveBeenCalledTimes(1));
     expect(vi.mocked(createCheckoutSession).mock.calls[0][0]).toEqual({
       plan: 'monthly',
@@ -188,9 +201,9 @@ describe('PaywallDialog export with the one-off "Export this document" offer', (
 
     expect(screen.getByText('Export this document', { selector: 'p' })).toBeInTheDocument();
     expect(screen.getByText('$4.99 once')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Unlock export — $4.99' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Unlock export' })).toBeInTheDocument();
     expect(screen.getByText('Octree Pro')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Go Pro — $9.99/mo' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Go Pro for $9.99/mo' })).toBeInTheDocument();
     // Not the plan picker layout.
     expect(screen.queryByRole('radio')).not.toBeInTheDocument();
     expect(stableIds(document.body.innerHTML)).toMatchSnapshot();
@@ -200,7 +213,7 @@ describe('PaywallDialog export with the one-off "Export this document" offer', (
     openExportSingle();
     render(<PaywallDialog />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Unlock export — $4.99' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Unlock export' }));
     await waitFor(() => expect(createCheckoutSession).toHaveBeenCalledTimes(1));
     expect(vi.mocked(createCheckoutSession).mock.calls[0][0]).toEqual({
       plan: 'export_single',
@@ -215,10 +228,10 @@ describe('PaywallDialog export with the one-off "Export this document" offer', (
     render(<PaywallDialog />);
 
     expect(screen.getByText('$4.99 first month, then $9.99/mo')).toBeInTheDocument();
-    expect(screen.getByText('50% off your first month, applied at checkout')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Unlock export — $4.99' })).toBeInTheDocument();
+    expect(screen.queryByText(/applied at checkout/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Unlock export' })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Unlock export — $4.99' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Unlock export' }));
     await waitFor(() => expect(createCheckoutSession).toHaveBeenCalledTimes(1));
     expect(vi.mocked(createCheckoutSession).mock.calls[0][0]).toEqual({
       plan: 'export_single',
@@ -232,7 +245,7 @@ describe('PaywallDialog export with the one-off "Export this document" offer', (
     openExportSingle();
     render(<PaywallDialog />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Go Pro — 50% off first month' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Go Pro with 50% off' }));
     await waitFor(() => expect(createCheckoutSession).toHaveBeenCalledTimes(1));
     expect(vi.mocked(createCheckoutSession).mock.calls[0][0]).toEqual({
       plan: 'monthly',
@@ -248,7 +261,7 @@ describe('PaywallDialog export with the one-off "Export this document" offer', (
     openExportSingle();
     render(<PaywallDialog />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Unlock export — $4.99' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Unlock export' }));
     await waitFor(() => expect(usePaywallStore.getState().open).toBe(false));
     expect(isExportUnlocked(useProjectStore.getState(), PROJECT_ID)).toBe(true);
   });

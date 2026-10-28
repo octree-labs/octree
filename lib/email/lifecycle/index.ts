@@ -1,6 +1,17 @@
 import { PRO_MONTHLY_EDIT_LIMIT, PRO_PLANS } from '@/data/constants';
 import { WARM_LEAD_OFFER, warmLeadOfferUrl } from '@/lib/checkout-offers';
-import { join, link, p, renderLifecycleEmail, type LifecycleEmailContent } from './layout';
+import {
+  cards,
+  checklist,
+  facts,
+  join,
+  link,
+  offer,
+  p,
+  renderLifecycleEmail,
+  steps,
+  type LifecycleEmailContent,
+} from './layout';
 
 export type { LifecycleEmailContent } from './layout';
 
@@ -58,14 +69,31 @@ export function welcomeEmail(input: LifecycleTemplateInput): LifecycleEmailConte
     template: 'welcome',
     subject: 'Start with a template',
     preheader: 'Three LaTeX templates that open straight in Octree.',
-    paragraphs: [
+    eyebrow: 'Get started',
+    headline: 'Start with a template',
+    subheadline: 'Pick one, open it in Octree, and you have a compiling document in under a minute.',
+    blocks: [
       p("Hi, Basil here. I build Octree. You signed up but haven't started a project yet, so here is the fastest way in: pick a template and open it in the editor."),
-      join(
-        link("Jake's Resume", `${templates}/jakes-resume`),
-        ' - the one-page engineering resume most people use.'
-      ),
-      join(link('NeurIPS 2027', `${templates}/neurips-2027`), ' - the conference paper style file, ready to compile.'),
-      join(link('Thesis', `${templates}/thesis`), ' - chapters, bibliography and front matter already wired up.'),
+      cards([
+        {
+          title: "Jake's Resume",
+          description: 'The one-page engineering resume most people use.',
+          href: `${templates}/jakes-resume`,
+          linkLabel: 'View template',
+        },
+        {
+          title: 'NeurIPS 2027',
+          description: 'The conference paper style file, ready to compile.',
+          href: `${templates}/neurips-2027`,
+          linkLabel: 'View template',
+        },
+        {
+          title: 'Thesis',
+          description: 'Chapters, bibliography and front matter already wired up.',
+          href: `${templates}/thesis`,
+          linkLabel: 'View template',
+        },
+      ]),
       p('Each page has an "Open in Octree" button. Or start blank: the editor compiles as you type and the AI can fix errors or rewrite a paragraph when you ask.'),
       p('Reply to this email if anything is confusing. I read every one.'),
     ],
@@ -79,10 +107,18 @@ export function limitHitEmail(input: LifecycleTemplateInput): LifecycleEmailCont
     template: 'limit_hit',
     subject: "You've used your free AI edits",
     preheader: `Pro: ${PRO_MONTHLY_EDIT_LIMIT} AI edits a month, export, Generate. ${PRO_PLANS.monthly.price}/month.`,
-    paragraphs: [
+    eyebrow: 'Free plan',
+    headline: "You've used your free AI edits",
+    subheadline: 'Free stays free. Pro is there for when you need more.',
+    blocks: [
       p('Basil here. You hit the free limit on AI edits in Octree, which means you actually used it. Thanks.'),
-      p(`Free stays free: 5 AI edits a day, unlimited compiles. If you want more, ${PRO_LINE}`),
-      p('Upgrading takes about a minute and the button below opens the checkout inside the editor.'),
+      p(`Free stays free: 5 AI edits a day, unlimited compiles. If you want more, Pro is ${PRO_PLANS.monthly.price}/month:`),
+      checklist([
+        { title: `${PRO_MONTHLY_EDIT_LIMIT} AI edits a month`, body: p('Rewrite, restructure or fix errors with no daily cap.') },
+        { title: 'PDF and ZIP export', body: p('Download the finished PDF or the full source.') },
+        { title: 'Generate', body: p('A full document from a prompt.') },
+      ]),
+      p('Cancel anytime. Upgrading takes about a minute and the button below opens the checkout inside the editor.'),
     ],
     cta: { label: 'Upgrade to Pro', href: `${input.appUrl}/?upgrade=1` },
     unsubscribeUrl: input.unsubscribeUrl,
@@ -94,9 +130,16 @@ export function day7Email(input: LifecycleTemplateInput): LifecycleEmailContent 
     template: 'day7',
     subject: 'One Octree tip: jump from PDF to source',
     preheader: 'Double-click the PDF to land on the exact line of LaTeX.',
-    paragraphs: [
+    eyebrow: 'Octree tip',
+    headline: 'Jump from PDF to source',
+    subheadline: 'Double-click to land on the exact line. It works on every plan.',
+    blocks: [
       p("Basil here. You've had Octree for a week, so one tip that most people miss:"),
-      p('Double-click anywhere in the compiled PDF and the editor jumps to that line of source. Double-click a line in the editor and the PDF scrolls to it. SyncTeX is on for every project, including free ones.'),
+      steps([
+        { title: 'PDF to source', body: p('Double-click anywhere in the compiled PDF and the editor jumps to that line of source.') },
+        { title: 'Source to PDF', body: p('Double-click a line in the editor and the PDF scrolls to it.') },
+      ]),
+      p('This is SyncTeX, and it is on for every project, including free ones.'),
       p(`If you reach for the AI a lot: ${PRO_LINE}`),
     ],
     cta: { label: 'Open your projects', href: `${input.appUrl}/` },
@@ -109,15 +152,29 @@ export function winbackEmail(input: LifecycleTemplateInput): LifecycleEmailConte
     template: 'winback',
     subject: "What's changed in Octree since you left",
     preheader: 'Free editor access, faster compiles, new templates and converters.',
-    paragraphs: [
-      p('Basil here. You had Octree Pro for a while and cancelled, which is fair. A few things are different now, so one short note and then I will leave you alone:'),
-      p('The editor no longer needs a subscription. Every account gets the editor, compiles and 5 AI edits a day for free, so your projects are still there and still work.'),
-      p('Compiles are faster: a dedicated compile service replaced the old serverless one, and PDF-to-source jumping (SyncTeX) is on everywhere.'),
-      join(
-        'New templates and converters on ',
-        link('tools.useoctree.com', input.toolsUrl),
-        ': resume, thesis and conference templates that open in Octree, plus converters for Markdown, HTML, MathML and Mermaid.'
-      ),
+    eyebrow: "What's new",
+    headline: "What's changed since you left",
+    subheadline: 'One short note, and then I will leave you alone.',
+    blocks: [
+      p('Basil here. You had Octree Pro for a while and cancelled, which is fair. A few things are different now:'),
+      checklist([
+        {
+          title: 'The editor is free',
+          body: p('Every account gets the editor, compiles and 5 AI edits a day for free, so your projects are still there and still work.'),
+        },
+        {
+          title: 'Faster compiles',
+          body: p('A dedicated compile service replaced the old serverless one, and PDF-to-source jumping (SyncTeX) is on everywhere.'),
+        },
+        {
+          title: 'New templates and converters',
+          body: join(
+            'Resume, thesis and conference templates that open in Octree, plus converters for Markdown, HTML, MathML and Mermaid, on ',
+            link('tools.useoctree.com', input.toolsUrl),
+            '.'
+          ),
+        },
+      ]),
       p(`${PRO_LINE} Your old account and projects pick up where they were.`),
     ],
     cta: { label: 'Come back to Pro', href: `${input.appUrl}/?upgrade=1` },
@@ -134,11 +191,25 @@ export function proInactiveEmail(input: LifecycleTemplateInput): LifecycleEmailC
     template: 'pro_inactive',
     subject: 'Your Octree Pro plan is waiting',
     preheader: 'Three two-minute things you can do with it today.',
-    paragraphs: [
+    eyebrow: 'Your Pro plan',
+    headline: 'Three things to try in two minutes',
+    subheadline: 'Documents come in waves. These are here for the next one.',
+    blocks: [
       p("Basil here. You're on Octree Pro and haven't opened it in about a week. That's fine; documents come in waves. If you have a spare two minutes, any of these pays for itself:"),
-      p('Import an existing .tex file or a ZIP (an Overleaf export works as-is): New Project on the dashboard, upload it, and it compiles right away.'),
-      p('Fix a compile error with the AI: open a project whose build fails and press "Fix with AI" on the error. It edits the line; you accept or reject.'),
-      p('Export a finished PDF: the Export button in the editor gives you the PDF, or the full source as a ZIP.'),
+      steps([
+        {
+          title: 'Import an existing project',
+          body: p('Upload a .tex file or a ZIP (an Overleaf export works as-is) from New Project on the dashboard. It compiles right away.'),
+        },
+        {
+          title: 'Fix a compile error with the AI',
+          body: p('Open a project whose build fails and press "Fix with AI" on the error. It edits the line; you accept or reject.'),
+        },
+        {
+          title: 'Export a finished PDF',
+          body: p('The Export button in the editor gives you the PDF, or the full source as a ZIP.'),
+        },
+      ]),
       p("If none of that is useful right now, nothing to do. Reply if there's something you expected Octree to do and it doesn't; that is the most useful email I get."),
     ],
     cta: { label: 'Open Octree', href: `${input.appUrl}/` },
@@ -160,17 +231,20 @@ export function warmLeadVariant(reason: string | null | undefined, feature?: str
   return 'export';
 }
 
-const WARM_LEAD_COPY: Record<WarmLeadVariant, { subject: string; ranInto: string }> = {
+const WARM_LEAD_COPY: Record<WarmLeadVariant, { subject: string; headline: string; ranInto: string }> = {
   daily_limit: {
     subject: "You hit the daily AI edit limit — here's 50% off your first month",
+    headline: 'Keep editing past the daily limit',
     ranInto: 'the daily AI edit limit',
   },
   export: {
     subject: 'Your PDF is one step away — 50% off your first month',
+    headline: 'Your PDF is one step away',
     ranInto: 'the paywall when exporting your PDF',
   },
   generate: {
     subject: 'Finish that document — 50% off your first month',
+    headline: 'Finish that document',
     ranInto: 'the end of the free generation',
   },
   ats: {
@@ -195,21 +269,25 @@ export interface WarmLeadOfferEmailInput extends LifecycleTemplateInput {
  */
 export function warmLeadOfferEmail(input: WarmLeadOfferEmailInput): LifecycleEmailContent {
   const copy = WARM_LEAD_COPY[warmLeadVariant(input.reason, input.feature)];
-  const offer = WARM_LEAD_OFFER;
+  const deal = WARM_LEAD_OFFER;
   return renderLifecycleEmail({
     template: 'warm_lead_offer',
     subject: copy.subject,
-    preheader: `${offer.label} of Octree Pro. Code ${offer.promotionCode}.`,
-    paragraphs: [
+    preheader: `${deal.label} of Octree Pro. Code ${deal.promotionCode}.`,
+    eyebrow: `${deal.percentOff}% off Octree Pro`,
+    headline: copy.headline,
+    subheadline: `${deal.label} of Pro, on the monthly plan.`,
+    blocks: [
       p(`Hi, I'm Basil, I build Octree. I saw you ran into ${copy.ranInto} ${input.when ?? 'recently'}. That's a frustrating place to stop.`),
-      p(`If you want to keep going, here's ${offer.percentOff}% off your first month of Pro on the monthly plan (${PRO_MONTHLY_EDIT_LIMIT} AI edits a month, PDF export, no daily cap):`),
+      p(`If you want to keep going, here's ${deal.percentOff}% off your first month of Pro on the monthly plan (${PRO_MONTHLY_EDIT_LIMIT} AI edits a month, PDF export, no daily cap):`),
+      offer(
+        `${deal.percentOff}% off your first month`,
+        `Applied automatically. Use code ${deal.promotionCode} at checkout if the discount doesn't show.`,
+        deal.promotionCode
+      ),
+      p('If something else was in the way, just reply and tell me — one line is enough.'),
     ],
-    cta: { label: `Claim ${offer.percentOff}% off`, href: warmLeadOfferUrl(input.appUrl) },
-    closing: [
-      `Use code ${offer.promotionCode} at checkout if the discount doesn't show.`,
-      'If something else was in the way, just reply and tell me — one line is enough.',
-      'Basil',
-    ],
+    cta: { label: `Claim ${deal.percentOff}% off`, href: warmLeadOfferUrl(input.appUrl) },
     unsubscribeUrl: input.unsubscribeUrl,
   });
 }
@@ -291,28 +369,39 @@ function paymentFailedBody(input: PaymentFailedEmailInput, reminder: boolean) {
         : 'If you no longer need Octree, cancel from Settings so we stop retrying the card; if you do nothing and the payment keeps failing, the subscription ends and the account drops to the free plan. Your projects stay either way.'
     ),
   ];
-  return { amount, paragraphs };
+  const summary = facts([
+    ['Plan', 'Octree Pro'],
+    ['Amount due', amount],
+    ['Next automatic retry', retry ?? 'None scheduled'],
+  ]);
+  return { amount, blocks: [paragraphs[0], summary, ...paragraphs.slice(1)] };
 }
 
 export function paymentFailedEmail(input: PaymentFailedEmailInput): LifecycleEmailContent {
-  const { amount, paragraphs } = paymentFailedBody(input, false);
+  const { amount, blocks } = paymentFailedBody(input, false);
   return renderLifecycleEmail({
     template: 'payment_failed',
     subject: "Your Octree Pro payment didn't go through",
     preheader: `The ${amount} payment failed. Update your card to keep Pro.`,
-    paragraphs,
+    eyebrow: 'Billing',
+    headline: "Your payment didn't go through",
+    subheadline: 'Usually an expired card or a bank decline. It takes a minute to fix.',
+    blocks,
     cta: { label: 'Pay or update card', href: input.hostedInvoiceUrl ?? input.billingUrl },
     secondary: { label: 'Manage billing in Octree', href: input.billingUrl },
   });
 }
 
 export function paymentFailedReminderEmail(input: PaymentFailedEmailInput): LifecycleEmailContent {
-  const { amount, paragraphs } = paymentFailedBody(input, true);
+  const { amount, blocks } = paymentFailedBody(input, true);
   return renderLifecycleEmail({
     template: 'payment_failed_reminder',
     subject: 'Reminder: Octree Pro payment still failing',
     preheader: `The ${amount} payment is still open. Update your card to keep Pro.`,
-    paragraphs,
+    eyebrow: 'Billing',
+    headline: 'Your payment is still failing',
+    subheadline: 'Pay the open invoice or update your card to keep Pro.',
+    blocks,
     cta: { label: 'Pay or update card', href: input.hostedInvoiceUrl ?? input.billingUrl },
     secondary: { label: 'Manage billing in Octree', href: input.billingUrl },
   });
@@ -356,8 +445,12 @@ export function checkoutRecoveryEmail(input: CheckoutRecoveryEmailInput): Lifecy
     template: 'checkout_recovery',
     subject: 'Your Octree checkout is still open',
     preheader: `Pick up where you left off: ${cart}.`,
-    paragraphs: [
+    eyebrow: 'Checkout',
+    headline: 'Your checkout is still open',
+    subheadline: 'Nothing was charged. The button below picks up where you left off.',
+    blocks: [
       p(`Basil here. You started checking out for ${cart} and did not finish. No problem; the link below reopens the same checkout, nothing was charged.`),
+      facts([['In your cart', cart]]),
       p(`Pro is ${PRO_MONTHLY_EDIT_LIMIT} AI edits a month, PDF and ZIP export, and Generate (a full document from a prompt). Cancel anytime.`),
       p('If something stopped you, a price, a missing feature, a card that would not go through, reply to this email and tell me. I read every one.'),
     ],
@@ -368,9 +461,10 @@ export function checkoutRecoveryEmail(input: CheckoutRecoveryEmailInput): Lifecy
 
 export function checkoutRecoveryOfferEmail(input: CheckoutRecoveryEmailInput): LifecycleEmailContent {
   const cart = cartLabel(input);
-  const offer = input.promoCode
+  const body = input.promoCode
     ? [
         p(`Basil here. One last note about the ${cart} checkout you left open: use the code ${input.promoCode} and the first two months are half price.`),
+        offer('50% off your first two months', 'Octree Pro, applied to your open checkout', input.promoCode),
         p('The link below reopens your checkout with the code ready to apply (or type it into the promotion code box). It is the same discount I offer people who are about to cancel, so this is as low as it goes.'),
       ]
     : [
@@ -383,7 +477,10 @@ export function checkoutRecoveryOfferEmail(input: CheckoutRecoveryEmailInput): L
     preheader: input.promoCode
       ? `Code ${input.promoCode}: 50% off your first two months.`
       : 'Your checkout link still works.',
-    paragraphs: [...offer, p('After this I will leave you alone. Reply if anything is unclear.')],
+    eyebrow: input.promoCode ? '50% off Octree Pro' : 'Checkout',
+    headline: input.promoCode ? 'Half price for two months of Pro' : 'Still thinking about Octree Pro?',
+    subheadline: input.promoCode ? 'The lowest price Octree Pro goes.' : 'Your checkout link still works.',
+    blocks: [...body, p('After this I will leave you alone. Reply if anything is unclear.')],
     cta: { label: input.promoCode ? 'Finish checkout with 50% off' : 'Finish checkout', href: input.recoveryUrl },
     unsubscribeUrl: input.unsubscribeUrl,
   });

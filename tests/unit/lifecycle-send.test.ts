@@ -136,7 +136,8 @@ describe('lifecycle templates', () => {
     expect(content.subject.length).toBeGreaterThan(5);
     expect(content.html).toContain(input.unsubscribeUrl);
     expect(content.text).toContain(input.unsubscribeUrl);
-    expect(content.html).not.toContain('<img');
+    expect(content.html.match(/<img /g)).toHaveLength(1);
+    expect(content.html).toContain('/email/octree-logo.png" width="28" height="28" alt="Octree"');
     expect(content.html.match(/border-radius:8px/g)).toHaveLength(1);
   });
 

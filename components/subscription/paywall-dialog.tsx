@@ -43,6 +43,10 @@ const COPY: Record<ProFeature, { title: string; description: string }> = {
     title: 'Generate is a Pro feature',
     description: 'Upgrade to generate complete documents from a prompt.',
   },
+  ats: {
+    title: 'Resume check is a Pro feature',
+    description: 'See how hiring software reads your resume and match it to any job.',
+  },
 };
 
 /** A Pro subscriber out of monthly edits: upgrading cannot help, credits can. */
@@ -61,8 +65,7 @@ const GENERATE_QUOTA_COPY = {
 /** Export with a project to unlock: sell Pro, or export for just this document. */
 const EXPORT_SINGLE_COPY = {
   title: 'Export this document',
-  description:
-    'Download it as a PDF or a ZIP of all files. Unlock export for this document once, or go Pro for every project.',
+  description: 'Pay once for this document, or go Pro for every project.',
 };
 
 /** The one-off offer (first card) of the two-card layout, per feature. */
@@ -116,8 +119,8 @@ export function PaywallDialog() {
         ? {
             heading: 'Export this document',
             price: `${EXPORT_SINGLE_PRICE.price} once`,
-            blurb: 'PDF and ZIP export for this document, forever. No subscription.',
-            button: `Unlock export — ${EXPORT_SINGLE_PRICE.price}`,
+            blurb: 'PDF and ZIP, no subscription.',
+            button: 'Unlock export',
             request: { plan: 'export_single', projectId: exportProjectId, source: 'paywall' },
           }
         : null;
@@ -204,9 +207,8 @@ export function PaywallDialog() {
                   {offerCopy ? offerCopy.priceLine : `${PRO_PLANS.monthly.price}/mo`}
                 </p>
               </div>
-              {offerCopy && <p className="mt-1 text-xs font-medium text-primary">{offerCopy.note}</p>}
               <p className="mt-1 text-sm text-muted-foreground">
-                {PRO_MONTHLY_EDIT_LIMIT} AI edits a month, unlimited generations, PDF and ZIP export.
+                {PRO_MONTHLY_EDIT_LIMIT} AI edits a month, unlimited generations, export everywhere. Cancel anytime.
               </p>
               <Button
                 className="mt-3 w-full"
@@ -226,16 +228,14 @@ export function PaywallDialog() {
                   ? 'Loading...'
                   : offerCopy
                     ? offerCopy.button
-                    : `Go Pro — ${PRO_PLANS.monthly.price}/mo`}
+                    : `Go Pro for ${PRO_PLANS.monthly.price}/mo`}
               </Button>
-              <p className="mt-2 text-center text-xs text-muted-foreground">
-                {PRO_PLANS.monthly.billingNote}
-              </p>
             </div>
 
             <Button
-              variant="ghost"
-              className="w-full"
+              variant="link"
+              size="sm"
+              className="mx-auto flex h-auto p-0 text-muted-foreground hover:text-foreground"
               onClick={PaywallActions.close}
               disabled={isSubmitting !== null}
             >
@@ -255,46 +255,33 @@ export function PaywallDialog() {
           <DialogDescription>{copy.description}</DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-6">
+        <div className="space-y-5">
           <PlanPicker
             plan={plan}
             onPlanChange={setPlan}
             source="paywall"
             creditsOnly={creditsOnly}
+            // Credits buy AI edits only; on the other paywalls they are noise.
+            hideCredits={!creditsOnly && feature !== 'ai-edit'}
             disabled={isSubmitting !== null}
             {...(pickerOffer ? { offerPercentOff: CHECKOUT_OFFERS[pickerOffer].percentOff } : {})}
           />
 
-          {pickerOffer && offerCopy && (
-            <p className="-mt-3 text-xs font-medium text-primary">{offerCopy.note}</p>
-          )}
-
           {!creditsOnly && (
-            <div>
-              <p className="mb-3 text-sm font-semibold">What you get with Pro</p>
-              <ul className="space-y-2">
-                {PRO_FEATURES.map((text) => (
-                  <li key={text} className="flex gap-3 text-sm leading-5 text-muted-foreground">
-                    <Check className="mt-0.5 h-4 w-4 shrink-0" />
-                    <span>{text}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
+            <ul className="space-y-1.5">
+              {PRO_FEATURES.map((text) => (
+                <li key={text} className="flex gap-2.5 text-sm text-muted-foreground">
+                  <Check className="mt-0.5 size-4 shrink-0 text-primary" />
+                  <span>{text}</span>
+                </li>
+              ))}
+            </ul>
           )}
 
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              className="flex-1"
-              onClick={PaywallActions.close}
-              disabled={isSubmitting !== null}
-            >
-              Not now
-            </Button>
+          <div className="space-y-2">
             {!creditsOnly && (
               <Button
-                className="flex-1"
+                className="w-full"
                 variant="gradient"
                 onClick={handleSubscribe}
                 disabled={isSubmitting !== null}
@@ -303,16 +290,19 @@ export function PaywallDialog() {
                   ? 'Loading...'
                   : pickerOffer && offerCopy
                     ? offerCopy.button
-                    : 'Get Octree Pro →'}
+                    : 'Get Octree Pro'}
               </Button>
             )}
+            <Button
+              variant="link"
+              size="sm"
+              className="mx-auto flex h-auto p-0 text-muted-foreground hover:text-foreground"
+              onClick={PaywallActions.close}
+              disabled={isSubmitting !== null}
+            >
+              Not now
+            </Button>
           </div>
-
-          {!creditsOnly && (
-            <p className="text-center text-xs text-muted-foreground">
-              Cancel anytime. No questions asked.
-            </p>
-          )}
         </div>
       </DialogContent>
     </Dialog>

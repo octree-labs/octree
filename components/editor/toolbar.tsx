@@ -7,9 +7,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import {
-  UsageIndicator,
-} from '@/components/subscription/usage-indicator';
 import { useSubscriptionUsage } from '@/hooks/use-subscription-usage';
 import { canUseFeature } from '@/lib/subscription/features';
 import { PaywallActions } from '@/stores/paywall';
@@ -21,7 +18,6 @@ import {
   Download,
   FileText,
   FolderArchive,
-  Lock,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
@@ -41,6 +37,15 @@ interface EditorToolbarProps {
    * export without Pro, and the export paywall offers that unlock for it.
    */
   projectId?: string;
+}
+
+/** Marks a menu item that needs Pro (or this project's export unlock). */
+function ProTag() {
+  return (
+    <span className="ml-auto rounded bg-primary/10 px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide text-primary">
+      Pro
+    </span>
+  );
 }
 
 export function EditorToolbar({
@@ -101,7 +106,6 @@ export function EditorToolbar({
         <div className="flex items-center gap-3">{children}</div>
 
         <div className="flex items-center gap-2">
-          <UsageIndicator />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -127,7 +131,7 @@ export function EditorToolbar({
               >
                 <FileText className="size-4" />
                 Export as PDF
-                {showExportLock && <Lock className="ml-auto size-3 text-amber-500" />}
+                {showExportLock && <ProTag />}
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={handleExportZIP}
@@ -136,7 +140,7 @@ export function EditorToolbar({
               >
                 <FolderArchive className="size-4" />
                 Export as ZIP
-                {showExportLock && <Lock className="ml-auto size-3 text-amber-500" />}
+                {showExportLock && <ProTag />}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

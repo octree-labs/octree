@@ -30,6 +30,9 @@ const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7
 const SIDEBAR_WIDTH_DEFAULT = 256
 const SIDEBAR_WIDTH_MIN = 200
 const SIDEBAR_WIDTH_MAX = 400
+// Never more than this share of the window, whatever was saved: a 400px
+// sidebar in a narrow (or zoomed) window leaves the page no room.
+const SIDEBAR_WIDTH_MAX_VIEWPORT = 0.3
 const SIDEBAR_WIDTH_MOBILE = "18rem"
 const SIDEBAR_WIDTH_ICON = "3rem"
 const SIDEBAR_KEYBOARD_SHORTCUT = "k"
@@ -101,7 +104,11 @@ function SidebarProvider({
   const startResize = React.useCallback((e: React.MouseEvent) => {
     e.preventDefault()
     startXRef.current = e.clientX
-    startWidthRef.current = sidebarWidth ?? readStoredSidebarWidth()
+    // Start from the width on screen, which the viewport cap may have shrunk.
+    startWidthRef.current = Math.min(
+      sidebarWidth ?? readStoredSidebarWidth(),
+      window.innerWidth * SIDEBAR_WIDTH_MAX_VIEWPORT
+    )
     setIsResizing(true)
   }, [sidebarWidth])
 
@@ -110,9 +117,12 @@ function SidebarProvider({
 
     const handleMouseMove = (e: MouseEvent) => {
       const delta = e.clientX - startXRef.current
-      const newWidth = Math.min(
-        SIDEBAR_WIDTH_MAX,
-        Math.max(SIDEBAR_WIDTH_MIN, startWidthRef.current + delta)
+      const newWidth = Math.round(
+        Math.min(
+          SIDEBAR_WIDTH_MAX,
+          window.innerWidth * SIDEBAR_WIDTH_MAX_VIEWPORT,
+          Math.max(SIDEBAR_WIDTH_MIN, startWidthRef.current + delta)
+        )
       )
       setSidebarWidth(newWidth)
     }
@@ -197,10 +207,11 @@ function SidebarProvider({
           data-slot="sidebar-wrapper"
           style={
             {
-              "--sidebar-width":
+              "--sidebar-width": `min(${
                 sidebarWidth === null
                   ? `var(--sidebar-width-saved, ${SIDEBAR_WIDTH_DEFAULT}px)`
-                  : `${sidebarWidth}px`,
+                  : `${sidebarWidth}px`
+              }, ${SIDEBAR_WIDTH_MAX_VIEWPORT * 100}vw)`,
               "--sidebar-width-icon": SIDEBAR_WIDTH_ICON,
               ...style,
             } as React.CSSProperties

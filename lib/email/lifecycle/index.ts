@@ -147,7 +147,7 @@ export function proInactiveEmail(input: LifecycleTemplateInput): LifecycleEmailC
 }
 
 /** Which paywall the warm lead ran into; picks the subject and the first line. */
-export type WarmLeadVariant = 'daily_limit' | 'export' | 'generate';
+export type WarmLeadVariant = 'daily_limit' | 'export' | 'generate' | 'ats';
 
 /**
  * Maps a paywall hit (paywall_hits.reason / feature) to the copy variant.
@@ -156,6 +156,7 @@ export type WarmLeadVariant = 'daily_limit' | 'export' | 'generate';
 export function warmLeadVariant(reason: string | null | undefined, feature?: string | null): WarmLeadVariant {
   if (reason === 'daily_limit') return 'daily_limit';
   if (reason === 'generate_quota' || feature === 'generate') return 'generate';
+  if (feature === 'ats') return 'ats';
   return 'export';
 }
 
@@ -171,6 +172,10 @@ const WARM_LEAD_COPY: Record<WarmLeadVariant, { subject: string; ranInto: string
   generate: {
     subject: 'Finish that document — 50% off your first month',
     ranInto: 'the end of the free generation',
+  },
+  ats: {
+    subject: 'Get your resume past the ATS — 50% off your first month',
+    ranInto: 'the paywall on the ATS analysis of your resume',
   },
 };
 

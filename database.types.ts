@@ -379,6 +379,7 @@ export type Database = {
         Row: {
           created_at: string | null
           id: string
+          kind: string | null
           title: string
           updated_at: string | null
           user_id: string
@@ -386,6 +387,7 @@ export type Database = {
         Insert: {
           created_at?: string | null
           id?: string
+          kind?: string | null
           title: string
           updated_at?: string | null
           user_id: string
@@ -393,6 +395,7 @@ export type Database = {
         Update: {
           created_at?: string | null
           id?: string
+          kind?: string | null
           title?: string
           updated_at?: string | null
           user_id?: string
@@ -427,6 +430,47 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "project_export_unlocks_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: true
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      resume_ats_reports: {
+        Row: {
+          created_at: string
+          id: string
+          job_description: string | null
+          project_id: string
+          report: Json
+          tex_hash: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          job_description?: string | null
+          project_id: string
+          report: Json
+          tex_hash: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          job_description?: string | null
+          project_id?: string
+          report?: Json
+          tex_hash?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "resume_ats_reports_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: true
             referencedRelation: "projects"

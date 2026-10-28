@@ -19,7 +19,8 @@ const MAX_TITLE_LENGTH = 200;
 
 export async function createProjectFromLatex(
   title: string,
-  latexContent: string
+  latexContent: string,
+  options: { kind?: 'resume' } = {}
 ): Promise<CreateProjectFromLatexResult> {
   try {
     const supabase = await createClient();
@@ -47,6 +48,7 @@ export async function createProjectFromLatex(
     const projectData: TablesInsert<'projects'> = {
       title: sanitizedTitle,
       user_id: user.id,
+      ...(options.kind === 'resume' ? { kind: 'resume' } : {}),
     };
 
     const { data: project, error: projectError } = await (

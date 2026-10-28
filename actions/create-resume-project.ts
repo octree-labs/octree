@@ -8,7 +8,7 @@ export async function createResumeProject(
   latexContent: string,
   uploadPath: string
 ): Promise<{ projectId: string | null; error: string | null }> {
-  const result = await createProjectFromLatex(title, latexContent);
+  const result = await createProjectFromLatex(title, latexContent, { kind: 'resume' });
   if (!result.projectId) return result;
 
   const supabase = await createClient();

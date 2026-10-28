@@ -241,6 +241,7 @@ describe('warm_lead_offer email', () => {
     ['daily_limit', 'ai-edit', "You hit the daily AI edit limit — here's 50% off your first month", 'the daily AI edit limit'],
     ['pro_feature', 'export', 'Your PDF is one step away — 50% off your first month', 'the paywall when exporting your PDF'],
     ['generate_quota', 'generate', 'Finish that document — 50% off your first month', 'the end of the free generation'],
+    ['pro_feature', 'ats', 'Get your resume past the ATS — 50% off your first month', 'the paywall on the ATS analysis of your resume'],
   ])('renders the %s subject and line through the send path', async (reason, feature, subject, line) => {
     const { selectLifecycleCandidates } = await import('@/lib/lifecycle/select');
     const [candidate] = selectLifecycleCandidates({

@@ -101,7 +101,7 @@ describe('firstPurchaseOfferCopy', () => {
     expect(firstPurchaseOfferCopy('welcome50')).toEqual({
       priceLine: '$4.99 first month, then $9.99/mo',
       note: '50% off your first month, applied at checkout',
-      button: 'Go Pro — 50% off first month',
+      button: 'Go Pro with 50% off',
     });
   });
 });

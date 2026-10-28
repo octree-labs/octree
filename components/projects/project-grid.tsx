@@ -24,7 +24,8 @@ export function ProjectGrid({
           The -m-1/p-1 pair keeps card shadows from being clipped. */}
       <div className="-m-1 min-h-0 flex-1 overflow-y-auto p-1 pb-4">
         {visible.length ? (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          // As many columns as fit the space left by the sidebar.
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-4">
             {visible.map((project) => (
               <ProjectCard key={project.id} project={project} {...actions} />
             ))}
@@ -36,7 +37,7 @@ export function ProjectGrid({
         )}
       </div>
 
-      <div className="flex shrink-0 flex-col gap-4 border-t border-gray-200 px-2 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-gray-200 px-2 py-3">
         <div className="text-sm text-neutral-500">
           Page {page + 1} of {pageCount} ({data.length} total projects)
         </div>

@@ -2,6 +2,8 @@
 
 # Agent Server Deployment Script
 # Syncs files to the server, builds the Docker image remotely, and runs via docker compose.
+# Since 2026-11-01 the agent runs on the compile-production droplet (DEPLOY_HOST in
+# services/agent/.env is the same host as services/compile/.env), listening on :8787.
 
 set -e
 

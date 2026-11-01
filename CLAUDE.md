@@ -35,7 +35,7 @@ make -C services/compile test      # go test ./...
 ### Three-Service Design
 
 1. **Next.js App** (Vercel) — the main web application
-2. **Agent Server** (`services/agent/`) — standalone Express server running the Vercel AI SDK (`streamText` + `@ai-sdk/anthropic`) in Docker on a DigitalOcean droplet, avoiding serverless timeout limits. The Next.js app calls it via `CLAUDE_AGENT_SERVICE_URL`; requests are authenticated with the Supabase JWT. Responses stream as SSE events. Deploy with `services/agent/scripts/deploy.sh`.
+2. **Agent Server** (`services/agent/`) — standalone Express server running the Vercel AI SDK (`streamText` + `@ai-sdk/anthropic`) in Docker on the `compile-production` DigitalOcean droplet (co-located with the compile service since 2026-11-01; the separate `ai-sdk` droplet was destroyed), avoiding serverless timeout limits. The Next.js app calls it via `CLAUDE_AGENT_SERVICE_URL`; requests are authenticated with the Supabase JWT. Responses stream as SSE events. Deploy with `services/agent/scripts/deploy.sh`.
 3. **Compile Service** (`services/compile/`) — Go service running `latexmk` (TeX Live) in Docker. The Next.js app calls it via `COMPILE_SERVICE_URL` (server relay in `app/api/compile-pdf/`) and `NEXT_PUBLIC_COMPILE_SERVICE_URL` (browser, incl. SyncTeX). Deploy with `services/compile/deploy/deploy.sh` (host from `DEPLOY_HOST` in `services/compile/.env`); deploys never sync `.env` — the production one, with `SUPABASE_JWT_SECRET`, lives only on the server, and the local one is a dev config with auth disabled. This repo is public: keep server IPs and other infrastructure details in gitignored `.env` files, not in code.
 
 ### Database Layer — Client vs Server Pattern

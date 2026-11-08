@@ -36,6 +36,8 @@ interface PDFViewerWrapperProps {
   onRetryCompile?: () => void;
   onDismissError?: () => void;
   onFixWithAI?: () => void;
+  /** Text of the "Fix with AI" button (components/latex/compilation-error.tsx). */
+  fixLabel?: string;
   onReverseSync?: (page: number, h: number, v: number) => void;
   forwardSyncTarget?: SynctexForwardResult | null;
 }
@@ -47,6 +49,7 @@ function PDFViewerWrapper({
   onRetryCompile,
   onDismissError,
   onFixWithAI,
+  fixLabel,
   onReverseSync,
   forwardSyncTarget,
 }: PDFViewerWrapperProps) {
@@ -62,6 +65,7 @@ function PDFViewerWrapper({
           onRetryCompile={onRetryCompile}
           onDismissError={onDismissError}
           onFixWithAI={onFixWithAI}
+          fixLabel={fixLabel}
           onReverseSync={onReverseSync}
           forwardSyncTarget={forwardSyncTarget}
         />

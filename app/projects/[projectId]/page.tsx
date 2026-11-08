@@ -13,6 +13,7 @@ import { useEditorKeyboardShortcuts } from '@/hooks/use-editor-keyboard-shortcut
 import { useSynctex } from '@/hooks/use-synctex';
 import { useSubscriptionUsage } from '@/hooks/use-subscription-usage';
 import { useFirstEditNudge } from '@/hooks/use-first-edit-nudge';
+import { useCompileErrorFix } from '@/hooks/use-compile-error-fix';
 import { MonacoEditor } from '@/components/editor/monaco-editor';
 import { EditorToolbar } from '@/components/editor/toolbar';
 import { EditorPaneTabs } from '@/components/editor/editor-pane-tabs';
@@ -32,6 +33,7 @@ import {
   ResizableHandle,
 } from '@/components/ui/resizable';
 import { cn, formatCompilationErrorForAI } from '@/lib/utils';
+import { COMPILE_ERROR_FIX_ENABLED } from '@/data/constants';
 import { FileActions, useProjectFiles, useSelectedFile } from '@/stores/file';
 import { getProject, getProjectFiles } from '@/lib/requests/project';
 import type { ProjectFile } from '@/hooks/use-file-editor';
@@ -338,6 +340,48 @@ export default function ProjectPage() {
     [chooseNudgeSuggestion, isMobile, setChatOpen]
   );
 
+  // Opens the chat (on mobile: the code view's chat sheet) and sends `message`
+  // as an AI edit; the compile error it answers is cleared.
+  const sendCompileFix = useCallback(
+    (message: string) => {
+      setChatOpen(true);
+      if (isMobile) {
+        setMobileView('code'); // The chat overlay lives in the code view
+        setIsMobileChatOpen(true);
+      }
+      setAutoSendMessage(message);
+      setCompilationError(null);
+    },
+    [isMobile, setChatOpen, setCompilationError]
+  );
+
+  // "Fix with AI" on a failed compile: the first TeX error lines go into the
+  // message itself (lib/compile-error-fix.ts), with a per-kind button label.
+  const { offer: compileFixOffer, fix: fixCompileError } = useCompileErrorFix({
+    compilationError,
+    fileName: selectedFile?.name,
+    onSend: (prompt) => {
+      setTextFromEditor(null); // The prompt carries the error; no stale selection.
+      sendCompileFix(prompt);
+    },
+  });
+
+  // COMPILE_ERROR_FIX_ENABLED off: the log tail goes in as a selection and
+  // "Fix this error" is sent.
+  const legacyFixWithAI = useCallback(() => {
+    if (!compilationError) return;
+    setTextFromEditor(formatCompilationErrorForAI(compilationError));
+    sendCompileFix('Fix this error');
+  }, [compilationError, setTextFromEditor, sendCompileFix]);
+
+  const onFixWithAI = !compilationError
+    ? undefined
+    : COMPILE_ERROR_FIX_ENABLED
+      ? compileFixOffer
+        ? fixCompileError
+        : undefined
+      : legacyFixWithAI;
+
   // ATS fixes go through the same path as AI edits (applied as they arrive),
   // marked so they don't need AI edits left. The PDF recompiles once they
   // are in: when the pending queue is empty again.
@@ -482,18 +526,8 @@ export default function ProjectPage() {
                       variant="overlay"
                       onRetry={handleCompile}
                       onDismiss={() => setCompilationError(null)}
-                      onFixWithAI={() => {
-                          if (!compilationError) return;
-                          const errorContext = formatCompilationErrorForAI(compilationError);
-                          setTextFromEditor(errorContext);
-                          setChatOpen(true);
-                          if (isMobile) {
-                            setMobileView('code'); // Switch to code view to show chat
-                            setIsMobileChatOpen(true);
-                          }
-                          setAutoSendMessage('Fix this error');
-                          setCompilationError(null);
-                      }}
+                      onFixWithAI={onFixWithAI}
+                      fixLabel={compileFixOffer?.buttonLabel}
                   />
               </div>
           ) : (
@@ -505,21 +539,8 @@ export default function ProjectPage() {
                   onDismissError={() => setCompilationError(null)}
                   onReverseSync={handleReverseSync}
                   forwardSyncTarget={forwardSyncTarget}
-                  onFixWithAI={
-                      compilationError
-                          ? () => {
-                              const errorContext = formatCompilationErrorForAI(compilationError);
-                              setTextFromEditor(errorContext);
-                              setChatOpen(true);
-                              if (isMobile) {
-                                setMobileView('code'); // Switch to code view to show chat
-                                setIsMobileChatOpen(true);
-                              }
-                              setAutoSendMessage('Fix this error');
-                              setCompilationError(null);
-                          }
-                          : undefined
-                  }
+                  onFixWithAI={onFixWithAI}
+                  fixLabel={compileFixOffer?.buttonLabel}
               />
           )}
           </div>

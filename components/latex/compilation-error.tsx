@@ -20,6 +20,12 @@ interface CompilationErrorProps {
   onRetry?: () => void;
   onDismiss?: () => void;
   onFixWithAI?: () => void;
+  /**
+   * Text of the "Fix with AI" button (e.g. "Missing package — Fix with AI",
+   * lib/compile-error-fix.ts). When set, the button is also on the collapsed
+   * error bar, not only behind "Show Details".
+   */
+  fixLabel?: string;
   className?: string;
   variant?: 'overlay' | 'bottom-bar';
 }
@@ -29,11 +35,26 @@ export function CompilationError({
   onRetry,
   onDismiss,
   onFixWithAI,
+  fixLabel,
   className,
   variant = 'overlay',
 }: CompilationErrorProps) {
   const [showDetails, setShowDetails] = React.useState(false);
   const [isCollapsed, setIsCollapsed] = React.useState(true);
+  const fixText = fixLabel ?? 'Fix with AI';
+  const barFixButton =
+    onFixWithAI && fixLabel ? (
+      <Button
+        onClick={onFixWithAI}
+        size="sm"
+        variant="gradient"
+        className="h-7 text-xs"
+        data-testid="compile-error-fix"
+      >
+        <WandSparkles className="mr-1 h-3 w-3" aria-hidden="true" />
+        {fixText}
+      </Button>
+    ) : null;
 
   if (variant === 'bottom-bar') {
     return (
@@ -52,6 +73,7 @@ export function CompilationError({
               </span>
             </div>
             <div className="flex items-center gap-2">
+              {barFixButton}
               <Button
                 variant="ghost"
                 size="sm"
@@ -83,6 +105,7 @@ export function CompilationError({
                 </span>
               </div>
               <div className="flex items-center gap-2">
+                {barFixButton}
                 <Button
                   variant="ghost"
                   size="sm"
@@ -199,7 +222,7 @@ export function CompilationError({
               )}
 
               <div className="flex gap-2 border-t border-slate-100 pt-3">
-                {onFixWithAI && (
+                {onFixWithAI && !fixLabel && (
                   <Button onClick={onFixWithAI} size="sm" variant="gradient" className="text-xs">
                     <WandSparkles className="mr-1 h-3 w-3" />
                     Fix with AI
@@ -372,9 +395,14 @@ export function CompilationError({
 
           <div className="flex flex-wrap gap-2 border-t border-slate-100 pt-4">
             {onFixWithAI && (
-              <Button onClick={onFixWithAI} variant="gradient" className="flex-1 sm:flex-none">
-                <WandSparkles className="h-4 w-4" />
-                Fix with AI
+              <Button
+                onClick={onFixWithAI}
+                variant="gradient"
+                className="flex-1 sm:flex-none"
+                data-testid="compile-error-fix"
+              >
+                <WandSparkles className="h-4 w-4" aria-hidden="true" />
+                {fixText}
               </Button>
             )}
             {onRetry && (

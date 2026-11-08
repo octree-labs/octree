@@ -177,3 +177,11 @@ export const FIRST_EDIT_NUDGE_ENABLED = false;
  * selection, "Fix this error" sent).
  */
 export const COMPILE_ERROR_FIX_ENABLED = true;
+
+/**
+ * Public compile API and MCP server (app/api/v1/compile, app/api/mcp):
+ * compiles per account per UTC day. Pro, `unlimited` and allowlisted
+ * accounts get the higher limit (lib/api/quota.ts).
+ */
+export const API_FREE_DAILY_COMPILES = 30;
+export const API_PRO_DAILY_COMPILES = 1000;

@@ -1,5 +1,7 @@
 import type { NextConfig } from 'next';
 
+import { posthogRelayRewrites } from './lib/analytics/posthog-proxy';
+
 const nextConfig: NextConfig = {
   experimental: {
     serverActions: {
@@ -8,6 +10,12 @@ const nextConfig: NextConfig = {
       // default 1 MB limit fails such calls with an opaque error.
       bodySizeLimit: '2mb',
     },
+  },
+  // posthog-js posts to paths with trailing slashes (/e/, /flags/); a 308 to
+  // the slash-less path would drop the request body. See lib/analytics/posthog-proxy.ts.
+  skipTrailingSlashRedirect: true,
+  async rewrites() {
+    return posthogRelayRewrites(process.env.NEXT_PUBLIC_POSTHOG_HOST);
   },
 };
 

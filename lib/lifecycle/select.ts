@@ -28,7 +28,10 @@
  *
  * One email per user per run, highest-priority template first
  * (warm_lead_offer > limit_hit > day7 > welcome > winback > pro_inactive),
- * oldest-eligible first, capped.
+ * oldest-eligible first, capped. Which templates may send is decided by
+ * `enabledTemplates` (lib/lifecycle/config.ts): welcome and day7 are paused
+ * by default; disabled templates are still evaluated so a dry run can report
+ * their eligible counts.
  */
 import {
   warmLeadOfferEmail,

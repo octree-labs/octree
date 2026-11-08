@@ -25,7 +25,10 @@ export const maxDuration = 300;
  * the checkout offer after 48h (see lib/lifecycle/billing-recovery.ts
  * and billing-send.ts). Scheduled in `vercel.json` (14:30
  * UTC). `?dry=1` computes the candidates and returns counts plus the first
- * five user ids per template without sending or recording anything.
+ * five user ids per template without sending or recording anything. Every
+ * scheduled template is listed, including the ones switched off in
+ * lib/lifecycle/config.ts (welcome and day7 by default), with
+ * `enabled: false` and their would-be eligible counts.
  */
 export async function GET(request: Request) {
   if (!isCronRequestAuthorized(request)) {

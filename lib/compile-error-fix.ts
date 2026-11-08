@@ -110,7 +110,7 @@ export interface CompileErrorFixOffer {
 
 /**
  * The message for the agent: the quoted errors (or, without a TeX error
- * line, the error message), the file that was compiled, and what to do.
+ * line, the error message), the file open in the editor, and what to do.
  */
 export function buildCompileErrorFixPrompt(
   error: Pick<CompilationError, 'message' | 'details' | 'log' | 'stdout' | 'stderr'>,
@@ -120,7 +120,9 @@ export function buildCompileErrorFixPrompt(
   const excerpt =
     extractLatexErrorExcerpt(log) ||
     cutAt((error.message || error.details || 'Compilation failed').trim(), ERROR_EXCERPT_MAX);
-  const file = fileName ? ` (compiling ${fileName})` : '';
+  // The open file, not necessarily the compiled one: the service compiles
+  // the file with \documentclass. The quoted errors name the file at fault.
+  const file = fileName ? ` (open file: ${fileName})` : '';
   return [
     `My document failed to compile${file}. The first error:`,
     '',

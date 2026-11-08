@@ -42,17 +42,26 @@ export function CompilationError({
   const [showDetails, setShowDetails] = React.useState(false);
   const [isCollapsed, setIsCollapsed] = React.useState(true);
   const fixText = fixLabel ?? 'Fix with AI';
+  // On the bar the error kind gives way first in a narrow PDF pane (phone,
+  // pane dragged small): it truncates, "Fix with AI" and the dismiss button
+  // stay visible and the bar stays one row (the PDF below is padded for one).
+  const [fixKind, fixAction] = fixText.includes(' — ')
+    ? [fixText.slice(0, fixText.lastIndexOf(' — ')), fixText.slice(fixText.lastIndexOf(' — ') + 3)]
+    : [null, fixText];
   const barFixButton =
     onFixWithAI && fixLabel ? (
       <Button
         onClick={onFixWithAI}
         size="sm"
         variant="gradient"
-        className="h-7 text-xs"
+        className="h-7 min-w-0 shrink gap-0 text-xs"
+        aria-label={fixText}
+        title={fixText}
         data-testid="compile-error-fix"
       >
         <WandSparkles className="mr-1 h-3 w-3" aria-hidden="true" />
-        {fixText}
+        {fixKind && <span className="min-w-0 truncate">{fixKind}&nbsp;—&nbsp;</span>}
+        <span className="shrink-0">{fixAction}</span>
       </Button>
     ) : null;
 
@@ -65,14 +74,14 @@ export function CompilationError({
         )}
       >
         {isCollapsed ? (
-          <div className="flex items-center justify-between border-b border-red-200 bg-red-50 px-4 py-2">
-            <div className="flex items-center gap-2">
-              <AlertCircle className="h-4 w-4 text-red-500" />
-              <span className="text-sm font-medium text-red-700">
+          <div className="flex items-center justify-between gap-2 border-b border-red-200 bg-red-50 px-4 py-2">
+            <div className="flex min-w-0 items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0 text-red-500" />
+              <span className="truncate text-sm font-medium text-red-700">
                 Compiled with Errors
               </span>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex min-w-0 items-center gap-2">
               {barFixButton}
               <Button
                 variant="ghost"
@@ -88,7 +97,8 @@ export function CompilationError({
                   variant="ghost"
                   size="sm"
                   onClick={onDismiss}
-                  className="h-7 w-7 p-0 text-red-400 hover:bg-red-100 hover:text-red-700"
+                  aria-label="Dismiss error"
+                  className="h-7 w-7 shrink-0 p-0 text-red-400 hover:bg-red-100 hover:text-red-700"
                 >
                   <X className="h-3 w-3" />
                 </Button>
@@ -97,14 +107,14 @@ export function CompilationError({
           </div>
         ) : (
           <div className="max-h-[50vh] overflow-auto">
-            <div className="flex items-center justify-between border-b border-red-200 bg-red-50 px-4 py-2">
-              <div className="flex items-center gap-2">
-                <AlertCircle className="h-4 w-4 text-red-500" />
-                <span className="text-sm font-medium text-red-700">
+            <div className="flex items-center justify-between gap-2 border-b border-red-200 bg-red-50 px-4 py-2">
+              <div className="flex min-w-0 items-center gap-2">
+                <AlertCircle className="h-4 w-4 shrink-0 text-red-500" />
+                <span className="truncate text-sm font-medium text-red-700">
                   Compiled with Errors
                 </span>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex min-w-0 items-center gap-2">
                 {barFixButton}
                 <Button
                   variant="ghost"
@@ -120,7 +130,8 @@ export function CompilationError({
                     variant="ghost"
                     size="sm"
                     onClick={onDismiss}
-                    className="h-7 w-7 p-0 text-red-400 hover:bg-red-100 hover:text-red-700"
+                    aria-label="Dismiss error"
+                    className="h-7 w-7 shrink-0 p-0 text-red-400 hover:bg-red-100 hover:text-red-700"
                   >
                     <X className="h-3 w-3" />
                   </Button>

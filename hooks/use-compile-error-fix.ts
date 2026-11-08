@@ -11,7 +11,7 @@ import type { CompilationError } from '@/types/compilation';
 interface UseCompileErrorFixOptions {
   /** The failed compile's error; null while there is none. */
   compilationError: CompilationError | null;
-  /** The file that was compiled (named in the message). */
+  /** The file open in the editor (named in the message; not necessarily the compiled one). */
   fileName: string | null | undefined;
   /** Opens the chat and sends `prompt` as an AI edit. */
   onSend: (prompt: string) => void;

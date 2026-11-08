@@ -82,7 +82,7 @@ export function classifyCompileError(
   const text = summary ?? error?.message ?? '';
 
   if (/undefined control sequence/i.test(text)) return 'undefined_control_sequence';
-  if (/file `[^']*\.(sty|cls)' not found/i.test(text)) return 'missing_package';
+  if (/file [`'][^']*\.(sty|cls)' not found/i.test(text)) return 'missing_package';
   if (/missing \$ inserted/i.test(text)) return 'missing_dollar';
   if (/missing [{}] inserted|too many }'s|extra }, or forgotten/i.test(text)) return 'missing_brace';
   if (summary) return 'latex_error';

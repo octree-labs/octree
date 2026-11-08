@@ -71,6 +71,41 @@ describe('file-line-error logs', () => {
   });
 });
 
+describe('error kind classification across log forms', () => {
+  const kind = (log: string) => classifyCompileError({ message: 'LaTeX compilation failed', log });
+
+  it('buckets the file-line and the classic form the same way', () => {
+    expect(kind('./main.tex:12: Undefined control sequence.')).toBe('undefined_control_sequence');
+    expect(kind('! Undefined control sequence.')).toBe('undefined_control_sequence');
+    expect(kind('./main.tex:7: Missing $ inserted.')).toBe('missing_dollar');
+    expect(kind('! Missing $ inserted.')).toBe('missing_dollar');
+    expect(kind("./main.tex:3: LaTeX Error: File `foo.sty' not found.")).toBe('missing_package');
+    expect(kind("! LaTeX Error: File 'foo.sty' not found.")).toBe('missing_package');
+    expect(kind('/tmp/job/sections/a.tex:9: Too many }\'s.')).toBe('missing_brace');
+    expect(kind('./main.tex:5: Something else.')).toBe('latex_error');
+  });
+
+  it('does not count non-error lines that contain a colon and a number', () => {
+    const log = [
+      'Package: hyperref 2023-02-07 v7.00v Hypertext links for LaTeX',
+      '(/usr/local/texlive/2023/texmf-dist/tex/latex/base/size10.clo',
+      'Output written on main.pdf (3 pages, 1234 bytes).',
+      'LaTeX Warning: Reference `x\' on page 1 undefined on input line 4.',
+      'http://example.com:80: not an error',
+      'l.12 \\foo',
+    ].join('\n');
+    expect(countLatexErrors(log)).toBe(0);
+    expect(firstLatexErrorLine(log)).toBeUndefined();
+  });
+
+  it('reads Windows line endings', () => {
+    const log = './main.tex:12: Undefined control sequence.\r\nl.12 \\foo\r\n';
+    expect(firstLatexErrorLine(log)).toBe('./main.tex:12: Undefined control sequence.');
+    expect(countLatexErrors(log)).toBe(1);
+    expect(extractLatexErrorExcerpt(log)).toBe('./main.tex:12: Undefined control sequence.\nl.12 \\foo');
+  });
+});
+
 describe('extractLatexErrorExcerpt', () => {
   it('pairs each error with its l.<n> line and drops repeats', () => {
     expect(extractLatexErrorExcerpt(FILE_LINE_LOG)).toBe(
@@ -113,6 +148,18 @@ describe('extractLatexErrorExcerpt', () => {
     expect(excerpt).toBe(`! ${'a'.repeat(9)}…`);
   });
 
+  it('keeps an error without an l.<n> line on its own', () => {
+    expect(extractLatexErrorExcerpt('! LaTeX Error: Something wrong.\nSee the LaTeX manual.\n')).toBe(
+      '! LaTeX Error: Something wrong.'
+    );
+  });
+
+  it('handles a huge log and replacement characters from non-UTF-8 input', () => {
+    const noise = Array.from({ length: 50_000 }, (_, i) => `line ${i} \uFFFD`).join('\n');
+    const excerpt = extractLatexErrorExcerpt(`${noise}\n./main.tex:3: Undefined control sequence \uFFFD.\nl.3 x`);
+    expect(excerpt).toBe('./main.tex:3: Undefined control sequence \uFFFD.\nl.3 x');
+  });
+
   it('is empty without a TeX error line', () => {
     expect(extractLatexErrorExcerpt(undefined)).toBe('');
     expect(extractLatexErrorExcerpt('Latexmk: all targets up-to-date')).toBe('');
@@ -122,7 +169,7 @@ describe('extractLatexErrorExcerpt', () => {
 describe('buildCompileErrorFixPrompt', () => {
   it('quotes the errors, names the file and asks for a fix and an explanation', () => {
     const prompt = buildCompileErrorFixPrompt({ message: 'failed', log: CLASSIC_LOG }, 'main.tex');
-    expect(prompt).toContain('(compiling main.tex)');
+    expect(prompt).toContain('(open file: main.tex)');
     expect(prompt).toContain('! Missing $ inserted.\nl.7 x^2');
     expect(prompt).toMatch(/Fix this error.*explain the change/);
   });
@@ -130,7 +177,7 @@ describe('buildCompileErrorFixPrompt', () => {
   it('falls back to the error message (capped) when the log has no TeX error', () => {
     const prompt = buildCompileErrorFixPrompt({ message: 'Compilation timed out' }, null);
     expect(prompt).toContain('Compilation timed out');
-    expect(prompt).not.toContain('compiling');
+    expect(prompt).not.toContain('open file');
     const long = buildCompileErrorFixPrompt({ message: 'x'.repeat(5000) }, 'a.tex');
     expect(long.length).toBeLessThan(ERROR_EXCERPT_MAX + 200);
   });

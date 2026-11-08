@@ -23,6 +23,9 @@ export const runtime = 'nodejs';
 // GENERATE_DEADLINE_MS stops reading the model a minute before this.
 export const maxDuration = 800;
 
+/** Cut-off documents refunded per user per rolling 24 hours. */
+const TRUNCATION_REFUNDS_PER_DAY = 2;
+
 const DOCUMENT_GENERATION_PROMPT = `You are an expert LaTeX document writer. Generate a complete, compilable LaTeX document based on the user's request.
 
 STRICT COMPILATION CONSTRAINTS (MUST FOLLOW):
@@ -168,19 +171,68 @@ export async function POST(request: Request) {
     // At most one refund per request: `refund_generation('credit')` is an
     // unbounded +1, so a second call (an error path that runs after the
     // truncation path already refunded) would mint a credit.
+    // `refunded` is set once the refund decision is made, whether or not
+    // the cap below allowed it.
     let refunded = false;
-    const refundIfUnused = async (producedOutput: boolean) => {
-      if (kind === 'pro' || producedOutput || refunded) return;
-      refunded = true;
+    const callRefund = async () => {
       try {
         const { error: refundError } = await createAdminClient().rpc('refund_generation', {
           p_user_id: user.id,
           p_kind: kind,
         });
-        if (refundError) console.error('refund_generation failed:', refundError);
+        if (refundError) {
+          console.error('refund_generation failed:', refundError);
+          return false;
+        }
+        return true;
       } catch (refundError) {
         console.error('refund_generation failed:', refundError);
+        return false;
       }
+    };
+    const refundIfUnused = async (producedOutput: boolean) => {
+      if (kind === 'pro' || producedOutput || refunded) return;
+      refunded = true;
+      await callRefund();
+    };
+    /**
+     * A cut-off document (max_tokens or the deadline) is refunded at most
+     * TRUNCATION_REFUNDS_PER_DAY times per user per rolling 24 hours, so a
+     * free user cannot loop over-long requests for free. The cut-off is
+     * recorded first and the count taken after (this one included):
+     * concurrent cut-offs can only see more rows, never fewer, so a burst
+     * cannot slip past the cap. Fails closed: if the ledger cannot be
+     * written or read, there is no refund. Returns whether it refunded.
+     */
+    const refundTruncation = async (): Promise<boolean> => {
+      if (kind === 'pro' || refunded) return false;
+      refunded = true;
+      try {
+        // generation_truncations is newer than database.types.ts.
+        const admin = createAdminClient() as any;
+        const { error: insertError } = await admin
+          .from('generation_truncations')
+          .insert({ user_id: user.id, kind });
+        if (insertError) {
+          console.error('generation_truncations insert failed:', insertError);
+          return false;
+        }
+        const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+        const { count, error: countError } = await admin
+          .from('generation_truncations')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .gte('created_at', since);
+        if (countError || typeof count !== 'number') {
+          console.error('generation_truncations count failed:', countError);
+          return false;
+        }
+        if (count > TRUNCATION_REFUNDS_PER_DAY) return false;
+      } catch (ledgerError) {
+        console.error('generation_truncations failed:', ledgerError);
+        return false;
+      }
+      return callRefund();
     };
 
     const isContinuation = !!(documentId && currentLatex);
@@ -412,11 +464,13 @@ export async function POST(request: Request) {
 
           if (end.kind === 'truncated') {
             // The user asked for a document and got a fragment through no
-            // fault of theirs: hand the free generation / credit back.
-            await refundIfUnused(false);
+            // fault of theirs: hand the free generation / credit back, up
+            // to the daily cap. The message is the same either way.
+            const truncationRefunded = await refundTruncation();
             write('error', {
               message: TRUNCATED_MESSAGE,
               code: 'truncated',
+              refunded: truncationRefunded,
               stop_reason: timedOut ? 'deadline' : stopReason,
               output_tokens: outputTokens,
             });

@@ -87,6 +87,9 @@ export function validateApiCompileRequest(body: unknown, acceptPdf = false): Api
 
   if (hasLatex) {
     if (typeof body.latex !== 'string' || body.latex.trim() === '') return invalid('"latex" must be a non-empty string.');
+    if (!body.latex.includes('\\documentclass')) {
+      return invalid('"latex" has no \\documentclass; send a complete document.');
+    }
     if (body.main !== undefined && body.main !== API_DEFAULT_MAIN) {
       return invalid('"main" applies only with "files".');
     }

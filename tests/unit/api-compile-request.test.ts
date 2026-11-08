@@ -69,6 +69,7 @@ describe('validateApiCompileRequest', () => {
     expectInvalid({}, /Missing "latex"/);
     expectInvalid({ latex: DOC, files: [] }, /not both/);
     expectInvalid({ latex: '   ' }, /non-empty/);
+    expectInvalid({ latex: 'Hello \\textbf{world}' }, /no \\documentclass/);
     expectInvalid({ latex: DOC, main: 'other.tex' }, /only with "files"/);
     expectInvalid({ files: [] }, /non-empty array/);
     expectInvalid({ files: [{ path: 'main.tex' }] }, /content must be a string/);

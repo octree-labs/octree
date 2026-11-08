@@ -129,6 +129,31 @@ describe('/api/mcp', () => {
     expect(mocks.runApiCompile).toHaveBeenCalledWith(PRINCIPAL, expect.anything(), 'mcp', { skipPageCount: true });
   });
 
+  it('refuses a JSON-RPC batch with more than one tools/call before compiling', async () => {
+    mocks.authenticate.mockResolvedValue({ ok: true, principal: PRINCIPAL });
+    const call = (id: number) => ({
+      jsonrpc: '2.0',
+      id,
+      method: 'tools/call',
+      params: { name: 'check_latex', arguments: { latex: DOC } },
+    });
+    const response = await mcpRoute.POST(
+      post('https://x/api/mcp', [call(1), call(2)], { Accept: 'application/json, text/event-stream' })
+    );
+    expect(response.status).toBe(400);
+    expect((await response.json()).error.message).toMatch(/one tool call per request/);
+    expect(mocks.runApiCompile).not.toHaveBeenCalled();
+  });
+
+  it('answers invalid JSON with a JSON-RPC parse error', async () => {
+    mocks.authenticate.mockResolvedValue({ ok: true, principal: PRINCIPAL });
+    const response = await mcpRoute.POST(
+      new Request('https://x/api/mcp', { method: 'POST', body: '{nope', headers: { 'Content-Type': 'application/json' } })
+    );
+    expect(response.status).toBe(400);
+    expect((await response.json()).error.code).toBe(-32700);
+  });
+
   it('GET and DELETE are 405 (no sessions)', async () => {
     expect((await mcpRoute.GET()).status).toBe(405);
     expect((await mcpRoute.DELETE()).status).toBe(405);

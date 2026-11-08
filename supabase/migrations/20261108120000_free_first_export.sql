@@ -13,6 +13,8 @@
 -- * stripe_session_id              - nullable now, but required for a
 --                                    purchase (check constraint).
 -- * one free_first row per user    - partial unique index; the race guard.
+-- * project_id on delete set null  - the free_first row survives deleting
+--                                    its project (else: delete, claim again).
 -- * claim_free_first_export        - service-role only, called by the server
 --                                    action (actions/claim-free-export.ts).
 --
@@ -39,6 +41,43 @@ alter table public.project_export_unlocks
     (source is null or source in ('purchase', 'free_first'))
     and (source = 'free_first' or stripe_session_id is not null)
   );
+
+-- The free export must outlive the project it was used on: with the
+-- original `on delete cascade`, deleting that project deleted the
+-- free_first row and the partial unique index below no longer saw it, so
+-- the user could claim again (claim, export, delete, repeat). project_id
+-- becomes nullable and the foreign key `on delete set null`: the row stays
+-- (keyed by user_id), and a bought unlock's row also survives its project
+-- (refund / accounting trail). unique (project_id) allows any number of NULLs.
+alter table public.project_export_unlocks
+  alter column project_id drop not null;
+
+do $$
+declare
+  fk text;
+begin
+  for fk in
+    select conname from pg_constraint
+    where conrelid = 'public.project_export_unlocks'::regclass
+      and contype = 'f'
+      and confrelid = 'public.projects'::regclass
+      and confdeltype <> 'n'
+  loop
+    execute format('alter table public.project_export_unlocks drop constraint %I', fk);
+  end loop;
+
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.project_export_unlocks'::regclass
+      and contype = 'f'
+      and confrelid = 'public.projects'::regclass
+  ) then
+    alter table public.project_export_unlocks
+      add constraint project_export_unlocks_project_id_fkey
+      foreign key (project_id) references public.projects(id) on delete set null;
+  end if;
+end;
+$$;
 
 create unique index if not exists project_export_unlocks_free_first_user_idx
   on public.project_export_unlocks (user_id)

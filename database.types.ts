@@ -407,7 +407,7 @@ export type Database = {
           amount_cents: number
           created_at: string
           id: string
-          project_id: string
+          project_id: string | null
           source: string | null
           stripe_session_id: string | null
           user_id: string
@@ -416,7 +416,7 @@ export type Database = {
           amount_cents: number
           created_at?: string
           id?: string
-          project_id: string
+          project_id?: string | null
           source?: string | null
           stripe_session_id?: string | null
           user_id: string
@@ -425,7 +425,7 @@ export type Database = {
           amount_cents?: number
           created_at?: string
           id?: string
-          project_id?: string
+          project_id?: string | null
           source?: string | null
           stripe_session_id?: string | null
           user_id?: string

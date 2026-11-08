@@ -32,9 +32,12 @@ import {
 import type { Tables } from '@/database.types';
 import {
   FREE_DAILY_EDIT_LIMIT,
+  FREE_FIRST_EXPORT_ENABLED,
   FREE_GENERATION_ALLOWANCE,
   PRO_MONTHLY_EDIT_LIMIT,
 } from '@/data/constants';
+import { readFreeFirstExportUsed } from '@/lib/export-unlock';
+import { freeExportStateFor } from '@/lib/subscription/features';
 import {
   billingRowMatches,
   type IncomingSubscription,
@@ -262,6 +265,25 @@ function buildUsageResponse(
   };
 }
 
+/**
+ * The usage payload with `freeExport` (the free first export,
+ * lib/subscription/features.ts `freeExportStateFor`). The unlock table is
+ * read only for a non-Pro user with the switch on.
+ */
+async function withFreeExport(
+  admin: any,
+  userId: string,
+  usage: ReturnType<typeof buildUsageResponse>
+) {
+  const entitled = usage.isPro || usage.hasUnlimitedEdits;
+  const usedFree =
+    FREE_FIRST_EXPORT_ENABLED && !entitled ? await readFreeFirstExportUsed(admin, userId) : null;
+  return {
+    ...usage,
+    freeExport: freeExportStateFor({ enabled: FREE_FIRST_EXPORT_ENABLED, entitled, usedFree }),
+  };
+}
+
 async function updateSubscriptionInDB(
   admin: any,
   userId: string,
@@ -460,7 +482,11 @@ export async function GET() {
       return NextResponse.json({
         hasSubscription: false,
         subscription: null,
-        usage: buildUsageResponse(usageData, hasUnlimited, null, storedStatus),
+        usage: await withFreeExport(
+          admin,
+          user.id,
+          buildUsageResponse(usageData, hasUnlimited, null, storedStatus)
+        ),
         first_purchase_offer: firstPurchaseOffer,
       });
     }
@@ -493,7 +519,7 @@ export async function GET() {
           },
         })),
       },
-      usage: buildUsageResponse(usageData, hasUnlimited, subscription),
+      usage: await withFreeExport(admin, user.id, buildUsageResponse(usageData, hasUnlimited, subscription)),
       // A Stripe subscription exists (live or in dunning): never a first purchase.
       first_purchase_offer: null,
     });

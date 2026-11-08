@@ -65,3 +65,63 @@ export async function readExportUnlocked(
     return false;
   }
 }
+
+/** project_export_unlocks.source of the free first export (migration 20261108120000). */
+export const FREE_FIRST_EXPORT_SOURCE = 'free_first';
+
+/**
+ * Whether the user already used the free first export (a `free_first`
+ * unlock row). Pass the service-role client, or the user's own (RLS returns
+ * their rows). Null when it cannot be told: the migration is not applied
+ * (no `source` column) or the read failed; the caller then offers nothing.
+ */
+export async function readFreeFirstExportUsed(
+  supabase: Pick<SupabaseClient<Database>, 'from'>,
+  userId: string
+): Promise<boolean | null> {
+  try {
+    const { data, error } = await supabase
+      .from('project_export_unlocks')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('source', FREE_FIRST_EXPORT_SOURCE)
+      .limit(1);
+    if (error) {
+      if (!isMissingExportUnlockSchema(error)) {
+        console.error('[export-unlock] free export lookup failed:', error);
+      }
+      return null;
+    }
+    return (data?.length ?? 0) > 0;
+  } catch (error) {
+    console.error('[export-unlock] free export lookup failed:', error);
+    return null;
+  }
+}
+
+/** What `claim_free_first_export` answers (see the migration). */
+export type FreeExportClaimRpcResult = 'granted' | 'already_unlocked' | 'used' | 'not_found';
+
+/**
+ * The server action's answer to the toolbar (actions/claim-free-export.ts):
+ * - `granted`    - free export used on this project now: export, show the note;
+ * - `unlocked`   - this project was already unlocked, or the user is
+ *                  entitled: export, no note;
+ * - `used`       - the free export is spent: paywall (`free_export_used`);
+ * - `unavailable`- switched off, not signed in, not their project, migration
+ *                  missing, or an error: paywall as before (`pro_feature`).
+ */
+export type FreeExportClaimStatus = 'granted' | 'unlocked' | 'used' | 'unavailable';
+
+export function freeExportClaimStatus(rpcResult: unknown): FreeExportClaimStatus {
+  switch (rpcResult) {
+    case 'granted':
+      return 'granted';
+    case 'already_unlocked':
+      return 'unlocked';
+    case 'used':
+      return 'used';
+    default:
+      return 'unavailable';
+  }
+}

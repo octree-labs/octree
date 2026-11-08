@@ -70,6 +70,8 @@ export const AnalyticsEvents = {
   GENERATION_PURCHASED: 'generation_purchased',
   // A one-off $4.99 export unlock for one project was granted (Stripe webhook).
   EXPORT_UNLOCKED: 'export_unlocked',
+  // The free first export was used on a project (actions/claim-free-export.ts).
+  EXPORT_FREE_USED: 'export_free_used',
   // Billing recovery (Stripe webhook + lifecycle cron)
   CHECKOUT_ABANDONED: 'checkout_abandoned',
   CHECKOUT_RECOVERY_EMAIL_SENT: 'checkout_recovery_email_sent',
@@ -82,7 +84,11 @@ export type AnalyticsEvent = (typeof AnalyticsEvents)[keyof typeof AnalyticsEven
 export type SignupProvider = 'email' | 'google' | (string & {});
 export type OnboardingPlan = 'free' | 'pro';
 export type PaywallFeature = 'ai-edit' | 'export' | 'generate' | 'ats';
-export type PaywallReason = 'daily_limit' | 'pro_feature' | 'monthly_limit' | 'generate_quota';
+/**
+ * `free_export_used`: the export paywall for a free user who already spent
+ * the free first export (data/constants.ts FREE_FIRST_EXPORT_ENABLED).
+ */
+export type PaywallReason = 'daily_limit' | 'pro_feature' | 'monthly_limit' | 'generate_quota' | 'free_export_used';
 /** What the paywall can sell: the subscription, or one generation credit. */
 export type PaywallOffer = 'pro' | 'single';
 /** Recurring plans. `weekly` is retired for new purchases but still appears on legacy subscriptions. */
@@ -303,6 +309,8 @@ export interface AnalyticsEventProperties {
     allowed: boolean;
     /** This project has a one-off export unlock (project_export_unlocks). */
     unlocked: boolean;
+    /** The click uses the account's free first export. */
+    free_first?: boolean;
   };
   /**
    * The logged-out /import/start landing finished loading its PDF preview.
@@ -490,6 +498,15 @@ export interface AnalyticsEventProperties {
    * (Stripe webhook, grant_export_unlock). Captured once per session;
    * `amount` in major units.
    */
+  /**
+   * A free (non-entitled) user's first export: the server granted the free
+   * export on this project (a project_export_unlocks row, source
+   * 'free_first'). Once per account. Server side (`captured: 'server'`).
+   */
+  [AnalyticsEvents.EXPORT_FREE_USED]: {
+    project_id: string;
+    format: ExportFormat;
+  };
   [AnalyticsEvents.EXPORT_UNLOCKED]: {
     project_id: string;
     session_id: string;

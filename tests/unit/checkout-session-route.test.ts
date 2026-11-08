@@ -27,8 +27,10 @@ vi.mock('@/lib/checkout-offers-stripe', () => ({
   ensureOfferPromotionCode: mocks.ensureOfferPromotionCode,
 }));
 
+const requestHeaders = vi.hoisted(() => ({ origin: 'https://app.example.com' as string | null }));
+
 vi.mock('next/headers', () => ({
-  headers: async () => new Headers({ origin: 'https://app.example.com' }),
+  headers: async () => new Headers(requestHeaders.origin ? { origin: requestHeaders.origin } : {}),
 }));
 
 vi.mock('@/lib/supabase/server', () => ({
@@ -309,6 +311,19 @@ describe('POST /api/checkout-session export_single', () => {
       expect.objectContaining({ plan: 'export_single', mode: 'payment', price_lookup_key: 'octree_export_single' })
     );
     expect(mocks.captureEvent.mock.calls[0][2]).not.toHaveProperty('offer');
+  });
+
+  it('falls back to the request origin when the browser sent no Origin header', async () => {
+    requestHeaders.origin = null;
+    try {
+      const response = await POST(post({ plan: 'export_single', projectId, source: 'paywall' }));
+      expect(response.status).toBe(200);
+      const params = mocks.sessionsCreate.mock.calls[0][0];
+      expect(params.success_url).toBe(`http://localhost/projects/${projectId}?export=unlocked`);
+      expect(params.cancel_url).toBe(`http://localhost/projects/${projectId}`);
+    } finally {
+      requestHeaders.origin = 'https://app.example.com';
+    }
   });
 
   it("returns 404 for someone else's project (RLS / user_id filter finds no row) and opens no session", async () => {

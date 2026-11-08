@@ -10,6 +10,7 @@
 
 import { entitlementFromStatusResponse } from '@/lib/subscription/entitlement';
 import { isCheckoutOfferId, type CheckoutOfferId } from '@/lib/checkout-offers';
+import { FREE_FIRST_EXPORT_ENABLED } from '@/data/constants';
 
 export type ProFeature = 'ai-edit' | 'export' | 'generate' | 'ats';
 
@@ -40,6 +41,21 @@ export interface FeatureUsage {
    * (lib/first-purchase-offer.ts); null when not eligible.
    */
   firstPurchaseOffer?: CheckoutOfferId | null;
+  /**
+   * The free first export (GET /api/subscription-status `freeExport`):
+   * `available` - a free user who has not used it yet;
+   * `used`      - a free user who already used it on some project;
+   * `unavailable` (or absent) - entitled, switched off, or unknown.
+   */
+  freeExport?: FreeExportState;
+}
+
+export type FreeExportState = 'available' | 'used' | 'unavailable';
+
+const FREE_EXPORT_STATES: ReadonlySet<string> = new Set(['available', 'used', 'unavailable']);
+
+export function isFreeExportState(value: unknown): value is FreeExportState {
+  return typeof value === 'string' && FREE_EXPORT_STATES.has(value);
 }
 
 export type FeatureAccess =
@@ -118,6 +134,56 @@ export function canUseFeature(
     : { allowed: true };
 }
 
+/**
+ * What clicking Export does (components/editor/toolbar.tsx):
+ * - `export`     - entitled (Pro, allowlist, or this project is unlocked);
+ * - `claim-free` - a free user with the free first export unused: ask the
+ *                  server to grant it (actions/claim-free-export.ts), then
+ *                  export. The server decides; this only avoids the paywall;
+ * - `paywall`    - `free_export_used` once the free export is spent (switch
+ *                  on), `pro_feature` otherwise (switch off, older response);
+ * - `unknown`    - plan not loaded yet.
+ */
+export type ExportDecision =
+  | { action: 'export' }
+  | { action: 'claim-free' }
+  | { action: 'paywall'; reason: 'pro_feature' | 'free_export_used' }
+  | { action: 'unknown' };
+
+export function decideExport(
+  usage: FeatureUsage | null | undefined,
+  context: FeatureContext & { freeFirstEnabled?: boolean } = {}
+): ExportDecision {
+  const { freeFirstEnabled = FREE_FIRST_EXPORT_ENABLED, ...featureContext } = context;
+  const access = canUseFeature(usage, 'export', featureContext);
+  if (access.allowed) return { action: 'export' };
+  if (access.reason !== 'paywall') return { action: 'unknown' };
+  if (freeFirstEnabled && usage?.freeExport === 'available') return { action: 'claim-free' };
+  return {
+    action: 'paywall',
+    reason: freeFirstEnabled && usage?.freeExport === 'used' ? 'free_export_used' : 'pro_feature',
+  };
+}
+
+/**
+ * The server's `freeExport` for GET /api/subscription-status. `usedFree` is
+ * whether the user has a `free_first` unlock row; null when it could not be
+ * read (migration not applied, error): then nothing is offered.
+ */
+export function freeExportStateFor({
+  enabled,
+  entitled,
+  usedFree,
+}: {
+  enabled: boolean;
+  /** Pro or allowlisted: export is never paywalled, nothing to offer. */
+  entitled: boolean;
+  usedFree: boolean | null;
+}): FreeExportState {
+  if (!enabled || entitled || usedFree === null) return 'unavailable';
+  return usedFree ? 'used' : 'available';
+}
+
 /** Shape of the JSON returned by GET /api/subscription-status. */
 export interface SubscriptionStatusResponse {
   hasSubscription: boolean;
@@ -144,6 +210,8 @@ export interface SubscriptionStatusResponse {
     hasStripeSubscription?: boolean;
     /** Stripe's answer about the stored subscription when no live one was found (lib/subscription/entitlement.ts). */
     stripeStatus?: string | null;
+    /** The free first export (freeExportStateFor). Absent from older responses; treated as unavailable. */
+    freeExport?: FreeExportState;
   } & Record<string, unknown>;
   /**
    * `welcome50` when the user has never bought anything (no stored Stripe
@@ -195,5 +263,6 @@ export function toFeatureUsage(
     editCount: Number(data.usage.editCount ?? 0) || 0,
     monthlyEditCount: Number(data.usage.monthlyEditCount ?? 0) || 0,
     firstPurchaseOffer: isCheckoutOfferId(data.first_purchase_offer) ? data.first_purchase_offer : null,
+    freeExport: isFreeExportState(data.usage.freeExport) ? data.usage.freeExport : 'unavailable',
   };
 }

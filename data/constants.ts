@@ -24,6 +24,14 @@ export const EXPORT_SINGLE_PRICE = {
   productName: 'Octree — Export this document',
 } as const;
 
+// Free first export: every account's first PDF/ZIP export is free (recorded
+// as a project_export_unlocks row with source 'free_first', so that project
+// stays exportable); from the second export on the paywall applies. Kill
+// switch: false restores the plain export paywall everywhere (client gate,
+// GET /api/subscription-status and actions/claim-free-export.ts). Keep in
+// sync with supabase/migrations/20261108120000_free_first_export.sql.
+export const FREE_FIRST_EXPORT_ENABLED = true;
+
 /**
  * Display copy for everything the app sells. The single source of truth for
  * labels and prices in the UI; the Stripe prices themselves are provisioned

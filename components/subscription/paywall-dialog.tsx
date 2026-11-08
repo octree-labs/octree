@@ -68,7 +68,17 @@ const EXPORT_SINGLE_COPY = {
   description: 'Pay once for this document, or go Pro for every project.',
 };
 
-/** The one-off offer (first card) of the two-card layout, per feature. */
+/**
+ * Export after the free first export was used: Pro leads (primary card), the
+ * one-off unlock for this document is the secondary card.
+ */
+export const FREE_EXPORT_USED_COPY = {
+  title: "You've used your free export",
+  description:
+    'Your first export was on us. Go Pro for unlimited exports on every project, or unlock just this document.',
+};
+
+/** The one-off offer of the two-card layout, per feature (first card, except after the free export). */
 type SingleOffer = {
   heading: string;
   price: string;
@@ -129,9 +139,13 @@ export function PaywallDialog() {
     ? MONTHLY_LIMIT_COPY
     : feature === 'generate' && reason === 'generate_quota'
       ? GENERATE_QUOTA_COPY
-      : feature === 'export' && offersSingle
-        ? EXPORT_SINGLE_COPY
-        : COPY[feature ?? 'ai-edit'];
+      : feature === 'export' && reason === 'free_export_used'
+        ? FREE_EXPORT_USED_COPY
+        : feature === 'export' && offersSingle
+          ? EXPORT_SINGLE_COPY
+          : COPY[feature ?? 'ai-edit'];
+  // After the free export, Pro is the first card and carries the primary button.
+  const proLeads = feature === 'export' && reason === 'free_export_used';
 
   const startCheckout = async (
     kind: 'pro' | 'single',
@@ -175,6 +189,57 @@ export function PaywallDialog() {
     });
 
   if (singleOffer) {
+    const singleCard = (
+      <div className="rounded-lg border p-4">
+        <div className="flex items-baseline justify-between gap-2">
+          <p className="font-semibold">{singleOffer.heading}</p>
+          <p className="text-sm text-muted-foreground">{singleOffer.price}</p>
+        </div>
+        <p className="mt-1 text-sm text-muted-foreground">{singleOffer.blurb}</p>
+        <Button
+          className="mt-3 w-full"
+          variant={proLeads ? 'outline' : 'gradient'}
+          onClick={() => startCheckout('single', singleOffer.request)}
+          disabled={isSubmitting !== null}
+        >
+          {isSubmitting === 'single' ? 'Loading...' : singleOffer.button}
+        </Button>
+      </div>
+    );
+    const proCard = (
+      <div className="rounded-lg border p-4">
+        <div className="flex items-baseline justify-between gap-2">
+          <p className="font-semibold">Octree Pro</p>
+          <p className="text-sm text-muted-foreground">
+            {offerCopy ? offerCopy.priceLine : `${PRO_PLANS.monthly.price}/mo`}
+          </p>
+        </div>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {PRO_MONTHLY_EDIT_LIMIT} AI edits a month, unlimited generations, export everywhere. Cancel anytime.
+        </p>
+        <Button
+          className="mt-3 w-full"
+          variant={proLeads ? 'gradient' : 'outline'}
+          // The monthly plan it displays, whatever the picker state is.
+          onClick={() =>
+            startCheckout('pro', {
+              plan: 'monthly',
+              withTrial: false,
+              source: 'paywall',
+              ...(offer ? { offer } : {}),
+            })
+          }
+          disabled={isSubmitting !== null}
+        >
+          {isSubmitting === 'pro'
+            ? 'Loading...'
+            : offerCopy
+              ? offerCopy.button
+              : `Go Pro for ${PRO_PLANS.monthly.price}/mo`}
+        </Button>
+      </div>
+    );
+
     return (
       <Dialog open={open} onOpenChange={(next) => !next && PaywallActions.close()}>
         <DialogContent className="max-w-md">
@@ -184,53 +249,17 @@ export function PaywallDialog() {
           </DialogHeader>
 
           <div className="space-y-4">
-            <div className="rounded-lg border p-4">
-              <div className="flex items-baseline justify-between gap-2">
-                <p className="font-semibold">{singleOffer.heading}</p>
-                <p className="text-sm text-muted-foreground">{singleOffer.price}</p>
-              </div>
-              <p className="mt-1 text-sm text-muted-foreground">{singleOffer.blurb}</p>
-              <Button
-                className="mt-3 w-full"
-                variant="gradient"
-                onClick={() => startCheckout('single', singleOffer.request)}
-                disabled={isSubmitting !== null}
-              >
-                {isSubmitting === 'single' ? 'Loading...' : singleOffer.button}
-              </Button>
-            </div>
-
-            <div className="rounded-lg border p-4">
-              <div className="flex items-baseline justify-between gap-2">
-                <p className="font-semibold">Octree Pro</p>
-                <p className="text-sm text-muted-foreground">
-                  {offerCopy ? offerCopy.priceLine : `${PRO_PLANS.monthly.price}/mo`}
-                </p>
-              </div>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {PRO_MONTHLY_EDIT_LIMIT} AI edits a month, unlimited generations, export everywhere. Cancel anytime.
-              </p>
-              <Button
-                className="mt-3 w-full"
-                variant="outline"
-                // The monthly plan it displays, whatever the picker state is.
-                onClick={() =>
-                  startCheckout('pro', {
-                    plan: 'monthly',
-                    withTrial: false,
-                    source: 'paywall',
-                    ...(offer ? { offer } : {}),
-                  })
-                }
-                disabled={isSubmitting !== null}
-              >
-                {isSubmitting === 'pro'
-                  ? 'Loading...'
-                  : offerCopy
-                    ? offerCopy.button
-                    : `Go Pro for ${PRO_PLANS.monthly.price}/mo`}
-              </Button>
-            </div>
+            {proLeads ? (
+              <>
+                {proCard}
+                {singleCard}
+              </>
+            ) : (
+              <>
+                {singleCard}
+                {proCard}
+              </>
+            )}
 
             <Button
               variant="link"

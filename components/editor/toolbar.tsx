@@ -8,10 +8,11 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useSubscriptionUsage } from '@/hooks/use-subscription-usage';
-import { canUseFeature } from '@/lib/subscription/features';
+import { decideExport } from '@/lib/subscription/features';
 import { PaywallActions } from '@/stores/paywall';
-import { useExportUnlocked } from '@/stores/project';
-import { AnalyticsEvents, type ExportFormat } from '@/lib/analytics/events';
+import { ProjectActions, useExportUnlocked } from '@/stores/project';
+import { AnalyticsEvents, type ExportFormat, type PaywallReason } from '@/lib/analytics/events';
+import { claimFreeFirstExport } from '@/actions/claim-free-export';
 import { track } from '@/lib/analytics/track';
 import {
   Loader2,
@@ -39,11 +40,14 @@ interface EditorToolbarProps {
   projectId?: string;
 }
 
-/** Marks a menu item that needs Pro (or this project's export unlock). */
-function ProTag() {
+/** Shown once, when the free first export is granted. */
+export const FREE_EXPORT_TOAST = 'Your first export is on us. Pro unlocks unlimited exports.';
+
+/** Marks a menu item that needs Pro (or this project's export unlock), or is free once. */
+function ExportTag({ label }: { label: 'Pro' | 'Free' }) {
   return (
     <span className="ml-auto rounded bg-primary/10 px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide text-primary">
-      Pro
+      {label}
     </span>
   );
 }
@@ -60,37 +64,86 @@ export function EditorToolbar({
   projectId,
 }: EditorToolbarProps) {
   const [isMac, setIsMac] = useState(true);
+  const [claimingFreeExport, setClaimingFreeExport] = useState(false);
   const { usage, isLoading: isPlanLoading, refresh: refreshPlan } = useSubscriptionUsage();
 
   useEffect(() => {
     setIsMac(navigator.platform.toUpperCase().indexOf('MAC') >= 0);
   }, []);
 
-  // Export is Pro-only, unless this project has a one-off export unlock. The
-  // menu items are disabled until the plan has loaded so a Pro user never
-  // sees the paywall (an unlocked project needs no plan); if the plan could
-  // not be loaded at all, say so instead of guessing.
+  // Export is Pro-only, unless this project has a one-off export unlock or
+  // the account's free first export is unused (lib/subscription/features.ts
+  // `decideExport`). The menu items are disabled until the plan has loaded
+  // so a Pro user never sees the paywall (an unlocked project needs no
+  // plan); if the plan could not be loaded at all, say so instead of guessing.
   const exportUnlocked = useExportUnlocked(projectId);
-  const exportAccess = canUseFeature(usage, 'export', { projectUnlocked: exportUnlocked });
-  const showExportLock = !exportAccess.allowed && exportAccess.reason === 'paywall';
-  const exportWaitsForPlan = isPlanLoading && !exportUnlocked;
+  const exportDecision = decideExport(usage, { projectUnlocked: exportUnlocked });
+  const exportTag =
+    exportDecision.action === 'paywall' ? 'Pro' : exportDecision.action === 'claim-free' ? 'Free' : null;
+  const exportWaitsForPlan = (isPlanLoading && !exportUnlocked) || claimingFreeExport;
 
-  const gateExport = (format: ExportFormat, run: () => void) => {
-    track(AnalyticsEvents.EXPORT_CLICKED, { format, allowed: exportAccess.allowed, unlocked: exportUnlocked });
-    if (exportAccess.allowed) {
-      run();
-      return;
-    }
-    if (exportAccess.reason === 'unknown') {
-      toast.error("Couldn't check your plan. Please try again.");
-      void refreshPlan();
-      return;
-    }
+  const openExportPaywall = (reason: PaywallReason) => {
     // With the project known, the paywall also sells "Export this document".
     if (projectId) {
-      PaywallActions.open('export', 'pro_feature', ['single', 'pro'], { projectId });
+      PaywallActions.open('export', reason, ['single', 'pro'], { projectId });
     } else {
-      PaywallActions.open('export');
+      PaywallActions.open('export', reason);
+    }
+  };
+
+  // The server decides whether the free export applies; the browser only
+  // asks. Granted: the project is unlocked for good and the export runs.
+  const claimFreeExport = async (format: ExportFormat, run: () => void) => {
+    if (!projectId) {
+      openExportPaywall('pro_feature');
+      return;
+    }
+    setClaimingFreeExport(true);
+    try {
+      const { status } = await claimFreeFirstExport(projectId, format);
+      if (status === 'granted' || status === 'unlocked') {
+        ProjectActions.setExportUnlocked(projectId, true);
+        run();
+        if (status === 'granted') toast.success(FREE_EXPORT_TOAST);
+        // Other projects now see the free export as used.
+        window.dispatchEvent(new Event('usage-update'));
+        return;
+      }
+      if (status === 'used') {
+        window.dispatchEvent(new Event('usage-update'));
+        openExportPaywall('free_export_used');
+        return;
+      }
+      openExportPaywall('pro_feature');
+    } catch (error) {
+      console.error('Free export claim failed:', error);
+      openExportPaywall('pro_feature');
+    } finally {
+      setClaimingFreeExport(false);
+    }
+  };
+
+  const gateExport = (format: ExportFormat, run: () => void) => {
+    track(AnalyticsEvents.EXPORT_CLICKED, {
+      format,
+      allowed: exportDecision.action === 'export',
+      unlocked: exportUnlocked,
+      ...(exportDecision.action === 'claim-free' ? { free_first: true } : {}),
+    });
+    switch (exportDecision.action) {
+      case 'export':
+        run();
+        return;
+      case 'claim-free':
+        void claimFreeExport(format, run);
+        return;
+      case 'unknown':
+        toast.error("Couldn't check your plan. Please try again.");
+        void refreshPlan();
+        return;
+      case 'paywall':
+        openExportPaywall(exportDecision.reason);
+        return;
     }
   };
 
@@ -111,12 +164,12 @@ export function EditorToolbar({
               <Button
                 variant="ghost"
                 size="sm"
-                disabled={exporting || isSaving}
+                disabled={exporting || isSaving || claimingFreeExport}
                 className="gap-1"
                 data-onboarding-target="editor-export"
               >
                 Export
-                {exporting ? (
+                {exporting || claimingFreeExport ? (
                   <Loader2 className="size-3.5 animate-spin" />
                 ) : (
                   <Download className="size-3.5" />
@@ -131,7 +184,7 @@ export function EditorToolbar({
               >
                 <FileText className="size-4" />
                 Export as PDF
-                {showExportLock && <ProTag />}
+                {exportTag && <ExportTag label={exportTag} />}
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={handleExportZIP}
@@ -140,7 +193,7 @@ export function EditorToolbar({
               >
                 <FolderArchive className="size-4" />
                 Export as ZIP
-                {showExportLock && <ProTag />}
+                {exportTag && <ExportTag label={exportTag} />}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

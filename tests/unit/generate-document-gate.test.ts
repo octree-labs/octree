@@ -52,7 +52,7 @@ function makeRequest(body: Record<string, unknown> = { prompt: 'Write a short no
   });
 }
 
-function anthropicStream(texts: string[]) {
+function anthropicStream(texts: string[], stopReason: string = 'end_turn', outputTokens = 42) {
   const encoder = new TextEncoder();
   return {
     ok: true,
@@ -62,6 +62,12 @@ function anthropicStream(texts: string[]) {
           const event = { type: 'content_block_delta', delta: { text } };
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
         }
+        const end = {
+          type: 'message_delta',
+          delta: { stop_reason: stopReason },
+          usage: { output_tokens: outputTokens },
+        };
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(end)}\n\n`));
         controller.close();
       },
     }),
@@ -187,6 +193,23 @@ describe('POST /api/generate-document allowance gate', () => {
     });
   });
 
+  describe('model call', () => {
+    it('asks for enough output room for long documents and reports the stop reason', async () => {
+      rpcAnswering('free');
+
+      const res = await POST(makeRequest());
+      const events = await readEvents(res);
+
+      const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+      expect(body.max_tokens).toBeGreaterThanOrEqual(32000);
+      expect(body.stream).toBe(true);
+      expect(events.find(([e]) => e === 'complete')?.[1]).toMatchObject({
+        stop_reason: 'end_turn',
+        output_tokens: 42,
+      });
+    });
+  });
+
   describe('consume timing', () => {
     it('does not consume for an unauthenticated request', async () => {
       mocks.getUser.mockResolvedValue({ data: { user: null }, error: null });
@@ -288,6 +311,26 @@ describe('POST /api/generate-document allowance gate', () => {
         message: 'Failed to generate valid LaTeX document',
       });
       expect(refundCalls()).toHaveLength(0);
+    });
+
+    it('hands the generation back when the document is cut off at max_tokens', async () => {
+      rpcAnswering('free');
+      fetchSpy.mockResolvedValue(
+        anthropicStream(['\\documentclass{article}\\begin{document}Long text'], 'max_tokens', 32000)
+      );
+
+      const res = await POST(makeRequest());
+      const events = await readEvents(res);
+
+      expect(events.find(([e]) => e === 'error')?.[1]).toMatchObject({
+        code: 'truncated',
+        stop_reason: 'max_tokens',
+        output_tokens: 32000,
+      });
+      expect(events.find(([e]) => e === 'complete')).toBeUndefined();
+      expect(refundCalls()).toEqual([
+        ['refund_generation', { p_user_id: 'user-1', p_kind: 'free' }],
+      ]);
     });
 
     it('still reports the error when the refund RPC itself fails', async () => {

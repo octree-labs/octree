@@ -8,10 +8,18 @@ import {
 import { hasUnlimitedEdits } from '@/lib/paywall';
 import { createSSEHeaders } from '@/lib/octra-agent/stream-handling';
 import { AnalyticsEvents, type GenerationKind } from '@/lib/analytics/events';
+import {
+  classifyGenerationEnd,
+  GENERATE_DEADLINE_MS,
+  GENERATE_MAX_OUTPUT_TOKENS,
+  TRUNCATED_MESSAGE,
+} from '@/lib/generate/output';
 import type { ConversationSummary } from '@/types/conversation';
 
 export const runtime = 'nodejs';
-export const maxDuration = 600;
+// Fluid Compute ceiling on Pro. Long documents stream for several minutes;
+// GENERATE_DEADLINE_MS stops reading the model a minute before this.
+export const maxDuration = 800;
 
 const DOCUMENT_GENERATION_PROMPT = `You are an expert LaTeX document writer. Generate a complete, compilable LaTeX document based on the user's request.
 
@@ -209,6 +217,12 @@ export async function POST(request: Request) {
         };
 
         let producedOutput = false;
+        const upstream = new AbortController();
+        let timedOut = false;
+        const deadline = setTimeout(() => {
+          timedOut = true;
+          upstream.abort();
+        }, GENERATE_DEADLINE_MS);
 
         try {
           write('session', { id: sessionId });
@@ -254,11 +268,12 @@ export async function POST(request: Request) {
             },
             body: JSON.stringify({
               model: 'claude-sonnet-4-6',
-              max_tokens: 8192,
+              max_tokens: GENERATE_MAX_OUTPUT_TOKENS,
               system: systemPrompt,
               messages: [{ role: 'user', content: messageContent }],
               stream: true,
             }),
+            signal: upstream.signal,
           });
 
           if (!response.ok) {
@@ -274,9 +289,20 @@ export async function POST(request: Request) {
           let accumulatedContent = '';
           let chunkBuffer = '';
           const CHUNK_SIZE = 100;
+          let stopReason: string | null = null;
+          let outputTokens: number | null = null;
 
           while (true) {
-            const { done, value } = await reader.read();
+            let chunk: ReadableStreamReadResult<Uint8Array>;
+            try {
+              chunk = await reader.read();
+            } catch (readError) {
+              // The deadline aborted the upstream request: finish with what
+              // arrived and report it as cut short, not as a crash.
+              if (timedOut) break;
+              throw readError;
+            }
+            const { done, value } = chunk;
             if (done) break;
 
             buffer += decoder.decode(value, { stream: true });
@@ -299,6 +325,11 @@ export async function POST(request: Request) {
                     write('content', { text: chunkBuffer, partial: true });
                     chunkBuffer = '';
                   }
+                } else if (event.type === 'message_delta') {
+                  stopReason = event.delta?.stop_reason ?? stopReason;
+                  if (typeof event.usage?.output_tokens === 'number') {
+                    outputTokens = event.usage.output_tokens;
+                  }
                 }
               } catch {
                 // Skip malformed events
@@ -312,15 +343,38 @@ export async function POST(request: Request) {
 
           write('status', { phase: 'finalizing', message: 'Finalizing document...' });
 
-          const latex = extractLatex(accumulatedContent);
+          const end = classifyGenerationEnd({
+            content: accumulatedContent,
+            stopReason,
+            timedOut,
+          });
 
-          if (!latex) {
+          if (end.kind === 'truncated') {
+            // The user asked for a document and got a fragment through no
+            // fault of theirs: hand the free generation / credit back.
+            await refundIfUnused(false);
             write('error', {
-              message: 'Failed to generate valid LaTeX document',
+              message: TRUNCATED_MESSAGE,
+              code: 'truncated',
+              stop_reason: timedOut ? 'deadline' : stopReason,
+              output_tokens: outputTokens,
             });
             controller.close();
             return;
           }
+
+          if (end.kind === 'invalid') {
+            write('error', {
+              message: 'Failed to generate valid LaTeX document',
+              code: 'invalid',
+              stop_reason: stopReason,
+              output_tokens: outputTokens,
+            });
+            controller.close();
+            return;
+          }
+
+          const latex = end.latex;
 
           let title = extractTitle(latex);
           
@@ -338,6 +392,8 @@ export async function POST(request: Request) {
             title,
             sessionId,
             isContinuation,
+            stop_reason: stopReason,
+            output_tokens: outputTokens,
           });
 
           controller.close();
@@ -347,8 +403,10 @@ export async function POST(request: Request) {
           // Nothing came back from the model: the user did not get a
           // generation, so they keep their free one / credit.
           await refundIfUnused(producedOutput);
-          write('error', { message });
+          write('error', { message, code: 'upstream' });
           controller.close();
+        } finally {
+          clearTimeout(deadline);
         }
       },
     });
@@ -392,32 +450,6 @@ async function consumeGeneration(
   if (data === 'pro' || data === 'free' || data === 'credit' || data === 'blocked') return data;
   console.error('consume_generation returned an unknown answer:', data);
   return 'error';
-}
-
-function extractLatex(content: string): string | null {
-  const trimmed = content.trim();
-
-  const fenceMatch = trimmed.match(/```(?:latex|tex)?\s*([\s\S]*?)```/);
-  if (fenceMatch) {
-    const extracted = fenceMatch[1].trim();
-    if (
-      extracted.includes('\\documentclass') &&
-      extracted.includes('\\end{document}')
-    ) {
-      return extracted;
-    }
-  }
-
-  if (
-    trimmed.includes('\\documentclass') &&
-    trimmed.includes('\\end{document}')
-  ) {
-    const start = trimmed.indexOf('\\documentclass');
-    const end = trimmed.lastIndexOf('\\end{document}') + '\\end{document}'.length;
-    return trimmed.slice(start, end);
-  }
-
-  return null;
 }
 
 function extractTitle(latex: string): string | null {

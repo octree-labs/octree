@@ -132,7 +132,14 @@ export type GenerateErrorKind =
   | 'request_failed'
   | 'no_stream'
   | 'stream_error'
+  /** The stream ended with neither a document nor an error (connection cut). */
   | 'incomplete'
+  /** The model ran out of output tokens or time before `\end{document}`. */
+  | 'truncated'
+  /** The model finished but what came back was not a LaTeX document. */
+  | 'invalid_output'
+  /** The route reported an error (provider failure, bad response). */
+  | 'server_error'
   | 'empty'
   | 'unknown';
 /**
@@ -218,6 +225,10 @@ export interface AnalyticsEventProperties {
   [AnalyticsEvents.GENERATE_SUBMITTED]: {
     attachment_count: number;
     is_continuation: boolean;
+    /** Characters in the prompt as typed. */
+    prompt_length: number;
+    /** Raw bytes of the attachments (before base64). */
+    attachment_bytes: number;
     /** Where the visit to /generate started; ties a submission back to the
      * `onboarding_start_option_selected` or dashboard card that sent it. */
     entry: GenerateEntry;
@@ -234,6 +245,14 @@ export interface AnalyticsEventProperties {
     error_kind?: GenerateErrorKind;
     /** Characters of LaTeX produced, on success. */
     latex_length?: number;
+    prompt_length: number;
+    attachment_count: number;
+    attachment_bytes: number;
+    /** The model's stop reason as the route saw it (`end_turn`, `max_tokens`,
+     * or `deadline` when the route stopped reading); absent when the stream
+     * never got that far. */
+    stop_reason?: string;
+    output_tokens?: number;
   };
   /**
    * One compile ended (hooks/use-editor-compilation.ts). Failures and the

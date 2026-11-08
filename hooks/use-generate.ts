@@ -13,6 +13,11 @@ import type { Json } from '@/database.types';
 import { readStream } from '@/lib/utils/sse';
 import { AnalyticsEvents, type GenerateErrorKind } from '@/lib/analytics/events';
 import { track } from '@/lib/analytics/track';
+import {
+  checkGenerateRequestSize,
+  formatMegabytes,
+  MAX_ATTACHMENT_BYTES,
+} from '@/lib/generate/limits';
 
 export interface AttachedFile {
   id: string;
@@ -21,7 +26,9 @@ export interface AttachedFile {
   type: 'image' | 'document';
 }
 
-const MAX_FILE_SIZE = 5 * 1024 * 1024;
+// One file can use the whole per-request attachment budget, no more:
+// anything larger is refused by the platform (413) before the route runs.
+const MAX_FILE_SIZE = MAX_ATTACHMENT_BYTES;
 const ALLOWED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
 const ALLOWED_DOC_TYPES = new Set(['application/pdf']);
 
@@ -66,7 +73,10 @@ export function useGenerate(options: UseGenerateOptions = {}) {
 
     for (const file of filesToCheck) {
       if (file.size > MAX_FILE_SIZE) {
-        errors.push(`${file.name} is too large (max 5MB)`);
+        errors.push(
+          `${file.name} is ${formatMegabytes(file.size)}; attachments can be up to ${formatMegabytes(MAX_FILE_SIZE)}. ` +
+            'Attach only the pages you need, or a compressed copy.'
+        );
         continue;
       }
 
@@ -207,17 +217,28 @@ export function useGenerate(options: UseGenerateOptions = {}) {
     const documentId = isContinuation ? currentDocument.id : crypto.randomUUID();
     const filesToSend = [...filesToUse];
 
-    const totalSize = filesToSend.reduce((sum, f) => sum + f.file.size, 0);
-    if (totalSize > MAX_FILE_SIZE) {
+    const attemptProps = {
+      is_continuation: isContinuation,
+      prompt_length: userPrompt.length,
+      attachment_count: filesToSend.length,
+      attachment_bytes: filesToSend.reduce((sum, f) => sum + f.file.size, 0),
+    };
+
+    const sizeCheck = checkGenerateRequestSize({
+      promptLength: userPrompt.length,
+      currentLatexLength: isContinuation ? currentDocument.latex?.length ?? 0 : 0,
+      attachmentSizes: filesToSend.map((f) => f.file.size),
+    });
+    if (!sizeCheck.ok) {
       // `generate_submitted` already fired for this attempt; close it so the
       // two events stay one-to-one.
       track(AnalyticsEvents.GENERATE_COMPLETED, {
+        ...attemptProps,
         success: false,
         duration_ms: 0,
-        is_continuation: isContinuation,
         error_kind: 'too_large',
       });
-      setError('The total size of attached files is too large. Please use fewer or smaller files.');
+      setError(sizeCheck.message);
       return;
     }
 
@@ -258,6 +279,8 @@ export function useGenerate(options: UseGenerateOptions = {}) {
     const startedAt = Date.now();
     let producedLatexLength: number | null = null;
     let errorKind: GenerateErrorKind = 'unknown';
+    let stopReason: string | null = null;
+    let outputTokens: number | null = null;
 
     let persistentUserMessage = userMessage;
 
@@ -368,7 +391,10 @@ export function useGenerate(options: UseGenerateOptions = {}) {
         errorKind = 'request_failed';
         if (response.status === 413) {
           errorKind = 'too_large';
-          throw new Error('Total attachment size is too large for the server. Please try with smaller files.');
+          throw new Error(
+            `This request is too large to send (the limit is ${formatMegabytes(MAX_ATTACHMENT_BYTES)} of attachments). ` +
+              'Remove a file, or attach only the pages you need, and try again.'
+          );
         }
         const json = await response.json().catch(() => ({}));
         if (response.status === 402 && json.upgradeRequired) {
@@ -394,6 +420,9 @@ export function useGenerate(options: UseGenerateOptions = {}) {
       let finalLatex: string | null = null;
       let docTitle = 'Untitled Document';
       let completed = false;
+      // readStream swallows anything a handler throws, so a server `error`
+      // event is recorded here and raised after the stream ends.
+      let serverError: { message: string; code: string | null } | null = null;
 
       await readStream(reader, (event, data) => {
         switch (event) {
@@ -418,6 +447,8 @@ export function useGenerate(options: UseGenerateOptions = {}) {
             finalLatex = data.latex as string;
             docTitle = (data.title as string) || docTitle;
             completed = true;
+            stopReason = typeof data.stop_reason === 'string' ? data.stop_reason : null;
+            outputTokens = typeof data.output_tokens === 'number' ? data.output_tokens : null;
             setGenerationMilestone('complete');
             updateLastMessage(
               (m) =>
@@ -426,13 +457,28 @@ export function useGenerate(options: UseGenerateOptions = {}) {
             );
             break;
           case 'error':
-            throw new Error(data.message as string);
+            serverError = {
+              message: (data.message as string) || 'Generation failed',
+              code: typeof data.code === 'string' ? data.code : null,
+            };
+            stopReason = typeof data.stop_reason === 'string' ? data.stop_reason : null;
+            outputTokens = typeof data.output_tokens === 'number' ? data.output_tokens : null;
+            break;
         }
       });
 
+      if (serverError) {
+        const { message, code } = serverError as { message: string; code: string | null };
+        errorKind =
+          code === 'truncated' ? 'truncated' : code === 'invalid' ? 'invalid_output' : 'server_error';
+        throw new Error(message);
+      }
+
       if (!completed) {
+        // The stream ended without a `complete` or `error` event: the
+        // connection was cut (network, platform limit, tab suspended).
         errorKind = 'incomplete';
-        throw new Error('Generation timed out before completion. Please try again.');
+        throw new Error('The connection dropped before the document finished. Please try again.');
       }
 
       errorKind = 'empty';
@@ -580,9 +626,11 @@ export function useGenerate(options: UseGenerateOptions = {}) {
     } finally {
       const success = producedLatexLength !== null;
       track(AnalyticsEvents.GENERATE_COMPLETED, {
+        ...attemptProps,
         success,
         duration_ms: Date.now() - startedAt,
-        is_continuation: isContinuation,
+        ...(stopReason ? { stop_reason: stopReason } : {}),
+        ...(outputTokens !== null ? { output_tokens: outputTokens } : {}),
         ...(success ? { latex_length: producedLatexLength ?? 0 } : { error_kind: errorKind }),
       });
       setIsGenerating(false);

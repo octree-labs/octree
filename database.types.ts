@@ -408,7 +408,8 @@ export type Database = {
           created_at: string
           id: string
           project_id: string
-          stripe_session_id: string
+          source: string | null
+          stripe_session_id: string | null
           user_id: string
         }
         Insert: {
@@ -416,7 +417,8 @@ export type Database = {
           created_at?: string
           id?: string
           project_id: string
-          stripe_session_id: string
+          source?: string | null
+          stripe_session_id?: string | null
           user_id: string
         }
         Update: {
@@ -424,7 +426,8 @@ export type Database = {
           created_at?: string
           id?: string
           project_id?: string
-          stripe_session_id?: string
+          source?: string | null
+          stripe_session_id?: string | null
           user_id?: string
         }
         Relationships: [
@@ -674,6 +677,10 @@ export type Database = {
           p_user_id: string
         }
         Returns: number
+      }
+      claim_free_first_export: {
+        Args: { p_project_id: string; p_user_id: string }
+        Returns: string
       }
       consume_generation: { Args: { p_user_id: string }; Returns: string }
       grant_generation_credits: {

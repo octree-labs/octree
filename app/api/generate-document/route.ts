@@ -13,7 +13,9 @@ import {
   GENERATE_DEADLINE_MS,
   GENERATE_MAX_OUTPUT_TOKENS,
   TRUNCATED_MESSAGE,
+  UPSTREAM_MESSAGE,
 } from '@/lib/generate/output';
+import { checkGenerateTextLength } from '@/lib/generate/limits';
 import type { ConversationSummary } from '@/types/conversation';
 
 export const runtime = 'nodejs';
@@ -120,6 +122,15 @@ export async function POST(request: Request) {
       );
     }
 
+    // Before the allowance is touched: a huge paste is refused, not billed.
+    const lengthError = checkGenerateTextLength({
+      promptLength: prompt.length,
+      currentLatexLength: typeof currentLatex === 'string' ? currentLatex.length : 0,
+    });
+    if (lengthError) {
+      return NextResponse.json({ error: lengthError, code: 'too_long' }, { status: 400 });
+    }
+
     // Allowance: Pro is unlimited; everyone else gets one free generation,
     // then credits bought through Checkout. `consume_generation` is a
     // SECURITY DEFINER, self-only RPC (the user_usage guard trigger refuses
@@ -154,8 +165,13 @@ export async function POST(request: Request) {
       kind,
       is_continuation: !!(documentId && currentLatex),
     });
+    // At most one refund per request: `refund_generation('credit')` is an
+    // unbounded +1, so a second call (an error path that runs after the
+    // truncation path already refunded) would mint a credit.
+    let refunded = false;
     const refundIfUnused = async (producedOutput: boolean) => {
-      if (kind === 'pro' || producedOutput) return;
+      if (kind === 'pro' || producedOutput || refunded) return;
+      refunded = true;
       try {
         const { error: refundError } = await createAdminClient().rpc('refund_generation', {
           p_user_id: user.id,
@@ -207,17 +223,33 @@ export async function POST(request: Request) {
     }
 
     const encoder = new TextEncoder();
+    const upstream = new AbortController();
+    let clientGone = false;
     const stream = new ReadableStream({
       async start(controller) {
+        // The browser can go away mid-stream (Stop, closed tab); enqueue on a
+        // cancelled stream throws, and that must not turn into a second
+        // error path.
         const write = (event: string, data: unknown) => {
+          if (clientGone) return;
           const payload = JSON.stringify(data);
-          controller.enqueue(
-            encoder.encode(`event: ${event}\ndata: ${payload}\n\n`)
-          );
+          try {
+            controller.enqueue(
+              encoder.encode(`event: ${event}\ndata: ${payload}\n\n`)
+            );
+          } catch {
+            clientGone = true;
+          }
+        };
+        const close = () => {
+          try {
+            controller.close();
+          } catch {
+            // already closed or cancelled
+          }
         };
 
         let producedOutput = false;
-        const upstream = new AbortController();
         let timedOut = false;
         const deadline = setTimeout(() => {
           timedOut = true;
@@ -291,6 +323,7 @@ export async function POST(request: Request) {
           const CHUNK_SIZE = 100;
           let stopReason: string | null = null;
           let outputTokens: number | null = null;
+          let providerError: string | null = null;
 
           while (true) {
             let chunk: ReadableStreamReadResult<Uint8Array>;
@@ -298,8 +331,9 @@ export async function POST(request: Request) {
               chunk = await reader.read();
             } catch (readError) {
               // The deadline aborted the upstream request: finish with what
-              // arrived and report it as cut short, not as a crash.
-              if (timedOut) break;
+              // arrived and report it as cut short, not as a crash. Same
+              // when the browser left (handled after the loop).
+              if (timedOut || clientGone) break;
               throw readError;
             }
             const { done, value } = chunk;
@@ -324,7 +358,12 @@ export async function POST(request: Request) {
                   if (chunkBuffer.length >= CHUNK_SIZE) {
                     write('content', { text: chunkBuffer, partial: true });
                     chunkBuffer = '';
+                    if (clientGone) upstream.abort();
                   }
+                } else if (event.type === 'error') {
+                  // Anthropic reports mid-stream failures (overloaded_error,
+                  // api_error) as an SSE error event, then ends the stream.
+                  providerError = event.error?.type || 'error';
                 } else if (event.type === 'message_delta') {
                   stopReason = event.delta?.stop_reason ?? stopReason;
                   if (typeof event.usage?.output_tokens === 'number') {
@@ -339,6 +378,28 @@ export async function POST(request: Request) {
 
           if (chunkBuffer.length > 0) {
             write('content', { text: chunkBuffer, partial: true });
+          }
+
+          if (clientGone) {
+            // Stopped by the user after output arrived: no refund, nobody to
+            // tell. (Before any output, the catch below hands it back.)
+            if (!producedOutput) await refundIfUnused(false);
+            return;
+          }
+
+          if (providerError) {
+            // The provider failed mid-document: not the user's doing, and
+            // they have no document, so the generation is handed back.
+            console.error('generate-document: provider stream error:', providerError);
+            await refundIfUnused(false);
+            write('error', {
+              message: UPSTREAM_MESSAGE,
+              code: 'upstream',
+              stop_reason: stopReason,
+              output_tokens: outputTokens,
+            });
+            close();
+            return;
           }
 
           write('status', { phase: 'finalizing', message: 'Finalizing document...' });
@@ -359,7 +420,7 @@ export async function POST(request: Request) {
               stop_reason: timedOut ? 'deadline' : stopReason,
               output_tokens: outputTokens,
             });
-            controller.close();
+            close();
             return;
           }
 
@@ -370,7 +431,7 @@ export async function POST(request: Request) {
               stop_reason: stopReason,
               output_tokens: outputTokens,
             });
-            controller.close();
+            close();
             return;
           }
 
@@ -396,18 +457,26 @@ export async function POST(request: Request) {
             output_tokens: outputTokens,
           });
 
-          controller.close();
+          close();
         } catch (err) {
-          const message =
-            err instanceof Error ? err.message : 'Generation failed';
+          // The raw provider error (status + JSON body) goes to the logs, not
+          // to the user.
+          console.error('generate-document: model call failed:', err);
           // Nothing came back from the model: the user did not get a
           // generation, so they keep their free one / credit.
           await refundIfUnused(producedOutput);
-          write('error', { message, code: 'upstream' });
-          controller.close();
+          write('error', { message: UPSTREAM_MESSAGE, code: 'upstream' });
+          close();
         } finally {
           clearTimeout(deadline);
+          // Stop the model on every exit path (finished, failed, or the
+          // browser left), so nobody pays for tokens no one will read.
+          upstream.abort();
         }
+      },
+      cancel() {
+        clientGone = true;
+        upstream.abort();
       },
     });
 

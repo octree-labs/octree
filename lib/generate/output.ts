@@ -62,3 +62,6 @@ export function classifyGenerationEnd(input: {
 export const TRUNCATED_MESSAGE =
   'This document came out longer than one generation can write, so it stopped before the end. ' +
   'Try asking for fewer sections or a shorter document, or generate it in parts and ask for the rest in a follow-up.';
+
+export const UPSTREAM_MESSAGE =
+  'The AI service had a problem while writing your document. Please try again in a minute.';

@@ -15,6 +15,7 @@ import { AnalyticsEvents, type GenerateErrorKind } from '@/lib/analytics/events'
 import { track } from '@/lib/analytics/track';
 import {
   checkGenerateRequestSize,
+  checkGenerateTextLength,
   formatMegabytes,
   MAX_ATTACHMENT_BYTES,
 } from '@/lib/generate/limits';
@@ -224,11 +225,27 @@ export function useGenerate(options: UseGenerateOptions = {}) {
       attachment_bytes: filesToSend.reduce((sum, f) => sum + f.file.size, 0),
     };
 
+    const currentLatexLength = isContinuation ? currentDocument.latex?.length ?? 0 : 0;
     const sizeCheck = checkGenerateRequestSize({
       promptLength: userPrompt.length,
-      currentLatexLength: isContinuation ? currentDocument.latex?.length ?? 0 : 0,
+      currentLatexLength,
       attachmentSizes: filesToSend.map((f) => f.file.size),
     });
+    // Same rule the route applies (it answers 400 before using the allowance).
+    const lengthError = checkGenerateTextLength({
+      promptLength: userPrompt.length,
+      currentLatexLength,
+    });
+    if (lengthError) {
+      track(AnalyticsEvents.GENERATE_COMPLETED, {
+        ...attemptProps,
+        success: false,
+        duration_ms: 0,
+        error_kind: 'too_large',
+      });
+      setError(lengthError);
+      return;
+    }
     if (!sizeCheck.ok) {
       // `generate_submitted` already fired for this attempt; close it so the
       // two events stay one-to-one.
@@ -501,7 +518,8 @@ export function useGenerate(options: UseGenerateOptions = {}) {
               last_user_prompt: userPrompt,
               last_assistant_response: successMessage,
               message_history: historyForDb as unknown as Json,
-              status: 'complete'
+              status: 'complete',
+              error: null,
             })
             .eq('id', documentId);
 
@@ -525,6 +543,7 @@ export function useGenerate(options: UseGenerateOptions = {}) {
               latex: finalLatex,
               title: docTitle,
               status: 'complete',
+              error: null,
               last_assistant_response: successMessage,
               message_history: historyForDb as unknown as Json
           }).eq('id', documentId);
@@ -570,8 +589,11 @@ export function useGenerate(options: UseGenerateOptions = {}) {
                 ? 'Generation failed. Here is the last complete document.'
                 : 'Generation failed.';
             
+            // A follow-up keeps the last complete document (that is what the
+            // message above promises); only a first generation keeps the
+            // streamed fragment, which is all the user has.
             let partialLatex = isContinuation ? currentDocument?.latex : null;
-            if (streamedContent) {
+            if (streamedContent && !isContinuation) {
               const codeBlockMatch = streamedContent.match(/```(?:latex|tex)?\s*([\s\S]*)/i);
               if (codeBlockMatch) {
                 partialLatex = codeBlockMatch[1].split('```')[0];
@@ -603,6 +625,7 @@ export function useGenerate(options: UseGenerateOptions = {}) {
           if (historyForDb.length > 0) {
              await (supabase.from('generated_documents') as any).update({
                   status,
+                  error: isAbort ? 'cancelled' : `${errorKind}: ${msg}`.slice(0, 500),
                   latex: finalLatex,
                   last_assistant_response: finalAssistantContent,
                   message_history: historyForDb as unknown as Json

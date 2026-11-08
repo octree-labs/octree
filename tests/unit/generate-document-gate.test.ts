@@ -34,6 +34,13 @@ vi.mock('@/lib/posthog-server', () => ({
   captureServerExceptionAfterResponse: mocks.captureException,
 }));
 
+// A short deadline so the "route stops reading at the deadline" path runs
+// in milliseconds; everything else in this file finishes well before it.
+vi.mock('@/lib/generate/output', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/generate/output')>()),
+  GENERATE_DEADLINE_MS: 50,
+}));
+
 process.env.ANTHROPIC_API_KEY = 'test-key';
 
 import { POST } from '@/app/api/generate-document/route';
@@ -68,6 +75,45 @@ function anthropicStream(texts: string[], stopReason: string = 'end_turn', outpu
           usage: { output_tokens: outputTokens },
         };
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(end)}\n\n`));
+        controller.close();
+      },
+    }),
+  };
+}
+
+/** Sends `texts`, then hangs until the route aborts the request. */
+function anthropicHanging(texts: string[]) {
+  const encoder = new TextEncoder();
+  return (_url: string, init: { signal: AbortSignal }) =>
+    Promise.resolve({
+      ok: true,
+      body: new ReadableStream({
+        start(controller) {
+          for (const text of texts) {
+            const event = { type: 'content_block_delta', delta: { text } };
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+          }
+          init.signal.addEventListener('abort', () =>
+            controller.error(new DOMException('aborted', 'AbortError'))
+          );
+        },
+      }),
+    });
+}
+
+/** Some text, then Anthropic's mid-stream `error` event (e.g. overloaded). */
+function anthropicMidStreamError(texts: string[]) {
+  const encoder = new TextEncoder();
+  return {
+    ok: true,
+    body: new ReadableStream({
+      start(controller) {
+        for (const text of texts) {
+          const event = { type: 'content_block_delta', delta: { text } };
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+        }
+        const err = { type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } };
+        controller.enqueue(encoder.encode(`event: error\ndata: ${JSON.stringify(err)}\n\n`));
         controller.close();
       },
     }),
@@ -229,6 +275,17 @@ describe('POST /api/generate-document allowance gate', () => {
       expect(mocks.rpc).not.toHaveBeenCalled();
     });
 
+    it('refuses an oversized prompt with a 400 before consuming anything', async () => {
+      rpcAnswering('free');
+
+      const res = await POST(makeRequest({ prompt: 'a'.repeat(100_001) }));
+
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toMatchObject({ code: 'too_long' });
+      expect(mocks.rpc).not.toHaveBeenCalled();
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
     it('consumes before the model call is made', async () => {
       const order: string[] = [];
       mocks.rpc.mockImplementation(async (fn: string) => {
@@ -331,6 +388,78 @@ describe('POST /api/generate-document allowance gate', () => {
       expect(refundCalls()).toEqual([
         ['refund_generation', { p_user_id: 'user-1', p_kind: 'free' }],
       ]);
+    });
+
+    it('reports a cut-off at the deadline as truncated and refunds exactly once', async () => {
+      rpcAnswering('credit');
+      fetchSpy.mockImplementation(anthropicHanging(['\\documentclass{article}\\begin{document}Part']));
+
+      const res = await POST(makeRequest());
+      const events = await readEvents(res);
+
+      expect(events.find(([e]) => e === 'error')?.[1]).toMatchObject({
+        code: 'truncated',
+        stop_reason: 'deadline',
+      });
+      expect(refundCalls()).toEqual([
+        ['refund_generation', { p_user_id: 'user-1', p_kind: 'credit' }],
+      ]);
+    });
+
+    it('refunds a credit only once when the deadline hits before any output', async () => {
+      rpcAnswering('credit');
+      fetchSpy.mockImplementation(anthropicHanging([]));
+
+      const res = await POST(makeRequest());
+      const events = await readEvents(res);
+
+      expect(events.filter(([e]) => e === 'error')).toHaveLength(1);
+      expect(refundCalls()).toHaveLength(1);
+    });
+
+    it('a mid-stream provider error is a server error with a refund, not "invalid LaTeX"', async () => {
+      rpcAnswering('free');
+      fetchSpy.mockResolvedValue(
+        anthropicMidStreamError(['\\documentclass{article}\\begin{document}Some'])
+      );
+
+      const res = await POST(makeRequest());
+      const events = await readEvents(res);
+
+      const error = events.find(([e]) => e === 'error')?.[1];
+      expect(error).toMatchObject({ code: 'upstream' });
+      expect(error.message).not.toMatch(/overloaded_error|API error/);
+      expect(refundCalls()).toHaveLength(1);
+    });
+
+    it('does not show the raw provider response to the user', async () => {
+      rpcAnswering('free');
+      fetchSpy.mockResolvedValue(anthropicFailure(400));
+
+      const res = await POST(makeRequest());
+      const events = await readEvents(res);
+
+      expect(events.find(([e]) => e === 'error')?.[1].message).not.toMatch(/API error|overloaded/);
+    });
+
+    it('stops the model call when the browser goes away', async () => {
+      rpcAnswering('free');
+      let signal: AbortSignal | undefined;
+      const hanging = anthropicHanging(['\\documentclass{article}\\begin{document}' + 'x'.repeat(200)]);
+      fetchSpy.mockImplementation((url: string, init: { signal: AbortSignal }) => {
+        signal = init.signal;
+        return hanging(url, init);
+      });
+
+      const res = await POST(makeRequest());
+      const reader = res.body!.getReader();
+      await reader.read();
+      await reader.cancel();
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(signal?.aborted).toBe(true);
+      // Output had arrived: stopping it is not a refund.
+      expect(refundCalls()).toHaveLength(0);
     });
 
     it('still reports the error when the refund RPC itself fails', async () => {

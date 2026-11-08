@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { classifyGenerationEnd, extractLatex } from '@/lib/generate/output';
 import {
   checkGenerateRequestSize,
+  checkGenerateTextLength,
+  MAX_PROMPT_CHARS,
   MAX_ATTACHMENT_BYTES,
   REQUEST_BODY_LIMIT_BYTES,
 } from '@/lib/generate/limits';
@@ -93,5 +95,16 @@ describe('checkGenerateRequestSize', () => {
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.message).toMatch(/Shorten the prompt/);
+  });
+});
+
+describe('checkGenerateTextLength', () => {
+  it('accepts a prompt at the limit and refuses one past it', () => {
+    expect(checkGenerateTextLength({ promptLength: MAX_PROMPT_CHARS })).toBeNull();
+    expect(checkGenerateTextLength({ promptLength: MAX_PROMPT_CHARS + 1 })).toMatch(/limit is 100,000/);
+  });
+
+  it('refuses a follow-up on a very long document', () => {
+    expect(checkGenerateTextLength({ promptLength: 10, currentLatexLength: 300_000 })).toMatch(/too long/);
   });
 });

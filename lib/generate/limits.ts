@@ -56,3 +56,38 @@ export function checkGenerateRequestSize(input: {
 
   return { ok: false, estimatedBytes, attachmentBytes, message };
 }
+
+/**
+ * Longest prompt the route accepts, in characters (about 25k tokens). The
+ * body limit alone would let ~4 MB of pasted text through, which is up to a
+ * million input tokens on one request. The longest prompt seen in
+ * production was ~89k characters, so the cap sits above it.
+ */
+export const MAX_PROMPT_CHARS = 100_000;
+
+/**
+ * Longest current document a follow-up may send back, in characters. A
+ * single generation writes at most ~32k tokens (~90k characters), so this
+ * leaves room for documents that grew over several follow-ups.
+ */
+export const MAX_CURRENT_LATEX_CHARS = 250_000;
+
+/** Why a prompt / current document is refused, or null when it fits. */
+export function checkGenerateTextLength(input: {
+  promptLength: number;
+  currentLatexLength?: number;
+}): string | null {
+  if (input.promptLength > MAX_PROMPT_CHARS) {
+    return (
+      `Your prompt is ${input.promptLength.toLocaleString('en-US')} characters; the limit is ` +
+      `${MAX_PROMPT_CHARS.toLocaleString('en-US')}. Shorten it, or attach the source material as a PDF instead.`
+    );
+  }
+  if ((input.currentLatexLength ?? 0) > MAX_CURRENT_LATEX_CHARS) {
+    return (
+      'This document is too long to revise in one follow-up. Open it in the editor and make the ' +
+      'change there, or start a new generation.'
+    );
+  }
+  return null;
+}

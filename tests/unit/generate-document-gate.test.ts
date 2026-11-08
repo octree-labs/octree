@@ -14,7 +14,30 @@ const mocks = vi.hoisted(() => ({
   adminRpc: vi.fn(),
   captureEvent: vi.fn(),
   captureException: vi.fn(),
+  // Service-role generation_truncations table: { user_id, kind, created_at }.
+  truncations: [] as Array<{ user_id: string; kind: string; created_at: string }>,
+  truncationInsertError: null as unknown,
 }));
+
+/** The admin client's view of generation_truncations (insert + head count). */
+function truncationsTable() {
+  return {
+    insert: async (row: { user_id: string; kind: string }) => {
+      if (mocks.truncationInsertError) return { error: mocks.truncationInsertError };
+      mocks.truncations.push({ ...row, created_at: new Date().toISOString() });
+      return { error: null };
+    },
+    select: () => ({
+      eq: (_col: string, userId: string) => ({
+        gte: async (_col2: string, since: string) => ({
+          count: mocks.truncations.filter((r) => r.user_id === userId && r.created_at >= since)
+            .length,
+          error: null,
+        }),
+      }),
+    }),
+  };
+}
 
 vi.mock('@/lib/supabase/server', () => ({
   createClient: async () => ({
@@ -26,12 +49,25 @@ vi.mock('@/lib/supabase/server', () => ({
 // refund_generation is service-role only; the route reaches it through the
 // admin client, never the user's session.
 vi.mock('@/lib/supabase/admin', () => ({
-  createAdminClient: () => ({ rpc: mocks.adminRpc }),
+  createAdminClient: () => ({
+    rpc: mocks.adminRpc,
+    from: (table: string) => {
+      if (table !== 'generation_truncations') throw new Error(`unexpected table ${table}`);
+      return truncationsTable();
+    },
+  }),
 }));
 
 vi.mock('@/lib/posthog-server', () => ({
   captureServerEventAfterResponse: mocks.captureEvent,
   captureServerExceptionAfterResponse: mocks.captureException,
+}));
+
+// A short deadline so the "route stops reading at the deadline" path runs
+// in milliseconds; everything else in this file finishes well before it.
+vi.mock('@/lib/generate/output', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/generate/output')>()),
+  GENERATE_DEADLINE_MS: 50,
 }));
 
 process.env.ANTHROPIC_API_KEY = 'test-key';
@@ -52,7 +88,7 @@ function makeRequest(body: Record<string, unknown> = { prompt: 'Write a short no
   });
 }
 
-function anthropicStream(texts: string[]) {
+function anthropicStream(texts: string[], stopReason: string = 'end_turn', outputTokens = 42) {
   const encoder = new TextEncoder();
   return {
     ok: true,
@@ -62,6 +98,51 @@ function anthropicStream(texts: string[]) {
           const event = { type: 'content_block_delta', delta: { text } };
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
         }
+        const end = {
+          type: 'message_delta',
+          delta: { stop_reason: stopReason },
+          usage: { output_tokens: outputTokens },
+        };
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(end)}\n\n`));
+        controller.close();
+      },
+    }),
+  };
+}
+
+/** Sends `texts`, then hangs until the route aborts the request. */
+function anthropicHanging(texts: string[]) {
+  const encoder = new TextEncoder();
+  return (_url: string, init: { signal: AbortSignal }) =>
+    Promise.resolve({
+      ok: true,
+      body: new ReadableStream({
+        start(controller) {
+          for (const text of texts) {
+            const event = { type: 'content_block_delta', delta: { text } };
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+          }
+          init.signal.addEventListener('abort', () =>
+            controller.error(new DOMException('aborted', 'AbortError'))
+          );
+        },
+      }),
+    });
+}
+
+/** Some text, then Anthropic's mid-stream `error` event (e.g. overloaded). */
+function anthropicMidStreamError(texts: string[]) {
+  const encoder = new TextEncoder();
+  return {
+    ok: true,
+    body: new ReadableStream({
+      start(controller) {
+        for (const text of texts) {
+          const event = { type: 'content_block_delta', delta: { text } };
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+        }
+        const err = { type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } };
+        controller.enqueue(encoder.encode(`event: error\ndata: ${JSON.stringify(err)}\n\n`));
         controller.close();
       },
     }),
@@ -107,6 +188,8 @@ describe('POST /api/generate-document allowance gate', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.truncations.length = 0;
+    mocks.truncationInsertError = null;
     mocks.getUser.mockResolvedValue({ data: { user: freeUser }, error: null });
     mocks.adminRpc.mockResolvedValue({ data: true, error: null });
     fetchSpy = vi.fn().mockResolvedValue(anthropicStream([LATEX]));
@@ -187,6 +270,23 @@ describe('POST /api/generate-document allowance gate', () => {
     });
   });
 
+  describe('model call', () => {
+    it('asks for enough output room for long documents and reports the stop reason', async () => {
+      rpcAnswering('free');
+
+      const res = await POST(makeRequest());
+      const events = await readEvents(res);
+
+      const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+      expect(body.max_tokens).toBeGreaterThanOrEqual(32000);
+      expect(body.stream).toBe(true);
+      expect(events.find(([e]) => e === 'complete')?.[1]).toMatchObject({
+        stop_reason: 'end_turn',
+        output_tokens: 42,
+      });
+    });
+  });
+
   describe('consume timing', () => {
     it('does not consume for an unauthenticated request', async () => {
       mocks.getUser.mockResolvedValue({ data: { user: null }, error: null });
@@ -204,6 +304,17 @@ describe('POST /api/generate-document allowance gate', () => {
 
       expect(res.status).toBe(400);
       expect(mocks.rpc).not.toHaveBeenCalled();
+    });
+
+    it('refuses an oversized prompt with a 400 before consuming anything', async () => {
+      rpcAnswering('free');
+
+      const res = await POST(makeRequest({ prompt: 'a'.repeat(100_001) }));
+
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toMatchObject({ code: 'too_long' });
+      expect(mocks.rpc).not.toHaveBeenCalled();
+      expect(fetchSpy).not.toHaveBeenCalled();
     });
 
     it('consumes before the model call is made', async () => {
@@ -288,6 +399,190 @@ describe('POST /api/generate-document allowance gate', () => {
         message: 'Failed to generate valid LaTeX document',
       });
       expect(refundCalls()).toHaveLength(0);
+    });
+
+    it('hands the generation back when the document is cut off at max_tokens', async () => {
+      rpcAnswering('free');
+      fetchSpy.mockResolvedValue(
+        anthropicStream(['\\documentclass{article}\\begin{document}Long text'], 'max_tokens', 32000)
+      );
+
+      const res = await POST(makeRequest());
+      const events = await readEvents(res);
+
+      expect(events.find(([e]) => e === 'error')?.[1]).toMatchObject({
+        code: 'truncated',
+        stop_reason: 'max_tokens',
+        output_tokens: 32000,
+      });
+      expect(events.find(([e]) => e === 'complete')).toBeUndefined();
+      expect(refundCalls()).toEqual([
+        ['refund_generation', { p_user_id: 'user-1', p_kind: 'free' }],
+      ]);
+    });
+
+    it('reports a cut-off at the deadline as truncated and refunds exactly once', async () => {
+      rpcAnswering('credit');
+      fetchSpy.mockImplementation(anthropicHanging(['\\documentclass{article}\\begin{document}Part']));
+
+      const res = await POST(makeRequest());
+      const events = await readEvents(res);
+
+      expect(events.find(([e]) => e === 'error')?.[1]).toMatchObject({
+        code: 'truncated',
+        stop_reason: 'deadline',
+      });
+      expect(refundCalls()).toEqual([
+        ['refund_generation', { p_user_id: 'user-1', p_kind: 'credit' }],
+      ]);
+    });
+
+    it('refunds a credit only once when the deadline hits before any output', async () => {
+      rpcAnswering('credit');
+      fetchSpy.mockImplementation(anthropicHanging([]));
+
+      const res = await POST(makeRequest());
+      const events = await readEvents(res);
+
+      expect(events.filter(([e]) => e === 'error')).toHaveLength(1);
+      expect(refundCalls()).toHaveLength(1);
+    });
+
+    it('a mid-stream provider error is a server error with a refund, not "invalid LaTeX"', async () => {
+      rpcAnswering('free');
+      fetchSpy.mockResolvedValue(
+        anthropicMidStreamError(['\\documentclass{article}\\begin{document}Some'])
+      );
+
+      const res = await POST(makeRequest());
+      const events = await readEvents(res);
+
+      const error = events.find(([e]) => e === 'error')?.[1];
+      expect(error).toMatchObject({ code: 'upstream' });
+      expect(error.message).not.toMatch(/overloaded_error|API error/);
+      expect(refundCalls()).toHaveLength(1);
+    });
+
+    it('does not show the raw provider response to the user', async () => {
+      rpcAnswering('free');
+      fetchSpy.mockResolvedValue(anthropicFailure(400));
+
+      const res = await POST(makeRequest());
+      const events = await readEvents(res);
+
+      expect(events.find(([e]) => e === 'error')?.[1].message).not.toMatch(/API error|overloaded/);
+    });
+
+    it('stops the model call when the browser goes away', async () => {
+      rpcAnswering('free');
+      let signal: AbortSignal | undefined;
+      const hanging = anthropicHanging(['\\documentclass{article}\\begin{document}' + 'x'.repeat(200)]);
+      fetchSpy.mockImplementation((url: string, init: { signal: AbortSignal }) => {
+        signal = init.signal;
+        return hanging(url, init);
+      });
+
+      const res = await POST(makeRequest());
+      const reader = res.body!.getReader();
+      await reader.read();
+      await reader.cancel();
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(signal?.aborted).toBe(true);
+      // Output had arrived: stopping it is not a refund.
+      expect(refundCalls()).toHaveLength(0);
+    });
+
+    describe('daily cap on cut-off refunds', () => {
+      const cutOff = () =>
+        anthropicStream(['\\documentclass{article}\\begin{document}Long text'], 'max_tokens', 32000);
+
+      async function runTruncated() {
+        fetchSpy.mockResolvedValue(cutOff());
+        const res = await POST(makeRequest());
+        return (await readEvents(res)).find(([e]) => e === 'error')?.[1];
+      }
+
+      it('refunds the first two cut-offs in 24 hours and not the third; the message stays the same', async () => {
+        rpcAnswering('credit');
+
+        const first = await runTruncated();
+        const second = await runTruncated();
+        const third = await runTruncated();
+
+        expect(refundCalls()).toHaveLength(2);
+        expect(first).toMatchObject({ code: 'truncated', refunded: true });
+        expect(second).toMatchObject({ code: 'truncated', refunded: true });
+        expect(third).toMatchObject({ code: 'truncated', refunded: false });
+        expect(third.message).toBe(first.message);
+        expect(mocks.truncations).toHaveLength(3);
+      });
+
+      it('counts per user, not per document', async () => {
+        rpcAnswering('free');
+        mocks.truncations.push(
+          { user_id: 'someone-else', kind: 'free', created_at: new Date().toISOString() },
+          { user_id: 'someone-else', kind: 'free', created_at: new Date().toISOString() }
+        );
+
+        await runTruncated();
+        expect(refundCalls()).toHaveLength(1);
+
+        // Two more on different follow-up documents still count together.
+        fetchSpy.mockResolvedValue(cutOff());
+        await readEvents(await POST(makeRequest({ prompt: 'More', documentId: 'doc-a', currentLatex: LATEX })));
+        fetchSpy.mockResolvedValue(cutOff());
+        await readEvents(await POST(makeRequest({ prompt: 'More', documentId: 'doc-b', currentLatex: LATEX })));
+        expect(refundCalls()).toHaveLength(2);
+      });
+
+      it('cut-offs older than 24 hours no longer count', async () => {
+        rpcAnswering('free');
+        const old = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+        mocks.truncations.push(
+          { user_id: 'user-1', kind: 'free', created_at: old },
+          { user_id: 'user-1', kind: 'free', created_at: old }
+        );
+
+        expect(await runTruncated()).toMatchObject({ refunded: true });
+        expect(refundCalls()).toHaveLength(1);
+      });
+
+      it('the deadline cut-off shares the same cap', async () => {
+        rpcAnswering('credit');
+        await runTruncated();
+        await runTruncated();
+        fetchSpy.mockImplementation(anthropicHanging(['\\documentclass{article}\\begin{document}Part']));
+
+        const res = await POST(makeRequest());
+        const error = (await readEvents(res)).find(([e]) => e === 'error')?.[1];
+
+        expect(error).toMatchObject({ code: 'truncated', stop_reason: 'deadline', refunded: false });
+        expect(refundCalls()).toHaveLength(2);
+      });
+
+      it('fails closed: no refund when the cut-off cannot be recorded', async () => {
+        rpcAnswering('free');
+        mocks.truncationInsertError = { message: 'relation "generation_truncations" does not exist' };
+
+        expect(await runTruncated()).toMatchObject({ code: 'truncated', refunded: false });
+        expect(refundCalls()).toHaveLength(0);
+      });
+
+      it.each([
+        ['a Pro subscriber', freeUser, 'pro'],
+        ['a whitelisted account', unlimitedUser, null],
+      ])('%s gets the same cut-off message, with nothing to refund or record', async (_label, who, kind) => {
+        mocks.getUser.mockResolvedValue({ data: { user: who }, error: null });
+        rpcAnswering(kind);
+
+        const error = await runTruncated();
+
+        expect(error).toMatchObject({ code: 'truncated', refunded: false });
+        expect(error.message).toMatch(/longer than one generation can write/);
+        expect(refundCalls()).toHaveLength(0);
+        expect(mocks.truncations).toHaveLength(0);
+      });
     });
 
     it('still reports the error when the refund RPC itself fails', async () => {

@@ -228,6 +228,8 @@ export function GeneratePageContent({
     if (generateAccess.allowed) {
       track(AnalyticsEvents.GENERATE_SUBMITTED, {
         attachment_count: attachedFiles.length,
+        attachment_bytes: attachedFiles.reduce((sum, f) => sum + f.file.size, 0),
+        prompt_length: prompt.trim().length,
         is_continuation: Boolean(currentDocument),
         entry: entryRef.current,
       });
@@ -247,7 +249,8 @@ export function GeneratePageContent({
     generateAccess,
     generateDocument,
     refreshPlan,
-    attachedFiles.length,
+    attachedFiles,
+    prompt,
     currentDocument,
   ]);
 

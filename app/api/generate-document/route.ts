@@ -8,10 +8,23 @@ import {
 import { hasUnlimitedEdits } from '@/lib/paywall';
 import { createSSEHeaders } from '@/lib/octra-agent/stream-handling';
 import { AnalyticsEvents, type GenerationKind } from '@/lib/analytics/events';
+import {
+  classifyGenerationEnd,
+  GENERATE_DEADLINE_MS,
+  GENERATE_MAX_OUTPUT_TOKENS,
+  TRUNCATED_MESSAGE,
+  UPSTREAM_MESSAGE,
+} from '@/lib/generate/output';
+import { checkGenerateTextLength } from '@/lib/generate/limits';
 import type { ConversationSummary } from '@/types/conversation';
 
 export const runtime = 'nodejs';
-export const maxDuration = 600;
+// Fluid Compute ceiling on Pro. Long documents stream for several minutes;
+// GENERATE_DEADLINE_MS stops reading the model a minute before this.
+export const maxDuration = 800;
+
+/** Cut-off documents refunded per user per rolling 24 hours. */
+const TRUNCATION_REFUNDS_PER_DAY = 2;
 
 const DOCUMENT_GENERATION_PROMPT = `You are an expert LaTeX document writer. Generate a complete, compilable LaTeX document based on the user's request.
 
@@ -112,6 +125,15 @@ export async function POST(request: Request) {
       );
     }
 
+    // Before the allowance is touched: a huge paste is refused, not billed.
+    const lengthError = checkGenerateTextLength({
+      promptLength: prompt.length,
+      currentLatexLength: typeof currentLatex === 'string' ? currentLatex.length : 0,
+    });
+    if (lengthError) {
+      return NextResponse.json({ error: lengthError, code: 'too_long' }, { status: 400 });
+    }
+
     // Allowance: Pro is unlimited; everyone else gets one free generation,
     // then credits bought through Checkout. `consume_generation` is a
     // SECURITY DEFINER, self-only RPC (the user_usage guard trigger refuses
@@ -146,17 +168,71 @@ export async function POST(request: Request) {
       kind,
       is_continuation: !!(documentId && currentLatex),
     });
-    const refundIfUnused = async (producedOutput: boolean) => {
-      if (kind === 'pro' || producedOutput) return;
+    // At most one refund per request: `refund_generation('credit')` is an
+    // unbounded +1, so a second call (an error path that runs after the
+    // truncation path already refunded) would mint a credit.
+    // `refunded` is set once the refund decision is made, whether or not
+    // the cap below allowed it.
+    let refunded = false;
+    const callRefund = async () => {
       try {
         const { error: refundError } = await createAdminClient().rpc('refund_generation', {
           p_user_id: user.id,
           p_kind: kind,
         });
-        if (refundError) console.error('refund_generation failed:', refundError);
+        if (refundError) {
+          console.error('refund_generation failed:', refundError);
+          return false;
+        }
+        return true;
       } catch (refundError) {
         console.error('refund_generation failed:', refundError);
+        return false;
       }
+    };
+    const refundIfUnused = async (producedOutput: boolean) => {
+      if (kind === 'pro' || producedOutput || refunded) return;
+      refunded = true;
+      await callRefund();
+    };
+    /**
+     * A cut-off document (max_tokens or the deadline) is refunded at most
+     * TRUNCATION_REFUNDS_PER_DAY times per user per rolling 24 hours, so a
+     * free user cannot loop over-long requests for free. The cut-off is
+     * recorded first and the count taken after (this one included):
+     * concurrent cut-offs can only see more rows, never fewer, so a burst
+     * cannot slip past the cap. Fails closed: if the ledger cannot be
+     * written or read, there is no refund. Returns whether it refunded.
+     */
+    const refundTruncation = async (): Promise<boolean> => {
+      if (kind === 'pro' || refunded) return false;
+      refunded = true;
+      try {
+        // generation_truncations is newer than database.types.ts.
+        const admin = createAdminClient() as any;
+        const { error: insertError } = await admin
+          .from('generation_truncations')
+          .insert({ user_id: user.id, kind });
+        if (insertError) {
+          console.error('generation_truncations insert failed:', insertError);
+          return false;
+        }
+        const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+        const { count, error: countError } = await admin
+          .from('generation_truncations')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .gte('created_at', since);
+        if (countError || typeof count !== 'number') {
+          console.error('generation_truncations count failed:', countError);
+          return false;
+        }
+        if (count > TRUNCATION_REFUNDS_PER_DAY) return false;
+      } catch (ledgerError) {
+        console.error('generation_truncations failed:', ledgerError);
+        return false;
+      }
+      return callRefund();
     };
 
     const isContinuation = !!(documentId && currentLatex);
@@ -199,16 +275,38 @@ export async function POST(request: Request) {
     }
 
     const encoder = new TextEncoder();
+    const upstream = new AbortController();
+    let clientGone = false;
     const stream = new ReadableStream({
       async start(controller) {
+        // The browser can go away mid-stream (Stop, closed tab); enqueue on a
+        // cancelled stream throws, and that must not turn into a second
+        // error path.
         const write = (event: string, data: unknown) => {
+          if (clientGone) return;
           const payload = JSON.stringify(data);
-          controller.enqueue(
-            encoder.encode(`event: ${event}\ndata: ${payload}\n\n`)
-          );
+          try {
+            controller.enqueue(
+              encoder.encode(`event: ${event}\ndata: ${payload}\n\n`)
+            );
+          } catch {
+            clientGone = true;
+          }
+        };
+        const close = () => {
+          try {
+            controller.close();
+          } catch {
+            // already closed or cancelled
+          }
         };
 
         let producedOutput = false;
+        let timedOut = false;
+        const deadline = setTimeout(() => {
+          timedOut = true;
+          upstream.abort();
+        }, GENERATE_DEADLINE_MS);
 
         try {
           write('session', { id: sessionId });
@@ -254,11 +352,12 @@ export async function POST(request: Request) {
             },
             body: JSON.stringify({
               model: 'claude-sonnet-4-6',
-              max_tokens: 8192,
+              max_tokens: GENERATE_MAX_OUTPUT_TOKENS,
               system: systemPrompt,
               messages: [{ role: 'user', content: messageContent }],
               stream: true,
             }),
+            signal: upstream.signal,
           });
 
           if (!response.ok) {
@@ -274,9 +373,22 @@ export async function POST(request: Request) {
           let accumulatedContent = '';
           let chunkBuffer = '';
           const CHUNK_SIZE = 100;
+          let stopReason: string | null = null;
+          let outputTokens: number | null = null;
+          let providerError: string | null = null;
 
           while (true) {
-            const { done, value } = await reader.read();
+            let chunk: ReadableStreamReadResult<Uint8Array>;
+            try {
+              chunk = await reader.read();
+            } catch (readError) {
+              // The deadline aborted the upstream request: finish with what
+              // arrived and report it as cut short, not as a crash. Same
+              // when the browser left (handled after the loop).
+              if (timedOut || clientGone) break;
+              throw readError;
+            }
+            const { done, value } = chunk;
             if (done) break;
 
             buffer += decoder.decode(value, { stream: true });
@@ -298,6 +410,16 @@ export async function POST(request: Request) {
                   if (chunkBuffer.length >= CHUNK_SIZE) {
                     write('content', { text: chunkBuffer, partial: true });
                     chunkBuffer = '';
+                    if (clientGone) upstream.abort();
+                  }
+                } else if (event.type === 'error') {
+                  // Anthropic reports mid-stream failures (overloaded_error,
+                  // api_error) as an SSE error event, then ends the stream.
+                  providerError = event.error?.type || 'error';
+                } else if (event.type === 'message_delta') {
+                  stopReason = event.delta?.stop_reason ?? stopReason;
+                  if (typeof event.usage?.output_tokens === 'number') {
+                    outputTokens = event.usage.output_tokens;
                   }
                 }
               } catch {
@@ -310,17 +432,64 @@ export async function POST(request: Request) {
             write('content', { text: chunkBuffer, partial: true });
           }
 
-          write('status', { phase: 'finalizing', message: 'Finalizing document...' });
-
-          const latex = extractLatex(accumulatedContent);
-
-          if (!latex) {
-            write('error', {
-              message: 'Failed to generate valid LaTeX document',
-            });
-            controller.close();
+          if (clientGone) {
+            // Stopped by the user after output arrived: no refund, nobody to
+            // tell. (Before any output, the catch below hands it back.)
+            if (!producedOutput) await refundIfUnused(false);
             return;
           }
+
+          if (providerError) {
+            // The provider failed mid-document: not the user's doing, and
+            // they have no document, so the generation is handed back.
+            console.error('generate-document: provider stream error:', providerError);
+            await refundIfUnused(false);
+            write('error', {
+              message: UPSTREAM_MESSAGE,
+              code: 'upstream',
+              stop_reason: stopReason,
+              output_tokens: outputTokens,
+            });
+            close();
+            return;
+          }
+
+          write('status', { phase: 'finalizing', message: 'Finalizing document...' });
+
+          const end = classifyGenerationEnd({
+            content: accumulatedContent,
+            stopReason,
+            timedOut,
+          });
+
+          if (end.kind === 'truncated') {
+            // The user asked for a document and got a fragment through no
+            // fault of theirs: hand the free generation / credit back, up
+            // to the daily cap. The message is the same either way.
+            const truncationRefunded = await refundTruncation();
+            write('error', {
+              message: TRUNCATED_MESSAGE,
+              code: 'truncated',
+              refunded: truncationRefunded,
+              stop_reason: timedOut ? 'deadline' : stopReason,
+              output_tokens: outputTokens,
+            });
+            close();
+            return;
+          }
+
+          if (end.kind === 'invalid') {
+            write('error', {
+              message: 'Failed to generate valid LaTeX document',
+              code: 'invalid',
+              stop_reason: stopReason,
+              output_tokens: outputTokens,
+            });
+            close();
+            return;
+          }
+
+          const latex = end.latex;
 
           let title = extractTitle(latex);
           
@@ -338,18 +507,30 @@ export async function POST(request: Request) {
             title,
             sessionId,
             isContinuation,
+            stop_reason: stopReason,
+            output_tokens: outputTokens,
           });
 
-          controller.close();
+          close();
         } catch (err) {
-          const message =
-            err instanceof Error ? err.message : 'Generation failed';
+          // The raw provider error (status + JSON body) goes to the logs, not
+          // to the user.
+          console.error('generate-document: model call failed:', err);
           // Nothing came back from the model: the user did not get a
           // generation, so they keep their free one / credit.
           await refundIfUnused(producedOutput);
-          write('error', { message });
-          controller.close();
+          write('error', { message: UPSTREAM_MESSAGE, code: 'upstream' });
+          close();
+        } finally {
+          clearTimeout(deadline);
+          // Stop the model on every exit path (finished, failed, or the
+          // browser left), so nobody pays for tokens no one will read.
+          upstream.abort();
         }
+      },
+      cancel() {
+        clientGone = true;
+        upstream.abort();
       },
     });
 
@@ -392,32 +573,6 @@ async function consumeGeneration(
   if (data === 'pro' || data === 'free' || data === 'credit' || data === 'blocked') return data;
   console.error('consume_generation returned an unknown answer:', data);
   return 'error';
-}
-
-function extractLatex(content: string): string | null {
-  const trimmed = content.trim();
-
-  const fenceMatch = trimmed.match(/```(?:latex|tex)?\s*([\s\S]*?)```/);
-  if (fenceMatch) {
-    const extracted = fenceMatch[1].trim();
-    if (
-      extracted.includes('\\documentclass') &&
-      extracted.includes('\\end{document}')
-    ) {
-      return extracted;
-    }
-  }
-
-  if (
-    trimmed.includes('\\documentclass') &&
-    trimmed.includes('\\end{document}')
-  ) {
-    const start = trimmed.indexOf('\\documentclass');
-    const end = trimmed.lastIndexOf('\\end{document}') + '\\end{document}'.length;
-    return trimmed.slice(start, end);
-  }
-
-  return null;
 }
 
 function extractTitle(latex: string): string | null {

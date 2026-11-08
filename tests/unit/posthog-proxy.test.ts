@@ -51,6 +51,21 @@ describe('posthog relay', () => {
 
   it('is excluded from the auth middleware matcher', () => {
     const middleware = readFileSync(join(process.cwd(), 'middleware.ts'), 'utf8');
-    expect(middleware).toContain(`(?!_next/static|${POSTHOG_RELAY_PATH.slice(1)}|`);
+    expect(middleware).toContain(`(?!_next/static|${POSTHOG_RELAY_PATH.slice(1)}(?:/|$)|`);
+  });
+
+  it('excludes exactly the relay prefix from the middleware, nothing that merely starts with it', () => {
+    const middleware = readFileSync(join(process.cwd(), 'middleware.ts'), 'utf8');
+    const literal = middleware.match(/matcher:\s*\[\s*'([^']+)'/)?.[1];
+    expect(literal).toBeTruthy();
+    // Same shape Next compiles the matcher to (anchored, single-quoted escapes undone).
+    const pattern = new RegExp(`^${literal!.replace(/\\\\/g, '\\')}$`);
+    expect(pattern.test('/relay-o7')).toBe(false);
+    expect(pattern.test('/relay-o7/e/')).toBe(false);
+    expect(pattern.test('/relay-o7/static/array.js')).toBe(false);
+    expect(pattern.test('/relay-o7x')).toBe(true);
+    expect(pattern.test('/projects/abc')).toBe(true);
+    expect(pattern.test('/dashboard')).toBe(true);
+    expect(pattern.test('/api/compile-pdf')).toBe(true);
   });
 });

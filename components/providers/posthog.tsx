@@ -105,7 +105,9 @@ function PostHogIdentify() {
       // Then refresh the plan/acquisition traits; identify with the same id
       // only sends the person properties.
       const traits = await getUserIdentityTraits(user.id).catch(() => null);
-      if (cancelled || !traits) return;
+      // Bail if the user signed out (or switched) while the query was in
+      // flight: identifying now would re-attach a reset browser to them.
+      if (cancelled || !traits || identifiedUserId.current !== user.id) return;
 
       identifyUser(user.id, {
         ...sessionTraits,

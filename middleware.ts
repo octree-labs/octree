@@ -18,6 +18,6 @@ export async function middleware(request: NextRequest) {
 // Matchers must be static literals, so the prefix is repeated here.
 export const config = {
   matcher: [
-    '/((?!_next/static|relay-o7|_next/image|favicon.ico|robots\\.txt|sitemap\\.xml|llms\\.txt|assets/|logos/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|relay-o7(?:/|$)|_next/image|favicon.ico|robots\\.txt|sitemap\\.xml|llms\\.txt|assets/|logos/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };

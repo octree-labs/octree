@@ -176,7 +176,7 @@ describe('winback', () => {
   });
 
   it('is off unless LIFECYCLE_WINBACK_ENABLED=true', () => {
-    expect(enabledTemplates({})).toEqual(new Set(['welcome', 'limit_hit', 'day7', 'pro_inactive', 'warm_lead_offer']));
+    expect(enabledTemplates({})).toEqual(new Set(['limit_hit', 'pro_inactive', 'warm_lead_offer']));
     expect(enabledTemplates({ LIFECYCLE_WINBACK_ENABLED: 'false' }).has('winback')).toBe(false);
     expect(enabledTemplates({ LIFECYCLE_WINBACK_ENABLED: 'true' }).has('winback')).toBe(true);
   });
@@ -185,6 +185,49 @@ describe('winback', () => {
     const selection = select([lapsed()], { enabledTemplates: ['welcome', 'limit_hit', 'day7'] });
     expect(selection.eligible.winback).toHaveLength(1);
     expect(selection.toSend).toHaveLength(0);
+  });
+});
+
+describe('welcome and day7 pause', () => {
+  it('excludes welcome and day7 by default', () => {
+    const enabled = enabledTemplates({});
+    expect(enabled.has('welcome')).toBe(false);
+    expect(enabled.has('day7')).toBe(false);
+    expect(enabled.has('limit_hit')).toBe(true);
+    expect(enabled.has('pro_inactive')).toBe(true);
+    expect(enabled.has('warm_lead_offer')).toBe(true);
+  });
+
+  it("only turns on with exactly 'true'", () => {
+    for (const value of ['false', '1', 'TRUE', 'yes', '']) {
+      const enabled = enabledTemplates({ LIFECYCLE_WELCOME_ENABLED: value, LIFECYCLE_DAY7_ENABLED: value });
+      expect(enabled.has('welcome'), value).toBe(false);
+      expect(enabled.has('day7'), value).toBe(false);
+    }
+    expect(enabledTemplates({ LIFECYCLE_WELCOME_ENABLED: 'true' })).toEqual(
+      new Set(['welcome', 'limit_hit', 'pro_inactive', 'warm_lead_offer'])
+    );
+    expect(enabledTemplates({ LIFECYCLE_DAY7_ENABLED: 'true' })).toEqual(
+      new Set(['day7', 'limit_hit', 'pro_inactive', 'warm_lead_offer'])
+    );
+  });
+
+  it('lists welcome / day7 candidates as eligible but queues nothing by default', () => {
+    const newcomer = user({ createdAt: ago(2 * DAY) });
+    const weekOld = user({ createdAt: ago(8 * DAY), firstProjectAt: ago(7 * DAY) });
+    const selection = select([newcomer, weekOld], { enabledTemplates: enabledTemplates({}) });
+    expect(selection.eligible.welcome.map((c) => c.userId)).toEqual([newcomer.userId]);
+    expect(selection.eligible.day7.map((c) => c.userId)).toEqual([weekOld.userId]);
+    expect(selection.toSend).toHaveLength(0);
+  });
+
+  it('queues them once the flags are true', () => {
+    const newcomer = user({ createdAt: ago(2 * DAY) });
+    const weekOld = user({ createdAt: ago(8 * DAY), firstProjectAt: ago(7 * DAY) });
+    const selection = select([newcomer, weekOld], {
+      enabledTemplates: enabledTemplates({ LIFECYCLE_WELCOME_ENABLED: 'true', LIFECYCLE_DAY7_ENABLED: 'true' }),
+    });
+    expect(selection.toSend.map((c) => c.template).sort()).toEqual(['day7', 'welcome']);
   });
 });
 

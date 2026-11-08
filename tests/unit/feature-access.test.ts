@@ -180,6 +180,7 @@ describe('toFeatureUsage', () => {
       editCount: 5,
       monthlyEditCount: 0,
       firstPurchaseOffer: null,
+      freeExport: 'unavailable',
     });
   });
 

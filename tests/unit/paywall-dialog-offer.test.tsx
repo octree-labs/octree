@@ -209,6 +209,36 @@ describe('PaywallDialog export with the one-off "Export this document" offer', (
     expect(stableIds(document.body.innerHTML)).toMatchSnapshot();
   });
 
+  it('after the free export: says it was used, Pro first (primary), the $4.99 unlock second', () => {
+    PaywallActions.open('export', 'free_export_used', ['single', 'pro'], { projectId: PROJECT_ID });
+    render(<PaywallDialog />);
+
+    expect(screen.getByText("You've used your free export")).toBeInTheDocument();
+    expect(screen.getByText(/Your first export was on us/)).toBeInTheDocument();
+    const pro = screen.getByRole('button', { name: 'Go Pro for $9.99/mo' });
+    const single = screen.getByRole('button', { name: 'Unlock export' });
+    // Pro's card comes first in the document.
+    expect(pro.compareDocumentPosition(single) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(track).toHaveBeenCalledWith('paywall_shown', {
+      feature: 'export',
+      reason: 'free_export_used',
+      offers: ['single', 'pro'],
+    });
+  });
+
+  it('after the free export, the secondary card still opens an export_single checkout for the project', async () => {
+    PaywallActions.open('export', 'free_export_used', ['single', 'pro'], { projectId: PROJECT_ID });
+    render(<PaywallDialog />);
+    fireEvent.click(screen.getByRole('button', { name: 'Unlock export' }));
+    await waitFor(() =>
+      expect(createCheckoutSession).toHaveBeenCalledWith({
+        plan: 'export_single',
+        projectId: PROJECT_ID,
+        source: 'paywall',
+      })
+    );
+  });
+
   it('starts an export_single checkout for the project from the paywall', async () => {
     openExportSingle();
     render(<PaywallDialog />);

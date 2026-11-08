@@ -470,12 +470,19 @@ describe('GET /api/subscription-status: first_purchase_offer', () => {
     vi.unstubAllEnvs();
     ledgerRows.credit_purchases = [];
     ledgerRows.generation_purchases = [];
+    ledgerRows.project_export_unlocks = [];
     mocks.getUser.mockResolvedValue({ data: { user: { id: 'user-1', email: 'new@example.com' } }, error: null });
     mocks.userSingle.mockResolvedValue({ data: freeRow(), error: null });
     mocks.resolveStripeCustomer.mockResolvedValue(null);
     mocks.adminFrom.mockImplementation(((table: string) => ({
       update: () => ({ eq: async () => ({ error: null }) }),
-      select: () => ({ eq: () => ({ limit: async () => ({ data: ledgerRows[table] ?? [], error: null }) }) }),
+      select: () => {
+        const chain: any = {
+          eq: () => chain,
+          limit: async () => ({ data: ledgerRows[table] ?? [], error: null }),
+        };
+        return chain;
+      },
     })) as any);
   });
 
@@ -485,6 +492,12 @@ describe('GET /api/subscription-status: first_purchase_offer', () => {
     expect(body.first_purchase_offer).toBe('welcome50');
     expect(mocks.adminFrom).toHaveBeenCalledWith('credit_purchases');
     expect(mocks.adminFrom).toHaveBeenCalledWith('generation_purchases');
+  });
+
+  it('reports the free first export as available, then used once a free_first row exists', async () => {
+    expect((await (await GET()).json()).usage.freeExport).toBe('available');
+    ledgerRows.project_export_unlocks = [{ id: 'free-1' }];
+    expect((await (await GET()).json()).usage.freeExport).toBe('used');
   });
 
   it('is null once a one-off purchase is on record', async () => {
@@ -515,7 +528,12 @@ describe('GET /api/subscription-status: first_purchase_offer', () => {
     // Route's own user_usage read (resolveStripeCustomer, mocked here, adds
     // its stripe_customer_id read and one customers.list, as on main).
     expect(mocks.userFrom).toHaveBeenCalledTimes(1);
-    expect(mocks.adminFrom.mock.calls.map((c: unknown[]) => c[0])).toEqual(['credit_purchases', 'generation_purchases']);
+    // Plus the free first export lookup (one free_first row read).
+    expect(mocks.adminFrom.mock.calls.map((c: unknown[]) => c[0])).toEqual([
+      'credit_purchases',
+      'generation_purchases',
+      'project_export_unlocks',
+    ]);
     expect(mocks.resolveStripeCustomer).toHaveBeenCalledTimes(1);
     expect(mocks.subscriptionsList).not.toHaveBeenCalled();
     expect(mocks.subscriptionsRetrieve).not.toHaveBeenCalled();

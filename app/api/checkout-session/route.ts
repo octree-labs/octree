@@ -56,7 +56,11 @@ import {
 export async function POST(request: Request) {
   try {
     const headersList = await headers();
-    const origin = headersList.get('origin');
+    // Browsers send Origin on a POST, but a client that does not (a privacy
+    // extension, a proxy stripping it) would otherwise get relative
+    // success/cancel URLs, which Stripe refuses: the user never reaches
+    // checkout. Fall back to the request's own origin.
+    const origin = headersList.get('origin') || new URL(request.url).origin;
 
     const supabase = await createClient();
 
@@ -117,7 +121,7 @@ export async function POST(request: Request) {
       userId: user.id,
       customerId: customer?.customerId ?? null,
       email: user.email,
-      origin: origin ?? '',
+      origin,
       withTrial: resolved.withTrial,
       source: resolved.source,
       entry: resolved.entry,

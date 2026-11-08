@@ -277,7 +277,7 @@ export function useEditorCompilation({
       if (!response.ok) {
         const errorMessage =
           data?.error || `Compilation failed with status ${response.status}`;
-        failure = createCompilationError(data, errorMessage);
+        failure = { ...createCompilationError(data, errorMessage), httpStatus: response.status };
         setCompilationError(failure);
         handled = true;
         throw new Error(errorMessage);

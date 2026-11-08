@@ -20,22 +20,34 @@ export const SUCCESSFUL_COMPILE_COUNT_KEY = 'octree.analytics.successful_compile
 
 const ERROR_SUMMARY_MAX = 200;
 
-/** The first TeX error line (`! ...`) in a log, if any. */
+/**
+ * `-file-line-error` form of a TeX error, which the compile service asks for
+ * (services/compile/internal/compiler.go): `./main.tex:12: Undefined control
+ * sequence.` instead of `! Undefined control sequence.`
+ */
+const FILE_LINE_ERROR = /^(?:\.{1,2}\/)?[^\s:()[\]]+\.[A-Za-z]{1,4}:\d+: \S/;
+
+/** Whether one log line starts a TeX error: `! ...` or `<file>:<line>: ...`. */
+export function isLatexErrorLine(line: string): boolean {
+  return line.startsWith('! ') || FILE_LINE_ERROR.test(line);
+}
+
+/** The first TeX error line (`! ...` or `<file>:<line>: ...`) in a log, if any. */
 export function firstLatexErrorLine(log: string | undefined): string | undefined {
   if (!log) return undefined;
   for (const raw of log.split('\n')) {
     const line = raw.trimEnd();
-    if (line.startsWith('! ')) return line;
+    if (isLatexErrorLine(line)) return line;
   }
   return undefined;
 }
 
-/** How many `! ` error lines a log holds. */
+/** How many TeX error lines (`! ` or `<file>:<line>: `) a log holds. */
 export function countLatexErrors(log: string | undefined): number | undefined {
   if (!log) return undefined;
   let count = 0;
   for (const line of log.split('\n')) {
-    if (line.startsWith('! ')) count += 1;
+    if (isLatexErrorLine(line)) count += 1;
   }
   return count;
 }
@@ -70,7 +82,7 @@ export function classifyCompileError(
   const text = summary ?? error?.message ?? '';
 
   if (/undefined control sequence/i.test(text)) return 'undefined_control_sequence';
-  if (/file `[^']*\.(sty|cls)' not found/i.test(text)) return 'missing_package';
+  if (/file [`'][^']*\.(sty|cls)' not found/i.test(text)) return 'missing_package';
   if (/missing \$ inserted/i.test(text)) return 'missing_dollar';
   if (/missing [{}] inserted|too many }'s|extra }, or forgotten/i.test(text)) return 'missing_brace';
   if (summary) return 'latex_error';

@@ -33,6 +33,9 @@ export const AnalyticsEvents = {
   FIRST_EDIT_NUDGE_SHOWN: 'first_edit_nudge_shown',
   FIRST_EDIT_NUDGE_CLICKED: 'first_edit_nudge_clicked',
   FIRST_EDIT_NUDGE_DISMISSED: 'first_edit_nudge_dismissed',
+  // "Fix with AI" on a failed compile (lib/compile-error-fix.ts)
+  COMPILE_ERROR_FIX_SHOWN: 'compile_error_fix_shown',
+  COMPILE_ERROR_FIX_CLICKED: 'compile_error_fix_clicked',
 
   // --- Monetisation (browser) ---
   PAYWALL_SHOWN: 'paywall_shown',
@@ -185,6 +188,15 @@ export type FirstEditNudgeSuggestion =
   | 'check_citations'
   | 'add_toc';
 
+/** Shared by `compile_error_fix_shown` and `compile_error_fix_clicked`. */
+export interface CompileErrorFixProperties {
+  error_kind: CompileErrorKind;
+  /** TeX error lines in the log (0 when no log came back). */
+  error_count: number;
+  /** Successful compiles on this browser so far; see `compile_completed.compile_index`. */
+  compile_index: number | null;
+}
+
 export interface AnalyticsEventProperties {
   [AnalyticsEvents.SIGNUP_COMPLETED]: {
     provider: SignupProvider;
@@ -299,6 +311,13 @@ export interface AnalyticsEventProperties {
   };
   [AnalyticsEvents.FIRST_EDIT_NUDGE_CLICKED]: { suggestion: FirstEditNudgeSuggestion };
   [AnalyticsEvents.FIRST_EDIT_NUDGE_DISMISSED]: Record<string, never>;
+  /**
+   * A failed compile offered "Fix with AI" (hooks/use-compile-error-fix.ts):
+   * once per failed compile, when the error panel or bar rendered with it.
+   */
+  [AnalyticsEvents.COMPILE_ERROR_FIX_SHOWN]: CompileErrorFixProperties;
+  /** That offer was clicked; the prompt goes to the agent chat as an AI edit. */
+  [AnalyticsEvents.COMPILE_ERROR_FIX_CLICKED]: CompileErrorFixProperties;
 
   [AnalyticsEvents.PAYWALL_SHOWN]: {
     feature: PaywallFeature;

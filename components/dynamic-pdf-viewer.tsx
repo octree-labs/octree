@@ -40,6 +40,8 @@ interface PDFViewerProps {
   onRetryCompile?: () => void;
   onDismissError?: () => void;
   onFixWithAI?: () => void;
+  /** Text of the "Fix with AI" button (components/latex/compilation-error.tsx). */
+  fixLabel?: string;
   onReverseSync?: (page: number, h: number, v: number) => void;
   forwardSyncTarget?: SynctexForwardResult | null;
 }
@@ -51,6 +53,7 @@ function DynamicPDFViewer({
   onRetryCompile,
   onDismissError,
   onFixWithAI,
+  fixLabel,
   onReverseSync,
   forwardSyncTarget,
 }: PDFViewerProps) {
@@ -326,6 +329,7 @@ function DynamicPDFViewer({
             onRetry={onRetryCompile}
             onDismiss={onDismissError}
             onFixWithAI={onFixWithAI}
+            fixLabel={fixLabel}
             className="absolute left-1/2 top-1/2 z-10 w-full max-w-md -translate-x-1/2 -translate-y-1/2 px-4"
           />
         </div>
@@ -367,6 +371,7 @@ function DynamicPDFViewer({
           onRetry={onRetryCompile}
           onDismiss={onDismissError}
           onFixWithAI={onFixWithAI}
+          fixLabel={fixLabel}
         />
       )}
 

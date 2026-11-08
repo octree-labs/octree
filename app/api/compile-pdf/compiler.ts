@@ -5,7 +5,8 @@ const COMPILE_TIMEOUT_MS = 180_000;
 export async function compileLatex(
   body: CompileRequest,
   compileServiceUrl: string,
-  sessionToken: string
+  sessionToken: string,
+  timeoutMs: number = COMPILE_TIMEOUT_MS
 ): Promise<CompilerResponse> {
   const { files, projectId, lastModifiedFile } = body;
 
@@ -21,7 +22,7 @@ export async function compileLatex(
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), COMPILE_TIMEOUT_MS);
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     const response = await fetch(`${compileServiceUrl}/compile`, {
       method: 'POST',
@@ -38,7 +39,7 @@ export async function compileLatex(
 
     return await handleCompileSuccess(response);
   } catch (error) {
-    return handleCompileException(error);
+    return handleCompileException(error, timeoutMs);
   }
 }
 
@@ -105,6 +106,7 @@ async function handleCompileError(
   return {
     success: false,
     error: {
+      status: response.status,
       error: errorData.error || 'LaTeX compilation failed',
       details:
         errorData.message ||
@@ -124,13 +126,14 @@ async function handleCompileError(
 /**
  * Handles compilation exceptions
  */
-function handleCompileException(error: unknown): CompilerResponse {
+function handleCompileException(error: unknown, timeoutMs: number): CompilerResponse {
   if (error instanceof Error && error.name === 'AbortError') {
     return {
       success: false,
       error: {
         error: 'LaTeX compilation timed out',
-        details: `Request took longer than ${COMPILE_TIMEOUT_MS / 1000} seconds`,
+        details: `Request took longer than ${timeoutMs / 1000} seconds`,
+        timedOut: true,
         suggestion:
           'Try simplifying your LaTeX document or contact support if the issue persists',
       },

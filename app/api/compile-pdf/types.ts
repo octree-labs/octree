@@ -33,6 +33,10 @@ export interface CompilerResponse {
   queueMs?: number | null;
   sha256?: string | null;
   error?: {
+    /** HTTP status of the compile service's error response; absent when no response came back. */
+    status?: number;
+    /** The request was aborted by the relay's own timeout. */
+    timedOut?: boolean;
     error: string;
     details: string;
     suggestion?: string;

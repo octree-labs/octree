@@ -17,6 +17,13 @@ vi.mock('@/lib/analytics/track', () => ({
   track: vi.fn(),
 }));
 
+// The card is switched off in production (data/constants.ts); its behaviour
+// is still tested with the switch on.
+vi.mock('@/data/constants', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/data/constants')>()),
+  FIRST_EDIT_NUDGE_ENABLED: true,
+}));
+
 const mockedTrack = vi.mocked(track);
 /** Let the session promise and the effects settle. */
 const flush = () => act(() => new Promise<void>((r) => setTimeout(r, 0)));

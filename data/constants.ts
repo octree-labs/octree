@@ -152,5 +152,20 @@ export const PRO_FEATURES = [
  * Kill switch for the post-compile "try one AI edit" card
  * (components/editor/first-edit-nudge.tsx). Set to `false` to stop showing it
  * to anyone; nothing else needs to change.
+ *
+ * Off since 2026-11: over three weeks it was shown 116 times, clicked 3 and
+ * dismissed 43. The AI edit is offered at a compile error instead
+ * (COMPILE_ERROR_FIX_ENABLED below); the card's code stays so it can be
+ * switched back on.
  */
-export const FIRST_EDIT_NUDGE_ENABLED = true;
+export const FIRST_EDIT_NUDGE_ENABLED = false;
+
+/**
+ * Kill switch for the "Fix with AI" offer on a failed compile
+ * (lib/compile-error-fix.ts, hooks/use-compile-error-fix.ts): the error-kind
+ * label, the button on the collapsed error bar, the prompt built from the
+ * first TeX error lines and the `compile_error_fix_*` events. Set to `false`
+ * to fall back to the plain "Fix with AI" button (log tail attached as a
+ * selection, "Fix this error" sent).
+ */
+export const COMPILE_ERROR_FIX_ENABLED = true;

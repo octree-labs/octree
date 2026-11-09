@@ -11,6 +11,7 @@ import {
   isDraftId,
 } from '@/lib/import/pending-draft';
 import { sourceLabel, sourceSite } from '@/lib/import/source';
+import { draftProjectFiles } from '@/lib/import/draft-files';
 import { appendUtmParams } from '@/lib/utm';
 
 export const metadata: Metadata = {
@@ -70,11 +71,14 @@ export default async function ImportStartPage({ searchParams }: PageProps) {
   // `drafts` has an anon SELECT policy (drafts_select_any), so the cookie-based
   // server client can read it without the service role. Ids are uuids, so the
   // only draft a visitor can see is the one whose id they were given.
+  // `*` so the page keeps working before the `files` column exists.
   const { data: draft } = (await (supabase.from('drafts') as any)
-    .select('id, title, content, source, consumed_at')
+    .select('*')
     .eq('id', draftId)
     .maybeSingle()) as {
-    data: Pick<Tables<'drafts'>, 'id' | 'title' | 'content' | 'source' | 'consumed_at'> | null;
+    data:
+      | (Pick<Tables<'drafts'>, 'id' | 'title' | 'content' | 'source' | 'consumed_at'> & { files?: unknown })
+      | null;
   };
 
   if (!draft || draft.consumed_at) {
@@ -82,7 +86,9 @@ export default async function ImportStartPage({ searchParams }: PageProps) {
   }
 
   const title = draft.title || 'Imported from Tools';
-  const preview = previewOf(draft.content);
+  // Main file first; a single-file draft is one main.tex.
+  const files = draftProjectFiles(draft);
+  const preview = previewOf(files[0].content);
   const nextPath = importPath(draftId);
 
   return (
@@ -103,6 +109,7 @@ export default async function ImportStartPage({ searchParams }: PageProps) {
         source={draft.source ?? ''}
         sourceLabel={sourceLabel(draft.source)}
         sourceSite={sourceSite(draft.source)}
+        files={files.map((f) => ({ path: f.path, size: f.content.length }))}
         latexPreview={preview.text}
         latexTruncated={preview.truncated}
         nextPath={nextPath}

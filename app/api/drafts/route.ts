@@ -7,6 +7,7 @@ import { importPath, setPendingDraftCookie } from '@/lib/import/pending-draft';
 import { clientIp, createRateLimiter } from '@/lib/import/rate-limit';
 import { captureServerExceptionAfterResponse } from '@/lib/posthog-server';
 import { appendUtmParams } from '@/lib/utm';
+import { parseDraftFilesField, validateDraftFiles } from '@/lib/import/draft-files';
 
 const allowedOrigin = process.env.ALLOWED_TOOLS_ORIGIN || 'https://tools.useoctree.com';
 
@@ -33,6 +34,11 @@ function withCors(response: NextResponse) {
   response.headers.set('Access-Control-Allow-Headers', 'Content-Type');
   response.headers.set('Access-Control-Allow-Methods', 'GET, HEAD, POST, OPTIONS');
   return response;
+}
+
+/** PostgREST "column not in schema cache" / Postgres undefined_column. */
+function isMissingColumnError(error: any) {
+  return error?.code === 'PGRST204' || error?.code === '42703';
 }
 
 export async function OPTIONS() {
@@ -69,35 +75,73 @@ export async function POST(request: NextRequest) {
     let content = '';
     let title = 'Imported from Tools';
     let source: string | null = null;
+    // Optional multi-file payload: `files` = JSON array of { path, content },
+    // `main` = the root file's path (else detected by \documentclass).
+    let filesRaw: unknown = undefined;
+    let mainRaw: unknown = undefined;
 
     if (contentType.includes('multipart/form-data') || contentType.includes('application/x-www-form-urlencoded')) {
       const form = await request.formData();
       content = (form.get('content') as string) || '';
       title = ((form.get('title') as string) || title).slice(0, 120);
       source = (form.get('source') as string) || null;
+      filesRaw = form.get('files') ?? undefined;
+      mainRaw = form.get('main') ?? undefined;
     } else {
       // Fallback to JSON
       const body = await request.json();
       content = body.content || '';
       title = (body.title || title).slice(0, 120);
       source = body.source || null;
+      filesRaw = body.files;
+      mainRaw = body.main;
     }
 
-    if (!content) {
-      return withCors(NextResponse.json({ error: 'Missing content' }, { status: 400 }));
-    }
-    if (typeof content !== 'string' || content.length > DRAFT_MAX_CONTENT_CHARS) {
-      return withCors(NextResponse.json({ error: 'Draft too large' }, { status: 413 }));
+    let files: Array<{ path: string; content: string }> | null = null;
+    if (filesRaw !== undefined && filesRaw !== null && filesRaw !== '') {
+      const parsed = parseDraftFilesField(filesRaw);
+      if (!parsed.ok) {
+        return withCors(NextResponse.json({ error: 'Invalid files: not valid JSON' }, { status: 400 }));
+      }
+      const validated = validateDraftFiles(parsed.value, mainRaw);
+      if (!validated.ok) {
+        return withCors(
+          NextResponse.json({ error: `Invalid files: ${validated.error}` }, { status: validated.status })
+        );
+      }
+      files = validated.files;
+      // `content` keeps the main file so every single-file reader still works.
+      // Whatever the sender put in `content` (a flattened fallback for older
+      // apps) is superseded by the real files.
+      content = files[0].content;
+    } else {
+      if (!content) {
+        return withCors(NextResponse.json({ error: 'Missing content' }, { status: 400 }));
+      }
+      if (typeof content !== 'string' || content.length > DRAFT_MAX_CONTENT_CHARS) {
+        return withCors(NextResponse.json({ error: 'Draft too large' }, { status: 413 }));
+      }
     }
 
     const supabase = await createClient();
 
     // Store draft anonymously (no user required). It will be consumed after login.
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('drafts' as any)
-      .insert({ content, title, source })
+      .insert(files ? { content, title, source, files } : { content, title, source })
       .select('id')
       .single();
+
+    if (error && files && isMissingColumnError(error)) {
+      // Migration 20261109120000_drafts_files not applied yet: keep the main
+      // file rather than failing the hand-off.
+      console.error('drafts.files column missing; storing the main file only', error);
+      ({ data, error } = await supabase
+        .from('drafts' as any)
+        .insert({ content, title, source })
+        .select('id')
+        .single());
+    }
 
     if (error || !data) {
       console.error('Draft insert error:', error);

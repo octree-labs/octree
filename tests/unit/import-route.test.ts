@@ -327,4 +327,95 @@ describe('GET /import', () => {
       );
     });
   });
+
+  describe('multi-file drafts', () => {
+    const DOC = '\\documentclass{article}\\begin{document}\\input{sections/intro}\\bibliography{refs}\\end{document}';
+    const files = [
+      { path: 'paper.tex', content: DOC },
+      { path: 'refs.bib', content: '@misc{a}' },
+      { path: 'sections/intro.tex', content: 'Intro' },
+    ];
+
+    it('creates the project with every file and reports file_count', async () => {
+      const posthog = await import('@/lib/posthog-server');
+      const capture = vi.spyOn(posthog, 'captureServerEventAfterResponse');
+      mocks.draftMaybeSingle.mockResolvedValue({ data: draftRow({ content: DOC, files }), error: null });
+
+      const res = await GET(makeRequest(`/import?draft=${DRAFT_ID}`));
+
+      expect(mocks.upload).toHaveBeenCalledTimes(3);
+      expect(mocks.upload.mock.calls.map((c) => c[0])).toEqual([
+        `projects/${PROJECT_ID}/paper.tex`,
+        `projects/${PROJECT_ID}/refs.bib`,
+        `projects/${PROJECT_ID}/sections/intro.tex`,
+      ]);
+      expect(mocks.fileInsert).toHaveBeenCalledTimes(1);
+      const rows = (mocks.fileInsert.mock.calls[0] as unknown[])[0] as Array<Record<string, unknown>>;
+      expect(rows.map((r) => r.name)).toEqual(['paper.tex', 'refs.bib', 'sections/intro.tex']);
+      expect(rows.every((r) => r.project_id === PROJECT_ID)).toBe(true);
+      expect(mocks.draftUpdate).toHaveBeenCalledTimes(1);
+      expect(res.headers.get('location')).toBe(`https://app.useoctree.com/projects/${PROJECT_ID}?welcome=1`);
+      expect(capture).toHaveBeenCalledWith('user-1', 'import_completed', expect.objectContaining({ file_count: 3 }));
+    });
+
+    it('reports file_count 1 for a single-file draft', async () => {
+      const posthog = await import('@/lib/posthog-server');
+      const capture = vi.spyOn(posthog, 'captureServerEventAfterResponse');
+
+      await GET(makeRequest(`/import?draft=${DRAFT_ID}`));
+
+      expect(capture).toHaveBeenCalledWith('user-1', 'import_completed', expect.objectContaining({ file_count: 1 }));
+    });
+
+    it('still opens the project when a non-main file fails to upload', async () => {
+      mocks.draftMaybeSingle.mockResolvedValue({ data: draftRow({ content: DOC, files }), error: null });
+      mocks.upload
+        .mockResolvedValueOnce({ error: null })
+        .mockResolvedValueOnce({ error: { message: 'boom' } })
+        .mockResolvedValueOnce({ error: null });
+
+      const res = await GET(makeRequest(`/import?draft=${DRAFT_ID}`));
+
+      const rows = (mocks.fileInsert.mock.calls[0] as unknown[])[0] as Array<Record<string, unknown>>;
+      expect(rows.map((r) => r.name)).toEqual(['paper.tex', 'sections/intro.tex']);
+      expect(res.headers.get('location')).toBe(`https://app.useoctree.com/projects/${PROJECT_ID}?welcome=1`);
+    });
+
+    it('drops the empty project when the main file fails to upload', async () => {
+      mocks.draftMaybeSingle.mockResolvedValue({ data: draftRow({ content: DOC, files }), error: null });
+      mocks.upload
+        .mockResolvedValueOnce({ error: { message: 'Invalid key' } })
+        .mockResolvedValueOnce({ error: null })
+        .mockResolvedValueOnce({ error: null });
+
+      const res = await GET(makeRequest(`/import?draft=${DRAFT_ID}`));
+
+      expect(mocks.projectDeleteEq).toHaveBeenCalledWith('id', PROJECT_ID);
+      expect(mocks.remove).toHaveBeenCalledWith([
+        `projects/${PROJECT_ID}/refs.bib`,
+        `projects/${PROJECT_ID}/sections/intro.tex`,
+      ]);
+      expect(mocks.fileInsert).not.toHaveBeenCalled();
+      expect(mocks.draftUpdate).not.toHaveBeenCalled();
+      expect(res.headers.get('location')).toBe('https://app.useoctree.com/');
+    });
+
+    it('removes every uploaded file when a concurrent request won the claim', async () => {
+      mocks.draftUpdateSelect.mockResolvedValue({ data: [], error: null });
+      mocks.draftMaybeSingle
+        .mockResolvedValueOnce({ data: draftRow({ content: DOC, files }), error: null })
+        .mockResolvedValueOnce({
+          data: { consumed_at: '2026-10-18T00:00:00Z', consumed_by: 'user-1', project_id: 'first' },
+          error: null,
+        });
+
+      await GET(makeRequest(`/import?draft=${DRAFT_ID}`));
+
+      expect(mocks.remove).toHaveBeenCalledWith([
+        `projects/${PROJECT_ID}/paper.tex`,
+        `projects/${PROJECT_ID}/refs.bib`,
+        `projects/${PROJECT_ID}/sections/intro.tex`,
+      ]);
+    });
+  });
 });

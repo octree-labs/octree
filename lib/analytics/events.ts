@@ -432,7 +432,12 @@ export interface AnalyticsEventProperties {
     feedback: CancelFeedback;
     has_comment: boolean;
   };
-  [AnalyticsEvents.IMPORT_COMPLETED]: { source: string; title_length: number };
+  [AnalyticsEvents.IMPORT_COMPLETED]: {
+    source: string;
+    title_length: number;
+    /** Files the project was created with (1 for a single-file draft). */
+    file_count: number;
+  };
   [AnalyticsEvents.AI_EDIT_SERVED]: {
     model: string;
     is_pro: boolean;

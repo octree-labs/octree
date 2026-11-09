@@ -133,4 +133,86 @@ describe('POST /api/drafts', () => {
     // Another IP is unaffected.
     expect((await POST(formPost({ content: 'x' }, '198.51.100.10'))).status).toBe(303);
   });
+
+  describe('multi-file drafts', () => {
+    const DOC = '\\documentclass{article}\\begin{document}\\bibliography{refs}\\end{document}';
+    const files = [
+      { path: 'refs.bib', content: '@misc{a}' },
+      { path: 'paper.tex', content: DOC },
+    ];
+
+    it('stores the validated files (main first) and keeps the main file in content', async () => {
+      const res = await POST(
+        formPost({
+          content: 'flattened fallback for older apps',
+          title: 'Paper',
+          source: 'tools:arxiv-to-latex',
+          files: JSON.stringify(files),
+        })
+      );
+
+      expect(res.status).toBe(303);
+      expect(mocks.insert).toHaveBeenCalledWith({
+        content: DOC,
+        title: 'Paper',
+        source: 'tools:arxiv-to-latex',
+        files: [files[1], files[0]],
+      });
+    });
+
+    it('accepts files without content, honours main, and works with a JSON body', async () => {
+      const req = new Request('https://app.useoctree.com/api/drafts', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-forwarded-for': '192.0.2.77' },
+        body: JSON.stringify({ files: [...files, { path: 'alt.tex', content: DOC }], main: 'alt.tex' }),
+      }) as any;
+
+      const res = await POST(req);
+
+      expect(res.status).toBe(303);
+      const inserted = (mocks.insert.mock.calls[0] as unknown[])[0] as any;
+      expect(inserted.files.map((f: any) => f.path)).toEqual(['alt.tex', 'refs.bib', 'paper.tex']);
+    });
+
+    it('rejects bad paths and malformed JSON with 400, and too much source with 413', async () => {
+      const bad = await POST(formPost({ files: JSON.stringify([...files, { path: '../x.tex', content: 'x' }]) }));
+      expect(bad.status).toBe(400);
+      expect(bad.headers.get('access-control-allow-origin')).toBe('https://tools.useoctree.com');
+
+      expect((await POST(formPost({ content: 'x', files: '{oops' }))).status).toBe(400);
+
+      const big = 'x'.repeat(1024 * 1024 + 1);
+      const tooBig = await POST(
+        formPost({
+          files: JSON.stringify([
+            { path: 'main.tex', content: DOC },
+            { path: 'a.tex', content: big },
+            { path: 'b.tex', content: big },
+          ]),
+        })
+      );
+      expect(tooBig.status).toBe(413);
+      expect(mocks.insert).not.toHaveBeenCalled();
+    });
+
+    it('treats an empty files field as a single-file draft', async () => {
+      const res = await POST(formPost({ content: 'x', files: '' }));
+
+      expect(res.status).toBe(303);
+      expect(mocks.insert).toHaveBeenCalledWith({ content: 'x', title: 'Imported from Tools', source: null });
+    });
+
+    it('falls back to the main file when the files column does not exist yet', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      mocks.single
+        .mockResolvedValueOnce({ data: null, error: { code: 'PGRST204', message: "Could not find the 'files' column" } })
+        .mockResolvedValueOnce({ data: { id: DRAFT_ID }, error: null });
+
+      const res = await POST(formPost({ files: JSON.stringify(files) }));
+
+      expect(res.status).toBe(303);
+      expect(mocks.insert).toHaveBeenCalledTimes(2);
+      expect(mocks.insert).toHaveBeenLastCalledWith({ content: DOC, title: 'Imported from Tools', source: null });
+    });
+  });
 });

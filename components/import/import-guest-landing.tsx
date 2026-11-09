@@ -32,10 +32,21 @@ interface ImportGuestLandingProps {
   sourceLabel: string | null;
   /** Host the draft came from, e.g. `tools.useoctree.com`. */
   sourceSite: string | null;
-  /** First lines of the LaTeX, shown under the PDF. */
+  /** The draft's files, main first (one `main.tex` for a single-file draft). */
+  files: Array<{ path: string; size: number }>;
+  /** First lines of the main file, shown under the PDF. */
   latexPreview: string;
   latexTruncated: boolean;
   nextPath: string;
+}
+
+function formatSize(chars: number) {
+  return chars < 1024 ? `${chars} B` : `${Math.round(chars / 1024)} KB`;
+}
+
+/** "Sign up free to open it" vs "… to open all 4 files". */
+export function openTarget(fileCount: number) {
+  return fileCount > 1 ? `all ${fileCount} files` : 'it';
 }
 
 export function previewUrl(draftId: string) {
@@ -75,6 +86,7 @@ export function ImportGuestLanding({
   source,
   sourceLabel,
   sourceSite,
+  files,
   latexPreview,
   latexTruncated,
   nextPath,
@@ -126,12 +138,15 @@ export function ImportGuestLanding({
     });
   };
 
+  const fileCount = files.length;
+  const mainPath = files[0]?.path ?? 'main.tex';
+  const mainPdf = `${mainPath.replace(/^.*\//, '').replace(/\.tex$/, '')}.pdf`;
   const headline =
     status.state === 'ok'
-      ? 'Your document compiled. Sign up free to edit it with AI.'
+      ? `Your document compiled. Sign up free to edit ${openTarget(fileCount)} with AI.`
       : status.state === 'loading'
         ? 'Compiling your document…'
-        : 'Your LaTeX is saved. Sign up free to open it.';
+        : `Your LaTeX is saved. Sign up free to open ${openTarget(fileCount)}.`;
 
   return (
     <main className="mx-auto grid w-full max-w-5xl flex-1 gap-10 px-6 pb-12 lg:grid-cols-[minmax(0,1fr)_380px]">
@@ -156,7 +171,7 @@ export function ImportGuestLanding({
 
         <div className="mt-6 overflow-hidden rounded-lg border bg-muted/40">
           <div className="flex items-center justify-between border-b px-4 py-2 text-xs text-muted-foreground">
-            <span className="font-mono">main.pdf</span>
+            <span className="font-mono">{mainPdf}</span>
             <span>{status.state === 'ok' ? 'Page 1' : 'Preview'}</span>
           </div>
 
@@ -195,9 +210,28 @@ export function ImportGuestLanding({
           )}
         </div>
 
+        {fileCount > 1 ? (
+          <div className="mt-4 rounded-lg border bg-muted/40 text-sm">
+            <p className="border-b px-4 py-2 text-xs text-muted-foreground">
+              {fileCount} files in this project
+            </p>
+            <ul className="max-h-60 overflow-auto px-4 py-2 font-mono text-xs leading-relaxed">
+              {files.map((file, index) => (
+                <li key={file.path} className="flex justify-between gap-4">
+                  <span className="min-w-0 break-all">
+                    {file.path}
+                    {index === 0 ? <span className="ml-2 font-sans text-muted-foreground">(main)</span> : null}
+                  </span>
+                  <span className="shrink-0 text-muted-foreground">{formatSize(file.size)}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
         <details className="mt-4 rounded-lg border bg-muted/40 text-sm">
           <summary className="cursor-pointer px-4 py-2 text-xs text-muted-foreground">
-            <span className="font-mono">main.tex</span> · view LaTeX source
+            <span className="font-mono">{mainPath}</span> · view LaTeX source
           </summary>
           <pre className="max-h-96 overflow-auto border-t p-4 font-mono text-xs leading-relaxed">
             {latexPreview}
@@ -207,6 +241,11 @@ export function ImportGuestLanding({
       </section>
 
       <aside className="flex flex-col gap-4" onClickCapture={handleCtaClick}>
+        {fileCount > 1 ? (
+          <p className="text-sm font-medium">
+            Sign up free to open all {fileCount} files in Octree
+          </p>
+        ) : null}
         <div data-import-cta="google">
           <GoogleOAuthButton nextPath={nextPath} label="Continue with Google" />
         </div>

@@ -12,8 +12,12 @@ export async function middleware(request: NextRequest) {
   return await updateSession(request);
 }
 
+// The PostHog relay (lib/analytics/posthog-proxy.ts, rewritten in
+// next.config.ts) must not pay for a Supabase session refresh on every event
+// batch, nor be redirected to /auth/login for signed-out visitors.
+// Matchers must be static literals, so the prefix is repeated here.
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|robots\\.txt|sitemap\\.xml|llms\\.txt|assets/|logos/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|relay-o7(?:/|$)|_next/image|favicon.ico|robots\\.txt|sitemap\\.xml|llms\\.txt|assets/|logos/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };

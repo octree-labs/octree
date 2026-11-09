@@ -7,6 +7,11 @@ import { PostHogProvider as PHProvider } from 'posthog-js/react';
 import type { User } from '@supabase/supabase-js';
 
 import { dropNoiseExceptions } from '@/lib/analytics/exception-filter';
+import {
+  POSTHOG_RELAY_PATH,
+  resolveIngestHost,
+  uiHostFor,
+} from '@/lib/analytics/posthog-proxy';
 import { identifyUser, resetAnalytics } from '@/lib/analytics/track';
 import { getUserIdentityTraits } from '@/lib/requests/user';
 import { createClient } from '@/lib/supabase/client';
@@ -17,6 +22,10 @@ import { createClient } from '@/lib/supabase/client';
  * persistence is `localStorage+cookie`: the distinct id crosses subdomains via
  * the cookie while the bulk of the state stays in localStorage.
  *
+ * Requests go through a first-party relay on the app's own origin
+ * (lib/analytics/posthog-proxy.ts): posting to *.posthog.com directly was
+ * blocked outright for roughly a quarter of sign-ups.
+ *
  * Without NEXT_PUBLIC_POSTHOG_KEY (local dev, tests) nothing is initialised and
  * every wrapper in lib/analytics/track.ts stays a no-op.
  */
@@ -26,7 +35,8 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
     if (!key || posthog.__loaded) return;
 
     posthog.init(key, {
-      api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST || 'https://us.i.posthog.com',
+      api_host: POSTHOG_RELAY_PATH,
+      ui_host: uiHostFor(resolveIngestHost(process.env.NEXT_PUBLIC_POSTHOG_HOST)),
       defaults: '2025-05-24',
       person_profiles: 'identified_only',
       cross_subdomain_cookie: true,
@@ -82,17 +92,29 @@ function PostHogIdentify() {
       if (identifiedUserId.current === user.id) return;
       identifiedUserId.current = user.id;
 
-      const traits = await getUserIdentityTraits(user.id).catch(() => null);
-      if (cancelled) return;
-
-      identifyUser(user.id, {
+      // Identify straight from the session so the merge with the anonymous
+      // browser id never waits on a database round trip (a tab closed before
+      // it returned used to leave the person unidentified).
+      const sessionTraits = {
         email: user.email,
         provider: user.app_metadata?.provider ?? null,
         created_at: user.created_at,
-        is_pro: traits?.is_pro,
-        subscription_status: traits?.subscription_status,
-        role: traits?.role,
-        referral_source: traits?.referral_source,
+      };
+      identifyUser(user.id, sessionTraits);
+
+      // Then refresh the plan/acquisition traits; identify with the same id
+      // only sends the person properties.
+      const traits = await getUserIdentityTraits(user.id).catch(() => null);
+      // Bail if the user signed out (or switched) while the query was in
+      // flight: identifying now would re-attach a reset browser to them.
+      if (cancelled || !traits || identifiedUserId.current !== user.id) return;
+
+      identifyUser(user.id, {
+        ...sessionTraits,
+        is_pro: traits.is_pro,
+        subscription_status: traits.subscription_status,
+        role: traits.role,
+        referral_source: traits.referral_source,
       });
     };
 

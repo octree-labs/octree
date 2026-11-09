@@ -14,8 +14,15 @@ const mocks = vi.hoisted(() => {
   return { single, select, insert, from };
 });
 
+// Drafts are inserted with the service role (the public key has no access
+// since 20261109140000_drafts_no_public_select). The session client throws.
+vi.mock('@/lib/supabase/admin', () => ({
+  createAdminClient: () => ({ from: mocks.from }),
+}));
 vi.mock('@/lib/supabase/server', () => ({
-  createClient: async () => ({ from: mocks.from }),
+  createClient: async () => {
+    throw new Error('drafts must not be written with the session client');
+  },
 }));
 
 import { POST, OPTIONS } from '@/app/api/drafts/route';

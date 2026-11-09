@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 
 const allowedOrigin = process.env.ALLOWED_TOOLS_ORIGIN || 'https://tools.useoctree.com';
 
@@ -61,8 +62,9 @@ export async function POST(req: NextRequest) {
     // If draft content provided, create draft and redirect to /import
     if (content) {
       try {
-        const supabase = await createClient();
-        const { data: draft, error: draftError } = await (supabase as unknown as {
+        // Drafts are service-role only (20261109140000_drafts_no_public_select).
+        const admin = createAdminClient();
+        const { data: draft, error: draftError } = await (admin as unknown as {
           from: (table: string) => {
             insert: (values: unknown) => { select: (cols: string) => { single: () => Promise<{ data: { id: string } | null; error: unknown | null }> } }
           }

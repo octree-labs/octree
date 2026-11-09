@@ -33,8 +33,15 @@ const mocks = vi.hoisted(() => {
   const remove = vi.fn().mockResolvedValue({ error: null });
   const getPublicUrl = vi.fn(() => ({ data: { publicUrl: 'https://cdn/main.tex' } }));
 
-  const from = vi.fn((table: string) => {
+  // `drafts` is service-role only (20261109140000_drafts_no_public_select):
+  // the session client throws on it so a regression to the public key fails.
+  const adminFrom = vi.fn((table: string) => {
     if (table === 'drafts') return { select: draftSelect, update: draftUpdate };
+    throw new Error(`unexpected admin table ${table}`);
+  });
+
+  const from = vi.fn((table: string) => {
+    if (table === 'drafts') throw new Error('drafts must not be queried with the session client');
     if (table === 'projects') return { insert: projectInsert, delete: projectDelete };
     if (table === 'files') return { insert: fileInsert };
     throw new Error(`unexpected table ${table}`);
@@ -58,6 +65,7 @@ const mocks = vi.hoisted(() => {
     remove,
     getPublicUrl,
     from,
+    adminFrom,
     trackRedditConversion,
   };
 });
@@ -70,6 +78,10 @@ vi.mock('@/lib/supabase/server', () => ({
       from: () => ({ upload: mocks.upload, remove: mocks.remove, getPublicUrl: mocks.getPublicUrl }),
     },
   }),
+}));
+
+vi.mock('@/lib/supabase/admin', () => ({
+  createAdminClient: () => ({ from: mocks.adminFrom }),
 }));
 
 vi.mock('@/lib/reddit-capi', () => ({
@@ -132,6 +144,7 @@ describe('GET /import', () => {
     );
     expect(res.headers.get('set-cookie')).toBeNull();
     expect(mocks.from).not.toHaveBeenCalled();
+    expect(mocks.adminFrom).not.toHaveBeenCalled();
   });
 
   it('keeps utm_* params on the way to the logged-out landing', async () => {
@@ -177,6 +190,7 @@ describe('GET /import', () => {
     expect(res.headers.get('location')).toBe('https://app.useoctree.com/');
     expect(res.headers.get('set-cookie')).toMatch(/octree_pending_draft=;.*Max-Age=0/i);
     expect(mocks.from).not.toHaveBeenCalled();
+    expect(mocks.adminFrom).not.toHaveBeenCalled();
   });
 
   it('creates the project, marks the draft consumed (no delete) and lands in the editor with welcome=1', async () => {
@@ -195,12 +209,22 @@ describe('GET /import', () => {
     expect(Date.parse(update.consumed_at as string)).toBeGreaterThanOrEqual(before - 1000);
     expect(mocks.draftUpdateEq).toHaveBeenCalledWith('id', DRAFT_ID);
     expect(mocks.draftUpdateIs).toHaveBeenCalledWith('consumed_at', null);
-    expect(mocks.from('drafts')).not.toHaveProperty('delete');
+    expect(mocks.adminFrom('drafts')).not.toHaveProperty('delete');
 
     expect(res.headers.get('location')).toBe(
       `https://app.useoctree.com/projects/${PROJECT_ID}?welcome=1`
     );
     expect(res.headers.get('set-cookie')).toMatch(/octree_pending_draft=;.*Max-Age=0/i);
+  });
+
+  it('reads and consumes the draft with the service role; the session client never touches drafts', async () => {
+    await GET(makeRequest(`/import?draft=${DRAFT_ID}`));
+
+    expect(mocks.adminFrom).toHaveBeenCalledWith('drafts');
+    expect(mocks.from).not.toHaveBeenCalledWith('drafts');
+    // The project itself is still created with the user's own session.
+    expect(mocks.from).toHaveBeenCalledWith('projects');
+    expect(mocks.adminFrom).not.toHaveBeenCalledWith('projects');
   });
 
   it('lands in the project regardless of onboarding state (never /onboarding)', async () => {

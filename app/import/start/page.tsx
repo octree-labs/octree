@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 import type { Tables } from '@/database.types';
 import { OctreeLogo, OctreeWordmark } from '@/components/icons/octree-logo';
 import { ImportGuestLanding } from '@/components/import/import-guest-landing';
@@ -68,11 +69,11 @@ export default async function ImportStartPage({ searchParams }: PageProps) {
     redirect(`${target.pathname}${target.search}`);
   }
 
-  // `drafts` has an anon SELECT policy (drafts_select_any), so the cookie-based
-  // server client can read it without the service role. Ids are uuids, so the
-  // only draft a visitor can see is the one whose id they were given.
+  // `drafts` is service-role only (20261109140000_drafts_no_public_select), so
+  // the public key can never list it. Ids are uuids and this reads exactly one
+  // by id, so the only draft a visitor can see is the one they were given.
   // `*` so the page keeps working before the `files` column exists.
-  const { data: draft } = (await (supabase.from('drafts') as any)
+  const { data: draft } = (await (createAdminClient().from('drafts') as any)
     .select('*')
     .eq('id', draftId)
     .maybeSingle()) as {

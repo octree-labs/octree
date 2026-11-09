@@ -68,6 +68,7 @@ describe('posthog-server', () => {
     await captureServerEvent('user_1', AnalyticsEvents.IMPORT_COMPLETED, {
       source: 'tools',
       title_length: 3,
+      file_count: 1,
     });
     await captureServerException(new Error('boom'), { route: 'api/test' });
 
@@ -104,12 +105,13 @@ describe('posthog-server', () => {
     await captureServerEvent('user_1', AnalyticsEvents.IMPORT_COMPLETED, {
       source: 'tools',
       title_length: 3,
+      file_count: 1,
     });
 
     expect(mocks.capture.mock.calls[0][0]).toEqual({
       distinctId: 'user_1',
       event: 'import_completed',
-      properties: { source: 'tools', title_length: 3, captured: 'server' },
+      properties: { source: 'tools', title_length: 3, file_count: 1, captured: 'server' },
     });
   });
 

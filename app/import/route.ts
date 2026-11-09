@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import type { User } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
 import type { Tables, TablesInsert, TablesUpdate } from '@/database.types';
-import { getContentTypeByFilename } from '@/lib/constants/file-types';
 import { trackRedditConversion } from '@/lib/reddit-capi';
 import { AnalyticsEvents } from '@/lib/analytics/events';
 import { captureServerEventAfterResponse, captureServerExceptionAfterResponse } from '@/lib/posthog-server';
@@ -13,11 +12,13 @@ import {
   isDraftId,
 } from '@/lib/import/pending-draft';
 import { appendUtmParams } from '@/lib/utm';
+import { draftProjectFiles } from '@/lib/import/draft-files';
+import { writeProjectFiles } from '@/lib/import/project-files';
 
 type DraftRow = Pick<
   Tables<'drafts'>,
   'id' | 'title' | 'content' | 'source' | 'consumed_at' | 'consumed_by' | 'project_id'
->;
+> & { files?: unknown };
 
 /** A user whose account is younger than this when the import completes counts as a sign-up. */
 const NEW_USER_WINDOW_MS = 10 * 60 * 1000;
@@ -75,8 +76,10 @@ export async function GET(request: NextRequest) {
 
   // The generated Database type resolves table rows to `never` in this repo,
   // so queries are cast like the rest of the codebase (see actions/*.ts).
+  // `*` rather than a column list so the read keeps working before migration
+  // 20261109120000_drafts_files (the `files` column) is applied.
   const { data: draft, error: draftError } = (await (supabase.from('drafts') as any)
-    .select('id, title, content, source, consumed_at, consumed_by, project_id')
+    .select('*')
     .eq('id', draftId)
     .maybeSingle()) as { data: DraftRow | null; error: unknown };
 
@@ -93,7 +96,9 @@ export async function GET(request: NextRequest) {
   }
 
   const title = draft.title || 'Imported from Tools';
-  const content = draft.content;
+  // Multi-file drafts carry every text file (main first); single-file drafts
+  // become one main.tex holding `content`.
+  const draftFiles = draftProjectFiles(draft);
 
   const projectData: TablesInsert<'projects'> = {
     title: title.slice(0, 120),
@@ -110,41 +115,27 @@ export async function GET(request: NextRequest) {
     return redirectAndForget(new URL('/', url.origin), url.searchParams);
   }
 
-  const mimeType = getContentTypeByFilename('main.tex');
-  const blob = new Blob([content], { type: mimeType });
-  const filePath = `projects/${project.id}/main.tex`;
+  const written = await writeProjectFiles(supabase, project.id, draftFiles);
+  const storagePaths = written.storagePaths;
 
-  const { error: uploadError } = await supabase.storage
-    .from('octree')
-    .upload(filePath, blob, {
-      cacheControl: '3600',
-      upsert: false,
-      contentType: mimeType,
-    });
-
-  if (uploadError) {
-    console.error('Error uploading file to storage:', uploadError);
-    captureServerExceptionAfterResponse(uploadError, { distinctId: user.id, route: 'import', extra: { step: 'upload' } });
+  if (written.mainError) {
+    console.error('Error uploading file to storage:', written.mainError);
+    captureServerExceptionAfterResponse(written.mainError, { distinctId: user.id, route: 'import', extra: { step: 'upload' } });
     return redirectAndForget(new URL('/', url.origin), url.searchParams);
   }
+  if (written.failed.length > 0) {
+    // The main file landed; the project opens without the missing extras.
+    console.error('Some draft files failed to upload:', written.failed);
+    captureServerExceptionAfterResponse(new Error('draft file upload failed'), {
+      distinctId: user.id,
+      route: 'import',
+      extra: { step: 'upload', failed: written.failed.length, file_count: draftFiles.length },
+    });
+  }
 
-  const { data: urlData } = supabase.storage.from('octree').getPublicUrl(filePath);
-
-  const fileToInsert: TablesInsert<'files'> = {
-    project_id: project.id,
-    name: 'main.tex',
-    type: mimeType,
-    size: content.length,
-    url: urlData.publicUrl,
-  };
-
-  const { error: fileError } = (await (supabase.from('files') as any).insert(
-    fileToInsert
-  )) as { error: unknown };
-
-  if (fileError) {
-    console.error('Error creating file record:', fileError);
-    captureServerExceptionAfterResponse(fileError, { distinctId: user.id, route: 'import', extra: { step: 'file-record' } });
+  if (written.recordError) {
+    console.error('Error creating file record:', written.recordError);
+    captureServerExceptionAfterResponse(written.recordError, { distinctId: user.id, route: 'import', extra: { step: 'file-record' } });
     return redirectAndForget(projectUrl(url.origin, project.id, true), url.searchParams);
   }
 
@@ -180,7 +171,7 @@ export async function GET(request: NextRequest) {
     if (current?.consumed_at) {
       // Lost the race: drop the duplicate project and land on the first one.
       await (supabase.from('projects') as any).delete().eq('id', project.id);
-      await supabase.storage.from('octree').remove([filePath]);
+      await supabase.storage.from('octree').remove(storagePaths);
       if (current.consumed_by === user.id && current.project_id) {
         return redirectAndForget(projectUrl(url.origin, current.project_id, true), url.searchParams);
       }
@@ -218,6 +209,7 @@ export async function GET(request: NextRequest) {
   captureServerEventAfterResponse(user.id, AnalyticsEvents.IMPORT_COMPLETED, {
     source: String(draft.source ?? 'tools'),
     title_length: (projectData.title ?? '').length,
+    file_count: draftFiles.length,
   });
 
   // Always land in the editor; `welcome=1` lets the editor show its own

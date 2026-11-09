@@ -4,6 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { PENDING_DRAFT_MAX_AGE_SECONDS, isDraftId } from '@/lib/import/pending-draft';
 import { compileServiceToken, type CompileCredentialEnv } from '@/lib/compile/credential';
+import { DRAFT_MAX_FILES_BYTES, storedDraftFiles, type DraftFile } from '@/lib/import/draft-files';
 
 /**
  * Server-side PDF preview of an "Open in Octree" draft for logged-out
@@ -25,6 +26,8 @@ export const PREVIEW_COMPILE_TIMEOUT_MS = 20_000;
 export const PREVIEW_ERROR_LINES = 3;
 /** Drafts bigger than this are not compiled for a preview (the editor still opens them). */
 export const PREVIEW_MAX_CONTENT_CHARS = 200_000;
+/** Multi-file drafts are already capped at 2 MB of UTF-8 by /api/drafts. */
+export const PREVIEW_MAX_FILES_BYTES = DRAFT_MAX_FILES_BYTES;
 
 export type PreviewFailure =
   | 'not_found'
@@ -46,6 +49,8 @@ export interface PreviewDraft {
   source: string | null;
   consumed_at: string | null;
   created_at: string;
+  /** Multi-file drafts (migration 20261109120000_drafts_files); null/absent = single file. */
+  files?: unknown;
 }
 
 // ---------------------------------------------------------------------------
@@ -237,7 +242,8 @@ export async function loadPreviewDraft(
   if (!isDraftId(draftId)) return { ok: false, reason: 'not_found' };
 
   const { data, error } = (await (admin.from('drafts') as any)
-    .select('id, title, content, source, consumed_at, created_at')
+    // `*` so the read survives a database without the `files` column yet.
+    .select('*')
     .eq('id', draftId)
     .maybeSingle()) as { data: PreviewDraft | null; error: unknown };
 
@@ -268,7 +274,16 @@ export interface CompileOptions {
   projectId?: string;
 }
 
-export async function compileForPreview(latex: string, options: CompileOptions): Promise<CompileOutcome> {
+/**
+ * Compiles one LaTeX source (as `main.tex`) or a multi-file draft. For
+ * files, the main file must come first: the compile service compiles the
+ * first `.tex` file with `\documentclass`.
+ */
+export async function compileForPreview(
+  source: string | DraftFile[],
+  options: CompileOptions
+): Promise<CompileOutcome> {
+  const files = typeof source === 'string' ? [{ path: 'main.tex', content: source }] : source;
   const fetchImpl = options.fetchImpl ?? fetch;
   const timeoutMs = options.timeoutMs ?? PREVIEW_COMPILE_TIMEOUT_MS;
   const controller = new AbortController();
@@ -282,9 +297,9 @@ export async function compileForPreview(latex: string, options: CompileOptions):
         Authorization: `Bearer ${options.token}`,
       },
       body: JSON.stringify({
-        files: [{ path: 'main.tex', content: latex }],
+        files,
         projectId: options.projectId,
-        lastModifiedFile: 'main.tex',
+        lastModifiedFile: files[0]?.path ?? 'main.tex',
       }),
       signal: controller.signal,
     });
@@ -432,11 +447,21 @@ async function renderImportPreviewUncached(draftId: string, deps: RenderPreviewD
     return { ok: false, reason: 'compile_failed', errorLines: cached.errorLines, cached: true };
   }
 
-  if (draft.content.length > PREVIEW_MAX_CONTENT_CHARS) {
-    return { ok: false, reason: 'too_large' };
-  }
-  if (isUnsupportedForPreview(draft.content)) {
-    return { ok: false, reason: 'unsupported' };
+  const files = storedDraftFiles(draft);
+  if (files) {
+    const bytes = files.reduce((sum, f) => sum + Buffer.byteLength(f.content, 'utf8'), 0);
+    if (bytes > PREVIEW_MAX_FILES_BYTES) return { ok: false, reason: 'too_large' };
+    // Every file is scanned: a .cls/.sty/\input-ed .tex can run commands too.
+    if (files.some((f) => isUnsupportedForPreview(f.content))) {
+      return { ok: false, reason: 'unsupported' };
+    }
+  } else {
+    if (draft.content.length > PREVIEW_MAX_CONTENT_CHARS) {
+      return { ok: false, reason: 'too_large' };
+    }
+    if (isUnsupportedForPreview(draft.content)) {
+      return { ok: false, reason: 'unsupported' };
+    }
   }
 
   const compileServiceUrl = env.COMPILE_SERVICE_URL;
@@ -446,7 +471,9 @@ async function renderImportPreviewUncached(draftId: string, deps: RenderPreviewD
     return { ok: false, reason: 'unavailable' };
   }
 
-  const outcome = await compileForPreview(wrapForPreview(draft.content), {
+  // Multi-file drafts compile as sent (their main file has \documentclass);
+  // single-file fragments get the minimal wrapper.
+  const outcome = await compileForPreview(files ?? wrapForPreview(draft.content), {
     compileServiceUrl,
     token,
     fetchImpl: deps.fetchImpl,

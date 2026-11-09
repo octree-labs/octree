@@ -407,6 +407,37 @@ describe('renderImportPreview', () => {
     expect(sent).toContain('Just $x^2$');
   });
 
+  it('compiles a multi-file draft as sent, main first, without wrapping', async () => {
+    const files = [
+      { path: 'paper.tex', content: '\\documentclass{article}\\begin{document}\\input{body}\\end{document}' },
+      { path: 'body.tex', content: 'Hello' },
+      { path: 'refs.bib', content: '@misc{a}' },
+    ];
+    const { client } = fakeAdmin({ draft: draftRow({ content: files[0].content, files }) });
+    const fetchImpl = fakeCompile(pdfResponse);
+
+    const result = await renderImportPreview(DRAFT_ID, { admin: client, fetchImpl, env: ENV, now: NOW });
+
+    expect(result).toMatchObject({ ok: true });
+    const body = JSON.parse(String(fetchImpl.calls[0].init.body));
+    expect(body.files).toEqual(files);
+    expect(body.lastModifiedFile).toBe('paper.tex');
+  });
+
+  it('refuses a multi-file draft when any file uses shell escape', async () => {
+    const files = [
+      { path: 'main.tex', content: '\\documentclass{evil}\\begin{document}x\\end{document}' },
+      { path: 'evil.cls', content: '\\immediate\\write18{id}' },
+    ];
+    const { client } = fakeAdmin({ draft: draftRow({ content: files[0].content, files }) });
+    const fetchImpl = fakeCompile(pdfResponse);
+
+    const result = await renderImportPreview(DRAFT_ID, { admin: client, fetchImpl, env: ENV, now: NOW });
+
+    expect(result).toEqual({ ok: false, reason: 'unsupported' });
+    expect(fetchImpl.calls).toHaveLength(0);
+  });
+
   it('shares one compile between concurrent requests for the same draft', async () => {
     const { client } = fakeAdmin();
     const fetchImpl = fakeCompile(pdfResponse);

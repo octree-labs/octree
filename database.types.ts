@@ -126,6 +126,7 @@ export type Database = {
           consumed_by: string | null
           content: string
           created_at: string
+          files: Json | null
           id: string
           project_id: string | null
           source: string | null
@@ -136,6 +137,7 @@ export type Database = {
           consumed_by?: string | null
           content: string
           created_at?: string
+          files?: Json | null
           id?: string
           project_id?: string | null
           source?: string | null
@@ -146,6 +148,7 @@ export type Database = {
           consumed_by?: string | null
           content?: string
           created_at?: string
+          files?: Json | null
           id?: string
           project_id?: string | null
           source?: string | null

@@ -62,8 +62,6 @@ func SetCompilationTimeout(timeout time.Duration) {
 	log.Printf("Compilation timeout set to %v", timeout)
 }
 
-var usepackagePatternCache sync.Map
-
 type latexEngine string
 
 const (
@@ -257,7 +255,9 @@ func (s *compileSession) detectEngine() (latexEngine, string) {
 		builder.WriteString("\n")
 	}
 
-	content := strings.ToLower(builder.String())
+	// Comments are dropped line by line, so `% \usepackage{fontspec}` and
+	// anything after an unescaped % never switches the engine.
+	content := stripTeXComments(builder.String())
 
 	if reason := detectLuaEngineTrigger(content); reason != "" {
 		return engineLuaLaTeX, reason
@@ -284,72 +284,120 @@ func shouldInspectForEngine(path string) bool {
 	}
 }
 
+// luaEnginePackages only work (or only make sense) under LuaLaTeX.
+var luaEnginePackages = []string{
+	"luacode",
+	"luacolor",
+	"luatex",
+	"luaotfload",
+	"luapackageloader",
+	"luamplib",
+	"lualatex-math",
+}
+
+// luaEngineCommands are control sequences that need LuaTeX. `\begin{luacode`
+// covers both the luacode and luacode* environments.
+var luaEngineCommands = []string{
+	`\directlua`,
+	`\luaexec`,
+	`\luadirect`,
+	`\newluafunction`,
+	`\begin{luacode`,
+}
+
+// xeEnginePackages need a Unicode engine; XeLaTeX is the default choice for
+// them. fontawesome5 is deliberately absent: it works under pdfLaTeX.
+var xeEnginePackages = []string{
+	"fontspec",
+	"xecjk",
+	"polyglossia",
+	"mathspec",
+	"unicode-math",
+	"xltxtra",
+	"xunicode",
+}
+
+var xeEngineCommands = []string{
+	`\setmainfont`,
+	`\setsansfont`,
+	`\setmonofont`,
+	`\newfontfamily`,
+	`\setcjkmainfont`,
+	`\setcjkfamilyfont`,
+	`\xeprintrule`,
+	`\defaultfontfeatures`,
+}
+
+// engineCommandPatterns caches one regexp per command trigger. A command
+// name only matches as a whole control sequence: `\setmainfont` matches
+// `\setmainfont{X}` and `\setmainfont[...]` but not `\setmainfontx`.
+// Matching is case-insensitive (`\setCJKmainfont`). A trigger that already
+// ends in a delimiter (`\begin{luacode`) is matched as a plain prefix.
+var engineCommandPatterns sync.Map
+
+func engineCommandPattern(trigger string) *regexp.Regexp {
+	if cached, ok := engineCommandPatterns.Load(trigger); ok {
+		return cached.(*regexp.Regexp)
+	}
+	pattern := `(?i)` + regexp.QuoteMeta(trigger)
+	if last := trigger[len(trigger)-1]; (last >= 'a' && last <= 'z') || (last >= 'A' && last <= 'Z') {
+		pattern += `(?:[^A-Za-z]|$)`
+	}
+	re := regexp.MustCompile(pattern)
+	engineCommandPatterns.Store(trigger, re)
+	return re
+}
+
+// detectLuaEngineTrigger returns a description of the first LuaLaTeX trigger
+// in content, or "". Content should already be comment-stripped
+// (detectEngine does this).
 func detectLuaEngineTrigger(content string) string {
-	triggers := []string{
-		"\\directlua",
-		"\\usepackage{luacode",
-		"\\usepackage{luacolor",
-		"\\usepackage{luatex",
-		"\\usepackage{luaotfload",
-		"\\usepackage{luapackageloader",
-		"\\luaexec",
-		"\\luadirect",
-		"\\newluafunction",
-		"\\begin{luacode",
-	}
-
-	for _, trigger := range triggers {
-		if strings.Contains(content, trigger) {
-			return trigger
-		}
-	}
-
-	return ""
+	return detectEngineTrigger(content, luaEnginePackages, luaEngineCommands)
 }
 
+// detectXeEngineTrigger is detectLuaEngineTrigger for XeLaTeX. Lua triggers
+// take precedence; detectEngine checks them first.
 func detectXeEngineTrigger(content string) string {
-	if containsUsepackage(content, "fontspec") {
-		return "\\usepackage{fontspec}"
-	}
+	return detectEngineTrigger(content, xeEnginePackages, xeEngineCommands)
+}
 
-	triggers := []string{
-		"\\setmainfont",
-		"\\setsansfont",
-		"\\setmonofont",
-		"\\newfontfamily",
-		"\\usepackage{xecjk",
-		"\\setcjkmainfont",
-		"\\setcjkfamilyfont",
-		"\\usepackage{polyglossia",
-		"\\usepackage{mathspec",
-		"\\usepackage{unicode-math",
-		"\\xeprintrule",
-		"\\defaultfontfeatures",
+func detectEngineTrigger(content string, packages, commands []string) string {
+	if reason := firstLoadedPackage(content, packages); reason != "" {
+		return reason
 	}
-
-	for _, trigger := range triggers {
-		if strings.Contains(content, trigger) {
+	for _, trigger := range commands {
+		if engineCommandPattern(trigger).MatchString(content) {
 			return trigger
 		}
 	}
-
 	return ""
 }
 
+// firstLoadedPackage scans every \usepackage and \RequirePackage in content
+// (optional, possibly multi-line [options], comma-separated package list)
+// and returns e.g. `\usepackage{fontspec}` for the first package that is in
+// pkgs, compared case-insensitively.
+func firstLoadedPackage(content string, pkgs []string) string {
+	for _, match := range packageLoadPattern.FindAllStringSubmatch(content, -1) {
+		for _, name := range strings.Split(match[2], ",") {
+			name = strings.ToLower(strings.TrimSpace(name))
+			for _, pkg := range pkgs {
+				if name == pkg {
+					return fmt.Sprintf(`\%s{%s}`, match[1], pkg)
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// containsUsepackage reports whether content loads pkg with \usepackage or
+// \RequirePackage, also as part of a comma-separated list.
 func containsUsepackage(content, pkg string) bool {
 	if pkg == "" {
 		return false
 	}
-
-	if cached, ok := usepackagePatternCache.Load(pkg); ok {
-		return cached.(*regexp.Regexp).MatchString(content)
-	}
-
-	pattern := fmt.Sprintf(`\\(?:use|require)package(?:\[[^\]]*\])?\{\s*%s\s*\}`, regexp.QuoteMeta(pkg))
-	re := regexp.MustCompile(pattern)
-	usepackagePatternCache.Store(pkg, re)
-
-	return re.MatchString(content)
+	return firstLoadedPackage(content, []string{strings.ToLower(pkg)}) != ""
 }
 
 func (s *compileSession) extractMainContent() string {

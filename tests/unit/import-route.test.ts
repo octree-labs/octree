@@ -381,6 +381,25 @@ describe('GET /import', () => {
       expect(res.headers.get('location')).toBe(`https://app.useoctree.com/projects/${PROJECT_ID}?welcome=1`);
     });
 
+    it('drops the empty project when the main file fails to upload', async () => {
+      mocks.draftMaybeSingle.mockResolvedValue({ data: draftRow({ content: DOC, files }), error: null });
+      mocks.upload
+        .mockResolvedValueOnce({ error: { message: 'Invalid key' } })
+        .mockResolvedValueOnce({ error: null })
+        .mockResolvedValueOnce({ error: null });
+
+      const res = await GET(makeRequest(`/import?draft=${DRAFT_ID}`));
+
+      expect(mocks.projectDeleteEq).toHaveBeenCalledWith('id', PROJECT_ID);
+      expect(mocks.remove).toHaveBeenCalledWith([
+        `projects/${PROJECT_ID}/refs.bib`,
+        `projects/${PROJECT_ID}/sections/intro.tex`,
+      ]);
+      expect(mocks.fileInsert).not.toHaveBeenCalled();
+      expect(mocks.draftUpdate).not.toHaveBeenCalled();
+      expect(res.headers.get('location')).toBe('https://app.useoctree.com/');
+    });
+
     it('removes every uploaded file when a concurrent request won the claim', async () => {
       mocks.draftUpdateSelect.mockResolvedValue({ data: [], error: null });
       mocks.draftMaybeSingle

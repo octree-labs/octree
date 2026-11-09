@@ -93,6 +93,37 @@ describe('validateDraftFiles', () => {
     ).toMatchObject({ ok: false, status: 400, error: expect.stringContaining('text files') });
   });
 
+  it('rejects storage-unsafe paths, case-only duplicates and NUL content', () => {
+    for (const path of ['café.tex', 'a~b.tex', 'x#1.tex', 'p%20.tex', 'w[1].bib', 'q?.tex', 'a\\b.tex', '/abs.tex']) {
+      expect(
+        validateDraftFiles([
+          { path: 'main.tex', content: DOC },
+          { path, content: BIB },
+        ])
+      ).toMatchObject({ ok: false, status: 400 });
+    }
+    expect(
+      validateDraftFiles([
+        { path: 'main.tex', content: DOC },
+        { path: 'Refs.bib', content: BIB },
+        { path: 'refs.bib', content: BIB },
+      ])
+    ).toMatchObject({ ok: false, status: 400, error: expect.stringContaining('duplicate') });
+    expect(
+      validateDraftFiles([
+        { path: 'main.tex', content: DOC },
+        { path: 'data.txt', content: 'PK\u0003\u0004\u0000\u0000' },
+      ])
+    ).toMatchObject({ ok: false, status: 400, error: expect.stringContaining('NUL') });
+    expect(
+      validateDraftFiles([
+        { path: 'main.tex', content: DOC },
+        { path: 'sec/intro (v2).tex', content: 'x' },
+        { path: 'refs_2024-final.bib', content: BIB },
+      ])
+    ).toMatchObject({ ok: true });
+  });
+
   it('rejects an empty list, a non-array, and more than 50 files', () => {
     expect(validateDraftFiles([])).toMatchObject({ ok: false, status: 400 });
     expect(validateDraftFiles({ path: 'main.tex' })).toMatchObject({ ok: false, status: 400 });

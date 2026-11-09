@@ -52,7 +52,8 @@ export async function writeProjectFiles(
     mainError: uploads[0]?.error ?? null,
     recordError: null,
   };
-  if (written.length === 0) return result;
+  // No main file: the caller drops the project, so no rows are written.
+  if (written.length === 0 || result.mainError) return result;
 
   const rows: TablesInsert<'files'>[] = written.map((u) => ({
     project_id: projectId,

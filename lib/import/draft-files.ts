@@ -26,6 +26,12 @@ import { isBinaryFile } from '@/lib/constants/file-types';
 export const DRAFT_MAX_FILES = API_MAX_FILES;
 export const DRAFT_MAX_FILES_BYTES = API_MAX_SOURCE_BYTES;
 
+/**
+ * Characters Supabase Storage accepts in an object key (storage-api
+ * `isValidKey`), minus `?` (it would cut the public URL short).
+ */
+export const DRAFT_PATH_RE = /^[\w/!\-.*'() &$@=;:+,]+$/;
+
 export interface DraftFile {
   path: string;
   content: string;
@@ -67,6 +73,31 @@ export function validateDraftFiles(input: unknown, mainInput?: unknown): DraftFi
     const path = (raw as { path?: unknown } | null)?.path;
     if (typeof path === 'string' && isBinaryFile(path)) {
       return invalid(`files[${index}]: only text files are supported ("${path}").`);
+    }
+  }
+
+  // Paths become storage object keys (`projects/<id>/<path>`) and `files.name`
+  // rows. Supabase Storage refuses keys outside a small ASCII set (no `~`,
+  // `#`, `%`, brackets or non-ASCII), and a refused *main* file would leave an
+  // empty project, so the set is checked up front. Case-only duplicates
+  // (`Refs.bib` / `refs.bib`) are distinct keys but collide on download to a
+  // case-insensitive filesystem. Content may not hold NUL: Postgres text and
+  // jsonb reject it (a 500 at insert time), and it marks a binary file sent
+  // under a text extension.
+  const seenFolded = new Set<string>();
+  for (const [index, raw] of input.entries()) {
+    const path = (raw as { path?: unknown } | null)?.path;
+    if (typeof path === 'string') {
+      if (!DRAFT_PATH_RE.test(path)) {
+        return invalid(`files[${index}]: unsupported characters in path "${path}".`);
+      }
+      const folded = posix.normalize(path).toLowerCase();
+      if (seenFolded.has(folded)) return invalid(`files[${index}]: duplicate path "${path}".`);
+      seenFolded.add(folded);
+    }
+    const content = (raw as { content?: unknown } | null)?.content;
+    if (typeof content === 'string' && content.includes('\0')) {
+      return invalid(`files[${index}]: binary content (NUL byte) in "${String(path)}".`);
     }
   }
 

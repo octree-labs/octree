@@ -121,6 +121,10 @@ export async function GET(request: NextRequest) {
   if (written.mainError) {
     console.error('Error uploading file to storage:', written.mainError);
     captureServerExceptionAfterResponse(written.mainError, { distinctId: user.id, route: 'import', extra: { step: 'upload' } });
+    // No main file means nothing to open: drop the empty project (and any
+    // extras that did land) instead of leaving it on the dashboard.
+    await (supabase.from('projects') as any).delete().eq('id', project.id);
+    if (storagePaths.length > 0) await supabase.storage.from('octree').remove(storagePaths);
     return redirectAndForget(new URL('/', url.origin), url.searchParams);
   }
   if (written.failed.length > 0) {

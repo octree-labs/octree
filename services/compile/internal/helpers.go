@@ -304,7 +304,10 @@ var shellEscapeMacros = []struct{ needle, feature string }{
 	{`\includesvg`, "svg"},
 }
 
-var packageLoadPattern = regexp.MustCompile(`\\(?:usepackage|RequirePackage)\s*(?:\[[^\]]*\])?\s*\{([^}]*)\}`)
+// packageLoadPattern matches one \usepackage or \RequirePackage call:
+// group 1 is the command name, group 2 the (comma-separated) package list.
+// The optional [options] may span lines.
+var packageLoadPattern = regexp.MustCompile(`\\(usepackage|RequirePackage)\s*(?:\[[^\]]*\])?\s*\{([^}]*)\}`)
 
 // stripTeXComments drops everything from an unescaped % to the end of each
 // line, so a commented-out `% \usepackage{minted}` does not count.
@@ -365,7 +368,7 @@ func texSources(mainContent string, files []FileEntry) []string {
 func unsupportedShellEscapeFeature(sources []string) string {
 	for _, content := range sources {
 		for _, match := range packageLoadPattern.FindAllStringSubmatch(content, -1) {
-			for _, pkg := range strings.Split(match[1], ",") {
+			for _, pkg := range strings.Split(match[2], ",") {
 				if feature, ok := shellEscapePackages[strings.ToLower(strings.TrimSpace(pkg))]; ok {
 					return feature
 				}
@@ -397,7 +400,7 @@ func needsEPSConversion(files []FileEntry, sources []string) (bool, string) {
 			return true, ".eps reference"
 		}
 		for _, match := range packageLoadPattern.FindAllStringSubmatch(content, -1) {
-			for _, pkg := range strings.Split(match[1], ",") {
+			for _, pkg := range strings.Split(match[2], ",") {
 				if strings.TrimSpace(strings.ToLower(pkg)) == "epstopdf" {
 					return true, "epstopdf package"
 				}

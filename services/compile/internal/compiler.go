@@ -12,9 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -61,8 +59,6 @@ func SetCompilationTimeout(timeout time.Duration) {
 	compilationTimeout = timeout
 	log.Printf("Compilation timeout set to %v", timeout)
 }
-
-var usepackagePatternCache sync.Map
 
 type latexEngine string
 
@@ -257,7 +253,9 @@ func (s *compileSession) detectEngine() (latexEngine, string) {
 		builder.WriteString("\n")
 	}
 
-	content := strings.ToLower(builder.String())
+	// Comments are dropped line by line, so `% \usepackage{fontspec}` and
+	// anything after an unescaped % never switches the engine.
+	content := stripTeXComments(builder.String())
 
 	if reason := detectLuaEngineTrigger(content); reason != "" {
 		return engineLuaLaTeX, reason
@@ -284,72 +282,133 @@ func shouldInspectForEngine(path string) bool {
 	}
 }
 
+// luaEnginePackages only work (or only make sense) under LuaLaTeX.
+var luaEnginePackages = []string{
+	"luacode",
+	"luacolor",
+	"luatex",
+	"luaotfload",
+	"luapackageloader",
+	"luamplib",
+	"lualatex-math",
+	// Covered by the old `\usepackage{luatex` prefix trigger; LuaTeX-only.
+	"luatexbase",
+	"luatexja",
+	"luatexja-fontspec",
+	"luatexja-preset",
+	"luatexko",
+}
+
+// luaEngineCommands are control sequences that need LuaTeX. `\begin{luacode`
+// covers both the luacode and luacode* environments.
+var luaEngineCommands = []string{
+	`\directlua`,
+	`\luaexec`,
+	`\luadirect`,
+	`\newluafunction`,
+	`\begin{luacode`,
+}
+
+// xeEnginePackages need a Unicode engine; XeLaTeX is the default choice for
+// them. fontawesome5 is deliberately absent: it works under pdfLaTeX.
+var xeEnginePackages = []string{
+	"fontspec",
+	"xecjk",
+	"xecjkfntef",
+	"polyglossia",
+	"mathspec",
+	"unicode-math",
+	"xltxtra",
+	"xunicode",
+}
+
+var xeEngineCommands = []string{
+	`\setmainfont`,
+	`\setsansfont`,
+	`\setmonofont`,
+	`\newfontfamily`,
+	`\setcjkmainfont`,
+	`\setcjkfamilyfont`,
+	`\xeprintrule`,
+	`\defaultfontfeatures`,
+}
+
+// containsControlSequence reports whether lower (already lower-cased)
+// contains trigger as a whole control sequence, compared case-insensitively:
+// `\setmainfont` matches `\setmainfont{X}` and `\setmainfont[...]` but not
+// `\setmainfontx`, and `\setCJKmainfont` matches `\setcjkmainfont`. A trigger
+// that already ends in a delimiter (`\begin{luacode`) is a plain prefix. This
+// is a substring scan rather than a regexp so multi-MB sources stay cheap.
+func containsControlSequence(lower, trigger string) bool {
+	needle := strings.ToLower(trigger)
+	last := needle[len(needle)-1]
+	needsBoundary := last >= 'a' && last <= 'z'
+	for offset := 0; ; {
+		i := strings.Index(lower[offset:], needle)
+		if i < 0 {
+			return false
+		}
+		end := offset + i + len(needle)
+		if !needsBoundary || end == len(lower) || lower[end] < 'a' || lower[end] > 'z' {
+			return true
+		}
+		offset += i + 1
+	}
+}
+
+// detectLuaEngineTrigger returns a description of the first LuaLaTeX trigger
+// in content, or "". Content should already be comment-stripped
+// (detectEngine does this).
 func detectLuaEngineTrigger(content string) string {
-	triggers := []string{
-		"\\directlua",
-		"\\usepackage{luacode",
-		"\\usepackage{luacolor",
-		"\\usepackage{luatex",
-		"\\usepackage{luaotfload",
-		"\\usepackage{luapackageloader",
-		"\\luaexec",
-		"\\luadirect",
-		"\\newluafunction",
-		"\\begin{luacode",
-	}
-
-	for _, trigger := range triggers {
-		if strings.Contains(content, trigger) {
-			return trigger
-		}
-	}
-
-	return ""
+	return detectEngineTrigger(content, luaEnginePackages, luaEngineCommands)
 }
 
+// detectXeEngineTrigger is detectLuaEngineTrigger for XeLaTeX. Lua triggers
+// take precedence; detectEngine checks them first.
 func detectXeEngineTrigger(content string) string {
-	if containsUsepackage(content, "fontspec") {
-		return "\\usepackage{fontspec}"
-	}
+	return detectEngineTrigger(content, xeEnginePackages, xeEngineCommands)
+}
 
-	triggers := []string{
-		"\\setmainfont",
-		"\\setsansfont",
-		"\\setmonofont",
-		"\\newfontfamily",
-		"\\usepackage{xecjk",
-		"\\setcjkmainfont",
-		"\\setcjkfamilyfont",
-		"\\usepackage{polyglossia",
-		"\\usepackage{mathspec",
-		"\\usepackage{unicode-math",
-		"\\xeprintrule",
-		"\\defaultfontfeatures",
+func detectEngineTrigger(content string, packages, commands []string) string {
+	if reason := firstLoadedPackage(content, packages); reason != "" {
+		return reason
 	}
-
-	for _, trigger := range triggers {
-		if strings.Contains(content, trigger) {
+	lower := strings.ToLower(content)
+	for _, trigger := range commands {
+		if containsControlSequence(lower, trigger) {
 			return trigger
 		}
 	}
-
 	return ""
 }
 
+// firstLoadedPackage scans every \usepackage and \RequirePackage in content
+// (optional, possibly multi-line [options], comma-separated package list)
+// and returns e.g. `\usepackage{fontspec}` for the first package that is in
+// pkgs, compared case-insensitively.
+func firstLoadedPackage(content string, pkgs []string) string {
+	for _, m := range packageLoadPattern.FindAllStringSubmatchIndex(content, -1) {
+		for list, more := content[m[4]:m[5]], true; more; {
+			var name string
+			name, list, more = strings.Cut(list, ",")
+			name = strings.TrimSpace(name)
+			for _, pkg := range pkgs {
+				if strings.EqualFold(name, pkg) {
+					return fmt.Sprintf(`\%s{%s}`, content[m[2]:m[3]], pkg)
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// containsUsepackage reports whether content loads pkg with \usepackage or
+// \RequirePackage, also as part of a comma-separated list.
 func containsUsepackage(content, pkg string) bool {
 	if pkg == "" {
 		return false
 	}
-
-	if cached, ok := usepackagePatternCache.Load(pkg); ok {
-		return cached.(*regexp.Regexp).MatchString(content)
-	}
-
-	pattern := fmt.Sprintf(`\\(?:use|require)package(?:\[[^\]]*\])?\{\s*%s\s*\}`, regexp.QuoteMeta(pkg))
-	re := regexp.MustCompile(pattern)
-	usepackagePatternCache.Store(pkg, re)
-
-	return re.MatchString(content)
+	return firstLoadedPackage(content, []string{strings.ToLower(pkg)}) != ""
 }
 
 func (s *compileSession) extractMainContent() string {

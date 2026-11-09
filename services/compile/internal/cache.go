@@ -11,8 +11,8 @@ import (
 
 const (
 	CacheExpirationTime = 30 * time.Minute // Evict after 30 minutes of inactivity
-	MaxCachedProjects   = 15                // Maximum number of projects to cache
-	CleanupInterval     = 5 * time.Minute   // Run cleanup every 5 minutes
+	MaxCachedProjects   = 15               // Maximum number of projects to cache
+	CleanupInterval     = 5 * time.Minute  // Run cleanup every 5 minutes
 )
 
 // CacheEntry represents a cached compilation for a project
@@ -226,7 +226,7 @@ func HashFileContent(content string) string {
 // HashFileSet generates a SHA256 hash of all files in the set
 func HashFileSet(files []FileEntry) string {
 	hasher := sha256.New()
-	
+
 	for _, file := range files {
 		// Include path and content in hash
 		hasher.Write([]byte(file.Path))
@@ -234,7 +234,6 @@ func HashFileSet(files []FileEntry) string {
 		hasher.Write([]byte(file.Content))
 		hasher.Write([]byte{0}) // Separator
 	}
-	
+
 	return hex.EncodeToString(hasher.Sum(nil))
 }
-

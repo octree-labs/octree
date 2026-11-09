@@ -165,6 +165,30 @@ func TestDetectEngine(t *testing.T) {
 			wantReason: `\usepackage{lualatex-math}`,
 		},
 		{
+			name:       "luatexja (old luatex prefix trigger) still selects lualatex",
+			main:       "\\usepackage{luatexja-fontspec}\n",
+			wantEngine: engineLuaLaTeX,
+			wantReason: `\usepackage{luatexja-fontspec}`,
+		},
+		{
+			name:       "luatexbase selects lualatex",
+			main:       "\\RequirePackage{luatexbase}\n",
+			wantEngine: engineLuaLaTeX,
+			wantReason: `\RequirePackage{luatexbase}`,
+		},
+		{
+			name:       "command at end of input",
+			main:       "\\setmainfont",
+			wantEngine: engineXeLaTeX,
+			wantReason: `\setmainfont`,
+		},
+		{
+			name:       "later whole command after an earlier prefix-only hit",
+			main:       "\\setmainfontx \\setmainfont{A}",
+			wantEngine: engineXeLaTeX,
+			wantReason: `\setmainfont`,
+		},
+		{
 			name:       "ctexart alone stays on pdflatex",
 			main:       "\\documentclass{ctexart}\n\\begin{document}中文\\end{document}",
 			wantEngine: enginePdfLaTeX,

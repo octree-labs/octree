@@ -12,9 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -293,6 +291,12 @@ var luaEnginePackages = []string{
 	"luapackageloader",
 	"luamplib",
 	"lualatex-math",
+	// Covered by the old `\usepackage{luatex` prefix trigger; LuaTeX-only.
+	"luatexbase",
+	"luatexja",
+	"luatexja-fontspec",
+	"luatexja-preset",
+	"luatexko",
 }
 
 // luaEngineCommands are control sequences that need LuaTeX. `\begin{luacode`
@@ -310,6 +314,7 @@ var luaEngineCommands = []string{
 var xeEnginePackages = []string{
 	"fontspec",
 	"xecjk",
+	"xecjkfntef",
 	"polyglossia",
 	"mathspec",
 	"unicode-math",
@@ -328,24 +333,27 @@ var xeEngineCommands = []string{
 	`\defaultfontfeatures`,
 }
 
-// engineCommandPatterns caches one regexp per command trigger. A command
-// name only matches as a whole control sequence: `\setmainfont` matches
-// `\setmainfont{X}` and `\setmainfont[...]` but not `\setmainfontx`.
-// Matching is case-insensitive (`\setCJKmainfont`). A trigger that already
-// ends in a delimiter (`\begin{luacode`) is matched as a plain prefix.
-var engineCommandPatterns sync.Map
-
-func engineCommandPattern(trigger string) *regexp.Regexp {
-	if cached, ok := engineCommandPatterns.Load(trigger); ok {
-		return cached.(*regexp.Regexp)
+// containsControlSequence reports whether lower (already lower-cased)
+// contains trigger as a whole control sequence, compared case-insensitively:
+// `\setmainfont` matches `\setmainfont{X}` and `\setmainfont[...]` but not
+// `\setmainfontx`, and `\setCJKmainfont` matches `\setcjkmainfont`. A trigger
+// that already ends in a delimiter (`\begin{luacode`) is a plain prefix. This
+// is a substring scan rather than a regexp so multi-MB sources stay cheap.
+func containsControlSequence(lower, trigger string) bool {
+	needle := strings.ToLower(trigger)
+	last := needle[len(needle)-1]
+	needsBoundary := last >= 'a' && last <= 'z'
+	for offset := 0; ; {
+		i := strings.Index(lower[offset:], needle)
+		if i < 0 {
+			return false
+		}
+		end := offset + i + len(needle)
+		if !needsBoundary || end == len(lower) || lower[end] < 'a' || lower[end] > 'z' {
+			return true
+		}
+		offset += i + 1
 	}
-	pattern := `(?i)` + regexp.QuoteMeta(trigger)
-	if last := trigger[len(trigger)-1]; (last >= 'a' && last <= 'z') || (last >= 'A' && last <= 'Z') {
-		pattern += `(?:[^A-Za-z]|$)`
-	}
-	re := regexp.MustCompile(pattern)
-	engineCommandPatterns.Store(trigger, re)
-	return re
 }
 
 // detectLuaEngineTrigger returns a description of the first LuaLaTeX trigger
@@ -365,8 +373,9 @@ func detectEngineTrigger(content string, packages, commands []string) string {
 	if reason := firstLoadedPackage(content, packages); reason != "" {
 		return reason
 	}
+	lower := strings.ToLower(content)
 	for _, trigger := range commands {
-		if engineCommandPattern(trigger).MatchString(content) {
+		if containsControlSequence(lower, trigger) {
 			return trigger
 		}
 	}
@@ -378,12 +387,14 @@ func detectEngineTrigger(content string, packages, commands []string) string {
 // and returns e.g. `\usepackage{fontspec}` for the first package that is in
 // pkgs, compared case-insensitively.
 func firstLoadedPackage(content string, pkgs []string) string {
-	for _, match := range packageLoadPattern.FindAllStringSubmatch(content, -1) {
-		for _, name := range strings.Split(match[2], ",") {
-			name = strings.ToLower(strings.TrimSpace(name))
+	for _, m := range packageLoadPattern.FindAllStringSubmatchIndex(content, -1) {
+		for list, more := content[m[4]:m[5]], true; more; {
+			var name string
+			name, list, more = strings.Cut(list, ",")
+			name = strings.TrimSpace(name)
 			for _, pkg := range pkgs {
-				if name == pkg {
-					return fmt.Sprintf(`\%s{%s}`, match[1], pkg)
+				if strings.EqualFold(name, pkg) {
+					return fmt.Sprintf(`\%s{%s}`, content[m[2]:m[3]], pkg)
 				}
 			}
 		}

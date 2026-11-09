@@ -77,6 +77,10 @@ export const AnalyticsEvents = {
   CHECKOUT_RECOVERY_EMAIL_SENT: 'checkout_recovery_email_sent',
   PAYMENT_FAILED_EMAIL_SENT: 'payment_failed_email_sent',
   PRO_ENTITLEMENT_REVOKED: 'pro_entitlement_revoked',
+  // Public compile API and MCP server (app/api/v1, app/api/mcp, actions/api-keys.ts)
+  API_KEY_CREATED: 'api_key_created',
+  API_COMPILE: 'api_compile',
+  API_QUOTA_EXCEEDED: 'api_quota_exceeded',
 } as const;
 
 export type AnalyticsEvent = (typeof AnalyticsEvents)[keyof typeof AnalyticsEvents];
@@ -169,6 +173,8 @@ export type CompileErrorKind =
   | 'unauthorized'
   | 'request_rejected'
   | 'network';
+/** Which surface of the public API served a request. */
+export type ApiVia = 'rest' | 'mcp';
 export type CancelOffer = 'pause' | 'discount';
 /** Stripe's `cancellation_details.feedback` enum. */
 export type CancelFeedback =
@@ -522,6 +528,30 @@ export interface AnalyticsEventProperties {
   [AnalyticsEvents.PRO_ENTITLEMENT_REVOKED]: {
     reason: 'canceled' | 'incomplete_expired' | 'missing';
     previous_status: string | null;
+  };
+  /** A user created an API key in Settings (the key itself is never sent). */
+  [AnalyticsEvents.API_KEY_CREATED]: {
+    active_keys: number;
+  };
+  /**
+   * One compile through the public API: POST /api/v1/compile (`rest`) or
+   * the MCP `compile_latex` / `check_latex` tools (`mcp`). `ok` false with
+   * an `error_kind` is a LaTeX failure, or a service failure
+   * (`timeout`, `service_unavailable`, `request_rejected`).
+   */
+  [AnalyticsEvents.API_COMPILE]: {
+    ok: boolean;
+    error_kind?: CompileErrorKind;
+    via: ApiVia;
+    duration_ms: number;
+    source_bytes: number;
+    plan: 'free' | 'pro';
+  };
+  /** A compile was refused by the daily API quota (lib/api/quota.ts). */
+  [AnalyticsEvents.API_QUOTA_EXCEEDED]: {
+    via: ApiVia;
+    limit: number;
+    plan: 'free' | 'pro';
   };
 }
 

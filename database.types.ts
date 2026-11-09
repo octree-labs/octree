@@ -39,6 +39,57 @@ export type Database = {
   }
   public: {
     Tables: {
+      api_keys: {
+        Row: {
+          created_at: string
+          id: string
+          key_hash: string
+          key_prefix: string
+          last_used_at: string | null
+          name: string
+          revoked_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          key_hash: string
+          key_prefix: string
+          last_used_at?: string | null
+          name: string
+          revoked_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          key_hash?: string
+          key_prefix?: string
+          last_used_at?: string | null
+          name?: string
+          revoked_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      api_usage_daily: {
+        Row: {
+          compiles: number
+          day: string
+          user_id: string
+        }
+        Insert: {
+          compiles?: number
+          day: string
+          user_id: string
+        }
+        Update: {
+          compiles?: number
+          day?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       credit_purchases: {
         Row: {
           amount_cents: number
@@ -705,6 +756,10 @@ export type Database = {
           p_user_id: string
         }
         Returns: number | null
+      }
+      increment_api_usage: {
+        Args: { p_day: string; p_user_id: string }
+        Returns: number
       }
       increment_edit_count: { Args: { p_user_id: string }; Returns: boolean }
       refund_generation: {

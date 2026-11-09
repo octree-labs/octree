@@ -5,6 +5,9 @@ import { SettingsCard, SettingsRow } from '@/components/settings/settings-card';
 import { ChangePasswordDialog } from '@/components/user/change-password-dialog';
 import { EditProfileDialog } from '@/components/user/edit-profile-dialog';
 import { DeleteAccountDialog } from '@/components/user/delete-account-dialog';
+import { ApiKeysSection } from '@/components/settings/api-keys-section';
+import { listApiKeys } from '@/actions/api-keys';
+import { MAX_ACTIVE_API_KEYS } from '@/lib/api/keys';
 
 export default async function AccountSettingsPage() {
   const user = await getCurrentUser();
@@ -12,6 +15,8 @@ export default async function AccountSettingsPage() {
   if (!user) {
     redirect('/auth/login');
   }
+
+  const apiKeys = await listApiKeys();
 
   return (
     <div className="space-y-6">
@@ -38,6 +43,8 @@ export default async function AccountSettingsPage() {
           <EditorSettings />
         </SettingsRow>
       </SettingsCard>
+
+      <ApiKeysSection initialKeys={apiKeys} maxKeys={MAX_ACTIVE_API_KEYS} />
 
       <SettingsCard
         title="Danger zone"

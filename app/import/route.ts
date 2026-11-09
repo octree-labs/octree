@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import type { User } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 import type { Tables, TablesInsert, TablesUpdate } from '@/database.types';
 import { trackRedditConversion } from '@/lib/reddit-capi';
 import { AnalyticsEvents } from '@/lib/analytics/events';
@@ -74,11 +75,17 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  // `drafts` is service-role only (20261109140000_drafts_no_public_select):
+  // the public key cannot list or rewrite drafts, so this route reads and
+  // consumes the one draft whose id it was given with the service role. The
+  // project, file and storage writes stay on the user's own session.
+  const admin = createAdminClient();
+
   // The generated Database type resolves table rows to `never` in this repo,
   // so queries are cast like the rest of the codebase (see actions/*.ts).
   // `*` rather than a column list so the read keeps working before migration
   // 20261109120000_drafts_files (the `files` column) is applied.
-  const { data: draft, error: draftError } = (await (supabase.from('drafts') as any)
+  const { data: draft, error: draftError } = (await (admin.from('drafts') as any)
     .select('*')
     .eq('id', draftId)
     .maybeSingle()) as { data: DraftRow | null; error: unknown };
@@ -145,14 +152,17 @@ export async function GET(request: NextRequest) {
 
   // Keep the draft and mark it consumed so the funnel is measurable
   // (consumed_at IS NULL = abandoned). `consumed_at is null` in the filter
-  // (mirrored by the RLS policy) means a draft is claimed at most once even
-  // when two requests race past the SELECT above.
+  // means a draft is claimed at most once (first consumer wins) even when two
+  // requests race past the SELECT above. The service role bypasses RLS; the
+  // checks the old drafts_update_consume policy made hold by construction:
+  // consumed_by is the authenticated user and project_id is the project this
+  // request just created with that user's session.
   const consumption: TablesUpdate<'drafts'> = {
     consumed_at: new Date().toISOString(),
     consumed_by: user.id,
     project_id: project.id,
   };
-  const { data: claimed, error: consumeError } = (await (supabase.from('drafts') as any)
+  const { data: claimed, error: consumeError } = (await (admin.from('drafts') as any)
     .update(consumption)
     .eq('id', draftId)
     .is('consumed_at', null)
@@ -162,10 +172,8 @@ export async function GET(request: NextRequest) {
     // Non-fatal: the project already exists.
     console.error('Error marking draft consumed:', consumeError);
   } else if (!claimed || claimed.length === 0) {
-    // 0 rows: either a concurrent request consumed the draft after our SELECT,
-    // or RLS filtered the row (the UPDATE policy from migration
-    // 20261018100000_drafts_consumption is not applied yet).
-    const { data: current } = (await (supabase.from('drafts') as any)
+    // 0 rows: a concurrent request consumed the draft after our SELECT.
+    const { data: current } = (await (admin.from('drafts') as any)
       .select('consumed_at, consumed_by, project_id')
       .eq('id', draftId)
       .maybeSingle()) as {
@@ -182,10 +190,7 @@ export async function GET(request: NextRequest) {
       return redirectAndForget(new URL('/', url.origin), url.searchParams);
     }
 
-    console.error(
-      'Draft consumption updated 0 rows; is migration 20261018100000_drafts_consumption applied?',
-      { draftId }
-    );
+    console.error('Draft consumption updated 0 rows but the draft is not consumed', { draftId });
   }
 
   if (isOAuthSignUp(user)) {

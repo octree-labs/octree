@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 
 const allowedOrigin = process.env.ALLOWED_TOOLS_ORIGIN || 'https://tools.useoctree.com';
+
+/** Same cap as POST /api/drafts: the service-role insert below has no RLS or size check behind it. */
+const DRAFT_MAX_CONTENT_CHARS = 200_000;
 
 function withCors(res: NextResponse) {
   res.headers.set('Access-Control-Allow-Origin', allowedOrigin);
@@ -59,10 +63,13 @@ export async function POST(req: NextRequest) {
     let redirectUrl = new URL(next, url.origin);
 
     // If draft content provided, create draft and redirect to /import
-    if (content) {
+    if (typeof content === 'string' && content.length > DRAFT_MAX_CONTENT_CHARS) {
+      console.error('SSO draft too large; signing in without it');
+    } else if (content) {
       try {
-        const supabase = await createClient();
-        const { data: draft, error: draftError } = await (supabase as unknown as {
+        // Drafts are service-role only (20261109140000_drafts_no_public_select).
+        const admin = createAdminClient();
+        const { data: draft, error: draftError } = await (admin as unknown as {
           from: (table: string) => {
             insert: (values: unknown) => { select: (cols: string) => { single: () => Promise<{ data: { id: string } | null; error: unknown | null }> } }
           }

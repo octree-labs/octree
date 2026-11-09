@@ -2,7 +2,7 @@
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-nocheck
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { importPath, setPendingDraftCookie } from '@/lib/import/pending-draft';
 import { clientIp, createRateLimiter } from '@/lib/import/rate-limit';
 import { captureServerExceptionAfterResponse } from '@/lib/posthog-server';
@@ -123,9 +123,10 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const supabase = await createClient();
-
-    // Store draft anonymously (no user required). It will be consumed after login.
+    // Drafts are not readable or writable with the public key (migration
+    // 20261109140000_drafts_no_public_select), so store with the service role.
+    // Anonymous (no user required); consumed after login by /import.
+    const supabase = createAdminClient();
     let { data, error } = await supabase
       .from('drafts' as any)
       .insert(files ? { content, title, source, files } : { content, title, source })

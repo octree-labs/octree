@@ -129,8 +129,9 @@ export function parseDraftFilesField(raw: unknown): { ok: true; value: unknown }
 
 /**
  * The files of a stored draft row, main first, or null for a single-file
- * draft. Rows are re-validated on read because the anon key can insert into
- * `drafts` directly, bypassing /api/drafts; an invalid `files` value falls
+ * draft. Rows are re-validated on read (defence in depth: before migration
+ * 20261109140000_drafts_no_public_select the anon key could insert into
+ * `drafts` directly, bypassing /api/drafts); an invalid `files` value falls
  * back to the single `content`.
  */
 export function storedDraftFiles(row: { files?: unknown } | null | undefined): DraftFile[] | null {

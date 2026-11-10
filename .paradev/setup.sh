@@ -11,11 +11,17 @@ ENV_FILE=".env.local"                 # gitignored; what the app reads
 ROOT="${SUPERSET_ROOT_PATH:-}"          # main checkout (local worktrees only)
 PERSONAL="${PARADEV_PERSONAL_ENV:-$HOME/Desktop/all_personal.env}"
 
-# 1. Dependencies: reuse the main checkout's node_modules when it exists, else install.
+# 1. Dependencies. npm repos: clone the main checkout's node_modules (APFS copy-on-write,
+#    ~20 s, no extra disk). A symlink is not an option: Turbopack refuses a node_modules
+#    link that points outside the project. pnpm repos never clone (pnpm's bin shims hard-
+#    code the project folder name), they install from the local pnpm store instead.
+#    Anywhere `cp -c` is unavailable (Linux, cloud) this falls through to a clean install.
+CLONE_DEPS=yes
 if [ ! -e node_modules ]; then
-  if [ -n "$ROOT" ] && [ -d "$ROOT/node_modules" ]; then
-    ln -s "$ROOT/node_modules" node_modules
+  if [ "$CLONE_DEPS" = yes ] && [ -n "$ROOT" ] && [ -d "$ROOT/node_modules" ] && cp -Rc "$ROOT/node_modules" node_modules 2>/dev/null; then
+    echo "setup: node_modules cloned from the main checkout"
   else
+    rm -rf node_modules
     npm ci
   fi
 fi

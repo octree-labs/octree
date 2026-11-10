@@ -1,0 +1,16 @@
+# Paradev workspace config: what a new local worktree (or cloud box) does to come up ready.
+# No secrets live here. .paradev/setup.sh links node_modules from the main checkout, copies the
+# gitignored .env.local from it, then overlays repository-scoped keys (OCTREE_APP_*) from the personal
+# env file ($PARADEV_PERSONAL_ENV, default ~/Desktop/all_personal.env) with the prefix stripped.
+
+[setup]
+run = ["./.paradev/setup.sh"]
+
+[terminals.dev]
+run = "npm run dev"
+default = true
+
+[ports.web]
+default = 3000
+label = "Web"
+preview = true

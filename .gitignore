@@ -47,3 +47,6 @@ digitalocean_compile/README.md
 
 services/agent/node_modules
 services/agent/.env
+
+# Paradev personal overrides (never committed)
+.paradev/config.local.toml

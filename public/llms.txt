@@ -4,7 +4,7 @@
 
 ## About
 
-Octree is a modern, cloud-based LaTeX editor with built-in AI capabilities. It combines a full-featured LaTeX editing environment with intelligent AI assistance for writing, error fixing, and document generation. The editor is available at https://www.useoctree.com.
+Octree is a modern, cloud-based LaTeX editor with built-in AI capabilities. It combines a full-featured LaTeX editing environment with intelligent AI assistance for writing, error fixing, and document generation. Sign in to the editor at https://app.useoctree.com/auth/login.
 
 ## Features
 
@@ -30,8 +30,7 @@ Octree is a modern, cloud-based LaTeX editor with built-in AI capabilities. It c
 
 ## Pricing
 
-- **Free Tier**: Available with limited AI features.
-- **Octree Pro**: $9.99/month or $4.99/week for unlimited AI features and priority support.
+Free and Pro plans have different AI usage allowances. See https://www.useoctree.com for current pricing and plan limits.
 
 ## Links
 
@@ -39,6 +38,8 @@ Octree is a modern, cloud-based LaTeX editor with built-in AI capabilities. It c
 - Login: https://app.useoctree.com/auth/login
 - Sign Up: https://app.useoctree.com/auth/sign-up
 - Contact: https://www.useoctree.com/contact
+- Developer documentation (hosted LaTeX compile API and MCP server): https://www.useoctree.com/developers
+- Plain-text API and MCP reference: https://www.useoctree.com/llms-full.txt
 
 ## Contact
 

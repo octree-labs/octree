@@ -118,11 +118,14 @@ if [ "$DISK_USAGE" -gt 85 ]; then
   echo "Disk usage after prune:"
   df -h /
 fi
-echo "🛑 Stopping existing containers..."
-docker-compose -f deployments/docker-compose.prod.yml down || true
+# Build BEFORE stopping anything: a failed build (a flaky apt mirror, a
+# broken Dockerfile) then leaves the current version serving instead of
+# taking the service down for however long it takes to notice.
 echo "🏗️  Building Docker image..."
 export TEXLIVE_BASE_IMAGE
 docker-compose -f deployments/docker-compose.prod.yml build --no-cache
+echo "🛑 Stopping existing containers..."
+docker-compose -f deployments/docker-compose.prod.yml down || true
 echo "🚀 Starting services..."
 docker-compose -f deployments/docker-compose.prod.yml up -d
 echo "⏳ Waiting for service to be ready..."

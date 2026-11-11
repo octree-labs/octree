@@ -67,6 +67,7 @@ func main() {
 		}
 	}
 	internal.SetCompilationTimeout(compilationTimeout)
+	internal.InitTelemetry()
 
 	// Initialize request queue
 	requestQueue = make(chan *internal.CompileJob, MaxConcurrentRequests*2)

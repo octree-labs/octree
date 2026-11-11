@@ -59,6 +59,11 @@ type CompileResult struct {
 	DurationMs   int64
 	PDFSize      int
 	CacheHit     bool // Whether result was served from cache
+	// Telemetry (internal/telemetry.go): never sent to the client.
+	Engine   string // latexmk engine used, "" when none ran
+	ExitCode int    // latexmk exit code, 0 when none ran
+	TimedOut bool   // killed at compilationTimeout
+	FullLog  string // the whole TeX log of a failed run, for the first error line
 }
 
 // HealthResponse represents the health check response

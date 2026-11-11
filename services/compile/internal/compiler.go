@@ -51,6 +51,32 @@ func childEnv(extra ...string) []string {
 	return append(env, extra...)
 }
 
+// latexmkEnv is the environment latexmk and the engines run with for a
+// workspace rooted at tempDir. childEnv allowlists the service's own
+// environment, so anything TeX must always see is set here, not in the image.
+func latexmkEnv(tempDir string) []string {
+	// TEXINPUTS includes the project root so .sty/.cls files there are found
+	// even when main.tex is in a subdirectory.
+	texInputs := fmt.Sprintf(".:%s:", tempDir)
+	return childEnv(
+		"TEXINPUTS="+texInputs,
+		// Restricted mode may only run the EPS converter (kpathsea reads
+		// this over texmf.cnf). Irrelevant under -no-shell-escape.
+		"shell_escape_commands="+restrictedShellEscapeCommands,
+		// TeX Live's default, pinned: \openout may only write under the
+		// working directory.
+		"openout_any=p",
+		// Never generate a missing font with Metafont: kpathsea would run
+		// mktextfm/mktexpk for every missing font on every page, which
+		// turned a 7-page document asking for an uninstalled font into a
+		// 4-minute run that still failed. Off, the engine reports the
+		// missing font in seconds.
+		"MKTEXTFM=0",
+		"MKTEXPK=0",
+		"MKTEXMF=0",
+	)
+}
+
 var historyDir string
 var compilationTimeout = 10 * time.Minute // Default timeout for LaTeX compilation
 
@@ -744,18 +770,7 @@ func (s *compileSession) runLatexmk(stage string) error {
 	cmd.Stdout = &s.stdout
 	cmd.Stderr = &s.stderr
 
-	// Set TEXINPUTS to include the project root directory so .sty/.cls files
-	// in the root can be found even when main.tex is in a subdirectory
-	texInputs := fmt.Sprintf(".:%s:", s.tempDir)
-	cmd.Env = childEnv(
-		"TEXINPUTS="+texInputs,
-		// Restricted mode may only run the EPS converter (kpathsea reads
-		// this over texmf.cnf). Irrelevant under -no-shell-escape.
-		"shell_escape_commands="+restrictedShellEscapeCommands,
-		// TeX Live's default, pinned: \openout may only write under the
-		// working directory.
-		"openout_any=p",
-	)
+	cmd.Env = latexmkEnv(s.tempDir)
 
 	// Create a new process group so we can kill all child processes on timeout
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}

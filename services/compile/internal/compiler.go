@@ -108,6 +108,7 @@ type compileSession struct {
 	stdout             bytes.Buffer
 	stderr             bytes.Buffer
 	exitCode           int
+	timedOut           bool // latexmk was killed at compilationTimeout
 	bibTool            bibliographyTool
 	engine             latexEngine
 }
@@ -779,6 +780,7 @@ func (s *compileSession) runLatexmk(stage string) error {
 			syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 		}
 		<-done // Wait for the process to actually exit
+		s.timedOut = true
 		err = fmt.Errorf("compilation timeout exceeded (%v)", compilationTimeout)
 	case err = <-done:
 		// Process completed normally
@@ -789,6 +791,11 @@ func (s *compileSession) runLatexmk(stage string) error {
 		log.Printf("[%s] latexmk (%s) completed successfully", s.compiler.RequestID, stage)
 	}
 	return err
+}
+
+// timeoutMessage is the user-facing message of a run killed at compilationTimeout.
+func (s *compileSession) timeoutMessage() string {
+	return fmt.Sprintf("Compilation timed out after %d seconds. Documents that take this long usually ask for a font that is not installed (every missing font is retried on each page) or loop in a package; check the log below.", int(compilationTimeout.Seconds()))
 }
 
 func (s *compileSession) recordExitCode(err error) {
@@ -838,10 +845,15 @@ func (s *compileSession) finalize(cache *CompilationCache) *CompileResult {
 		// 0 = success with no warnings
 		// 1 = fatal error (no PDF)
 		// 2 = success with warnings (e.g., missing citations, undefined references)
-		// Since we have a valid PDF, treat exit codes 0-2 as success
-		if s.exitCode > 2 {
+		// Since we have a valid PDF, treat exit codes 0-2 as success. A run
+		// killed at the timeout is a failure whatever PDF an earlier pass left.
+		if s.exitCode > 2 || s.timedOut {
 			errMsg := fmt.Sprintf("LaTeX toolchain exited with code %d", s.exitCode)
-			log.Printf("[%s] Compilation produced PDF but exited with code %d", s.compiler.RequestID, s.exitCode)
+			if s.timedOut {
+				errMsg = s.timeoutMessage()
+			}
+			log.Printf("[%s] Compilation produced PDF but failed: %s", s.compiler.RequestID, errMsg)
+			s.metadata.LogTail = failureLog(logContent, s.stdout.String(), s.stderr.String(), LogTailLines)
 			s.metadata.Status = "error"
 			s.metadata.Error = errMsg
 			s.compiler.persistMetadata(s.metadata)
@@ -909,13 +921,18 @@ func (s *compileSession) finalize(cache *CompilationCache) *CompileResult {
 	}
 
 	s.metadata.Status = "error"
-	s.metadata.LogTail = tailLines(logContent, LogTailLines)
+	s.metadata.LogTail = failureLog(logContent, s.stdout.String(), s.stderr.String(), LogTailLines)
+	errMsg := "PDF file not generated"
+	if s.timedOut {
+		errMsg = s.timeoutMessage()
+	}
+	s.metadata.Error = errMsg
 	s.compiler.persistMetadata(s.metadata)
 
 	return &CompileResult{
 		RequestID:    s.compiler.RequestID,
 		Success:      false,
-		ErrorMessage: "PDF file not generated",
+		ErrorMessage: errMsg,
 		Stdout:       truncateText(s.stdout.String(), MaxLogChars),
 		Stderr:       truncateText(s.stderr.String(), MaxLogChars),
 		LogTail:      s.metadata.LogTail,

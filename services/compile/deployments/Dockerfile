@@ -33,6 +33,18 @@ COPY --from=builder /app/latex-compile .
 COPY scripts/cleanup-logs.sh /app/scripts/cleanup-logs.sh
 RUN chmod +x /app/scripts/cleanup-logs.sh
 
+# Fonts documents ask for by name through fontspec (xelatex/lualatex). The
+# font base image covers Latin, CJK and emoji; Arabic-script documents were
+# failing after minutes (see below) because no Arabic font was installed.
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        fonts-hosny-amiri \
+        fonts-sil-scheherazade \
+        fonts-noto-core; \
+    rm -rf /var/lib/apt/lists/*; \
+    fc-cache -f
+
 # The service runs LaTeX on untrusted input, so it must not run as root.
 # A fixed UID keeps bind-mounted volumes (deployments/logs) chown-able from
 # the host. The TeX Live base image points TEXMFHOME/TEXMFVAR/TEXMFCONFIG at
@@ -55,6 +67,13 @@ ENV HOME=/home/compile
 ENV TEXMFHOME=/home/compile/texmf
 ENV TEXMFVAR=/home/compile/.texlive${TEXLIVE_YEAR}/texmf-var
 ENV TEXMFCONFIG=/home/compile/.texlive${TEXLIVE_YEAR}/texmf-config
+# Never try to generate a missing font with Metafont: kpathsea otherwise runs
+# mktextfm/mktexpk for every missing font on every page, which turned one
+# 7-page document asking for an uninstalled font into a 4-minute run that
+# still failed. With these off the engine reports the missing font at once.
+ENV MKTEXTFM=0
+ENV MKTEXPK=0
+ENV MKTEXMF=0
 
 USER compile
 

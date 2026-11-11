@@ -29,6 +29,73 @@ func tailLines(text string, maxLines int) string {
 	return strings.Join(lines[len(lines)-maxLines:], "\n")
 }
 
+// texErrorLine reports whether a log line starts a TeX error: `! ...` or the
+// -file-line-error form `./main.tex:12: ...` (the engine is run with it).
+var texFileLineError = regexp.MustCompile(`^(?:\.{1,2}/)?[^\s:()\[\]]+\.[A-Za-z]{1,4}:\d+: \S`)
+
+func texErrorLine(line string) bool {
+	return strings.HasPrefix(line, "! ") || texFileLineError.MatchString(line)
+}
+
+// latexmkErrorLine reports whether a line of latexmk's own output explains a
+// failure that never shows in the TeX log: a bibliography tool failing, a
+// rule that could not be run, a missing input file.
+func latexmkErrorLine(line string) bool {
+	l := strings.ToLower(line)
+	if strings.HasPrefix(l, "latexmk: ") {
+		return strings.Contains(l, "error") || strings.Contains(l, "fail") || strings.Contains(l, "missing") || strings.Contains(l, "not found")
+	}
+	return strings.Contains(l, "biber") && strings.Contains(l, "error") ||
+		strings.HasPrefix(l, "i couldn't open") ||
+		strings.HasPrefix(l, "i found no ")
+}
+
+// ErrorExcerptLines caps the error block copied from the start of a log.
+const ErrorExcerptLines = 12
+
+// failureLog is the log a client gets for a failed compile: the last
+// tailLines lines of the TeX log, preceded by the first error of the full
+// log when that error is not in the tail (TeX in nonstopmode keeps going
+// after the first error, so a long document's tail is often all warnings
+// and statistics). When the TeX log holds no error at all the failure came
+// from latexmk itself (bibtex/biber, a rule it could not run), so its error
+// lines from stdout/stderr are put first instead.
+func failureLog(logContent, stdout, stderr string, maxTail int) string {
+	tail := tailLines(logContent, maxTail)
+	lines := strings.Split(logContent, "\n")
+	first := -1
+	for i, line := range lines {
+		if texErrorLine(strings.TrimRight(line, "\r")) {
+			first = i
+			break
+		}
+	}
+	if first >= 0 {
+		if first >= len(lines)-maxTail {
+			return tail // the tail already starts at or before the first error
+		}
+		end := min(len(lines), first+ErrorExcerptLines)
+		return strings.Join(lines[first:end], "\n") + "\n[...]\n" + tail
+	}
+	var toolErrors []string
+	for _, line := range strings.Split(stdout+"\n"+stderr, "\n") {
+		line = strings.TrimRight(line, "\r")
+		if latexmkErrorLine(line) {
+			toolErrors = append(toolErrors, line)
+			if len(toolErrors) == ErrorExcerptLines {
+				break
+			}
+		}
+	}
+	if len(toolErrors) == 0 {
+		return tail
+	}
+	if tail == "" {
+		return strings.Join(toolErrors, "\n")
+	}
+	return strings.Join(toolErrors, "\n") + "\n[...]\n" + tail
+}
+
 // min returns the minimum of two integers
 func min(a, b int) int {
 	if a < b {

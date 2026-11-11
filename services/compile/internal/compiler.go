@@ -602,6 +602,7 @@ func (s *compileSession) tryServeCachedPDF(cache *CompilationCache) *CompileResu
 		DurationMs: durationMs,
 		PDFSize:    len(entry.LastPDFData),
 		CacheHit:   true,
+		Engine:     string(s.engine),
 	}
 }
 
@@ -878,6 +879,10 @@ func (s *compileSession) finalize(cache *CompilationCache) *CompileResult {
 				Success:      false,
 				PDFData:      pdfData, // Include partial PDF even on error
 				ErrorMessage: errMsg,
+				Engine:       string(s.engine),
+				ExitCode:     s.exitCode,
+				TimedOut:     s.timedOut,
+				FullLog:      logContent,
 				Stdout:       truncateText(s.stdout.String(), MaxLogChars),
 				Stderr:       truncateText(s.stderr.String(), MaxLogChars),
 				LogTail:      s.metadata.LogTail,
@@ -920,6 +925,8 @@ func (s *compileSession) finalize(cache *CompilationCache) *CompileResult {
 		return &CompileResult{
 			RequestID:  s.compiler.RequestID,
 			Success:    true,
+			Engine:     string(s.engine),
+			ExitCode:   s.exitCode,
 			PDFData:    pdfData,
 			SHA256:     sha256Hex,
 			QueueMs:    s.queueMs,
@@ -948,6 +955,10 @@ func (s *compileSession) finalize(cache *CompilationCache) *CompileResult {
 		RequestID:    s.compiler.RequestID,
 		Success:      false,
 		ErrorMessage: errMsg,
+		Engine:       string(s.engine),
+		ExitCode:     s.exitCode,
+		TimedOut:     s.timedOut,
+		FullLog:      logContent,
 		Stdout:       truncateText(s.stdout.String(), MaxLogChars),
 		Stderr:       truncateText(s.stderr.String(), MaxLogChars),
 		LogTail:      s.metadata.LogTail,
@@ -980,6 +991,7 @@ func (c *Compiler) errorResult(metadata *compileMetadata, message string, queueM
 		RequestID:    c.RequestID,
 		Success:      false,
 		ErrorMessage: message,
+		Engine:       metadata.Engine,
 		QueueMs:      queueMs,
 		DurationMs:   metadata.DurationMs,
 	}

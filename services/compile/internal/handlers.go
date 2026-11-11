@@ -31,6 +31,7 @@ func bindJSON(c *gin.Context, dest interface{}) bool {
 			Error:   "Request too large",
 			Message: fmt.Sprintf("Request body exceeds the %d MB limit", tooLarge.Limit>>20),
 		})
+		captureRequest(c, &CompileResult{ErrorMessage: "Request too large"}, nil, "", http.StatusRequestEntityTooLarge)
 		return false
 	}
 	c.JSON(http.StatusBadRequest, ErrorResponse{
@@ -38,6 +39,21 @@ func bindJSON(c *gin.Context, dest interface{}) bool {
 		Message: "Could not parse JSON payload",
 	})
 	return false
+}
+
+// captureRequest reports one compile request to PostHog (no-op when
+// telemetry is off). The distinct id is the user id the auth middleware
+// stored; the client IP comes from Cloudflare when the request went
+// through it.
+func captureRequest(c *gin.Context, result *CompileResult, files []FileEntry, projectID string, status int) {
+	if telemetry == nil {
+		return
+	}
+	ip := c.GetHeader("CF-Connecting-IP")
+	if ip == "" {
+		ip = c.ClientIP()
+	}
+	captureCompileResult(c.GetString("authSubject"), ip, compileResultProperties(result, files, projectID, status))
 }
 
 // validateFiles rejects requests whose file list could escape the workspace
@@ -128,6 +144,7 @@ func CompileHandler(c *gin.Context) {
 			"message":       "Too many compilation requests. Please try again in a moment.",
 			"queuePosition": len(requestQueue) + 1,
 		})
+		captureRequest(c, &CompileResult{ErrorMessage: "Server busy"}, files, req.ProjectID, http.StatusServiceUnavailable)
 		return
 	}
 
@@ -159,7 +176,9 @@ func CompileHandler(c *gin.Context) {
 			c.Header("Content-Length", fmt.Sprintf("%d", len(result.PDFData)))
 			c.Header("Content-Disposition", "attachment; filename=\"compiled.pdf\"")
 			c.Data(http.StatusOK, "application/pdf", result.PDFData)
+			captureRequest(c, result, files, req.ProjectID, http.StatusOK)
 		} else {
+			captureRequest(c, result, files, req.ProjectID, http.StatusInternalServerError)
 			errResp := ErrorResponse{
 				Error:      "LaTeX compilation failed",
 				Message:    result.ErrorMessage,
@@ -181,6 +200,7 @@ func CompileHandler(c *gin.Context) {
 			Error:   "Server busy",
 			Message: "Could not enqueue request, timeout",
 		})
+		captureRequest(c, &CompileResult{ErrorMessage: "Could not enqueue request, timeout"}, files, req.ProjectID, http.StatusServiceUnavailable)
 	}
 }
 

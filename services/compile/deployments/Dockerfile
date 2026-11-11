@@ -36,9 +36,11 @@ RUN chmod +x /app/scripts/cleanup-logs.sh
 # Fonts documents ask for by name through fontspec (xelatex/lualatex). The
 # font base image covers Latin, CJK and emoji; Arabic-script documents were
 # failing after minutes (see below) because no Arabic font was installed.
+# deploy.sh stops the running service before this image builds, so a flaky
+# mirror must not fail the build: retry the index and package downloads.
 RUN set -eux; \
-    apt-get update; \
-    apt-get install -y --no-install-recommends \
+    apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 update; \
+    apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 install -y --no-install-recommends \
         fonts-hosny-amiri \
         fonts-sil-scheherazade \
         fonts-noto-core; \

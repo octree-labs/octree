@@ -73,6 +73,36 @@ export async function processFileContent(
 
 const COMPILE_SERVICE_URL = process.env.NEXT_PUBLIC_COMPILE_SERVICE_URL;
 const COMPILE_TIMEOUT_MS = 180_000;
+/**
+ * The compile service's request cap (services/compile/main.go
+ * MaxRequestBodyBytes), applied to the JSON body before it is gzipped: the
+ * service measures the decompressed body. Checked here so an oversized
+ * project fails at once with the files to blame, instead of after a
+ * 15-30 s upload with a bare "Request too large".
+ */
+export const COMPILE_MAX_REQUEST_BYTES = 64 << 20;
+const MB = 1024 * 1024;
+
+type CompileFile = { path: string; content: string; encoding?: string };
+
+/** Error and details for a request body over COMPILE_MAX_REQUEST_BYTES. */
+export function describeOversizedRequest(
+  files: CompileFile[],
+  jsonBytes: number
+): { error: string; details: string } {
+  const largest = [...files]
+    .sort((a, b) => b.content.length - a.content.length)
+    .slice(0, 3)
+    .map((file) => `${file.path} (${(file.content.length / MB).toFixed(1)} MB)`)
+    .join(', ');
+  return {
+    error: 'Project too large to compile',
+    details:
+      `The compile request is ${(jsonBytes / MB).toFixed(1)} MB; the limit is ` +
+      `${COMPILE_MAX_REQUEST_BYTES / MB} MB. Largest files: ${largest}. ` +
+      'Compress or downscale images, or remove files the document does not use.',
+  };
+}
 
 async function gzipBody(data: string): Promise<Blob> {
   const stream = new Blob([data]).stream().pipeThrough(new CompressionStream('gzip'));
@@ -109,8 +139,17 @@ export async function makeCompilationRequest(
       headers['Authorization'] = `Bearer ${session.access_token}`;
     }
 
-    // Gzip the request body to reduce upload size for large projects
     const jsonBody = JSON.stringify(requestBody);
+    const jsonBytes = new Blob([jsonBody]).size;
+    if (jsonBytes > COMPILE_MAX_REQUEST_BYTES) {
+      clearTimeout(timeoutId);
+      return {
+        response: new Response(null, { status: 413 }),
+        data: describeOversizedRequest(filesPayload, jsonBytes),
+      };
+    }
+
+    // Gzip the request body to reduce upload size for large projects
     let body: string | Blob = jsonBody;
     if (typeof CompressionStream !== 'undefined') {
       body = await gzipBody(jsonBody);

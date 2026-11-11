@@ -32,14 +32,73 @@ export function isLatexErrorLine(line: string): boolean {
   return line.startsWith('! ') || FILE_LINE_ERROR.test(line);
 }
 
-/** The first TeX error line (`! ...` or `<file>:<line>: ...`) in a log, if any. */
+const EMERGENCY_STOP = /^! Emergency stop\.?$/;
+/** TeX's note after an emergency stop, e.g. `*** (job aborted, no legal \end found)`. */
+const ABORT_NOTE = /^\*\*\* \(/;
+const ABORT_NOTE_LOOKAHEAD = 8;
+
+/**
+ * The first TeX error line (`! ...` or `<file>:<line>: ...`) in a log, if any.
+ * `! Emergency stop.` only says that TeX gave up, so a different error line
+ * wins over it even when it comes later; when it is the only one, the abort
+ * note TeX prints just below it (`*** (job aborted, no legal \end found)`)
+ * is appended, since that is the actual cause.
+ */
 export function firstLatexErrorLine(log: string | undefined): string | undefined {
   if (!log) return undefined;
-  for (const raw of log.split('\n')) {
-    const line = raw.trimEnd();
-    if (isLatexErrorLine(line)) return line;
+  const lines = log.split('\n').map((raw) => raw.trimEnd());
+  let emergency: number | undefined;
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (!isLatexErrorLine(line)) continue;
+    if (EMERGENCY_STOP.test(line)) {
+      if (emergency === undefined) emergency = i;
+      continue;
+    }
+    return line;
+  }
+  if (emergency === undefined) return undefined;
+  const end = Math.min(lines.length, emergency + 1 + ABORT_NOTE_LOOKAHEAD);
+  for (let j = emergency + 1; j < end; j += 1) {
+    if (ABORT_NOTE.test(lines[j])) return `${lines[emergency]} ${lines[j].trim()}`;
+  }
+  return lines[emergency];
+}
+
+type CompileErrorTexts = Pick<CompilationError, 'log' | 'stdout' | 'stderr'>;
+
+/** The log, stdout and stderr of a failure, in the order they are searched. */
+function errorTexts(error: CompileErrorTexts | null | undefined): string[] {
+  return [error?.log, error?.stdout, error?.stderr].filter((text): text is string => !!text);
+}
+
+/**
+ * The first TeX error line across the log, then stdout, then stderr. The
+ * compile service sends the log's tail, which holds no error line when the
+ * error happened early in a long run; latexmk's own output (stdout) often
+ * still has it.
+ */
+export function firstLatexErrorLineOf(error: CompileErrorTexts | null | undefined): string | undefined {
+  for (const text of errorTexts(error)) {
+    const line = firstLatexErrorLine(text);
+    if (line) return line;
   }
   return undefined;
+}
+
+/**
+ * Messages the client or the compile service use for any failure; they say
+ * nothing about the cause, so the details line is preferred over them.
+ */
+const GENERIC_MESSAGE = /^(LaTeX compilation failed|Compilation failed with status \d+)$/;
+
+/** The message of a failure, or its details when the message is the generic one. */
+export function compileFailureMessage(
+  error: Pick<CompilationError, 'message' | 'details'> | null | undefined
+): string | undefined {
+  if (!error) return undefined;
+  if (error.details && (!error.message || GENERIC_MESSAGE.test(error.message))) return error.details;
+  return error.message || error.details;
 }
 
 /** How many TeX error lines (`! ` or `<file>:<line>: `) a log holds. */
@@ -65,12 +124,13 @@ function truncate(text: string): string {
 /**
  * Buckets a failure. Transport failures are told apart by HTTP status first
  * (a 408 or 503 carries no TeX log); everything else goes by the first `! `
- * line of the log, or the error message when there is no log. The first
+ * line of the log (then stdout, then stderr), or the error message and
+ * details when none of them holds one. The first
  * error line wins because later ones usually cascade from it (a missing
  * package's macros come back as undefined control sequences).
  */
 export function classifyCompileError(
-  error: Pick<CompilationError, 'message' | 'log' | 'stdout' | 'stderr'> | null,
+  error: Pick<CompilationError, 'message' | 'details' | 'log' | 'stdout' | 'stderr'> | null,
   httpStatus?: number
 ): CompileErrorKind {
   if (httpStatus === 408 || httpStatus === 504) return 'timeout';
@@ -78,8 +138,8 @@ export function classifyCompileError(
   if (httpStatus === 502 || httpStatus === 503 || httpStatus === 429) return 'service_unavailable';
   if (httpStatus === 400 || httpStatus === 413 || httpStatus === 422) return 'request_rejected';
 
-  const summary = firstLatexErrorLine(error?.log ?? error?.stdout ?? error?.stderr);
-  const text = summary ?? error?.message ?? '';
+  const summary = firstLatexErrorLineOf(error);
+  const text = summary ?? [error?.message, error?.details].filter(Boolean).join(' ');
 
   if (/undefined control sequence/i.test(text)) return 'undefined_control_sequence';
   if (/file [`'][^']*\.(sty|cls)' not found/i.test(text)) return 'missing_package';
@@ -118,9 +178,8 @@ export function describeCompileFailure(
   httpStatus?: number
 ): CompileFailureProperties {
   const log = error?.log ?? error?.stdout ?? error?.stderr;
-  const firstLine = firstLatexErrorLine(log);
-  const fallback = error?.message || error?.details;
-  const summary = firstLine ?? fallback;
+  const firstLine = firstLatexErrorLineOf(error);
+  const summary = firstLine ?? compileFailureMessage(error);
   const props: CompileFailureProperties = {
     error_kind: classifyCompileError(error, httpStatus),
   };

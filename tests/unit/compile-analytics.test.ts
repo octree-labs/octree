@@ -11,10 +11,12 @@ import {
   FIRST_COMPILES_UNSAMPLED,
   SUCCESSFUL_COMPILE_COUNT_KEY,
   classifyCompileError,
+  compileFailureMessage,
   countLatexErrors,
   decideCompileSampling,
   describeCompileFailure,
   firstLatexErrorLine,
+  firstLatexErrorLineOf,
   readSuccessfulCompileCount,
   writeSuccessfulCompileCount,
 } from '@/lib/analytics/compile';
@@ -73,6 +75,31 @@ describe('classifyCompileError', () => {
     );
   });
 
+  it('reads stdout, then stderr, when the log tail holds no error line', () => {
+    // The service sends the log's tail; an early error is only in latexmk's stdout.
+    const tail = 'Overfull \\hbox\nNo pages of output.';
+    expect(
+      classifyCompileError({ message: 'x', log: tail, stdout: '! Missing $ inserted.' })
+    ).toBe('missing_dollar');
+    expect(
+      classifyCompileError({ message: 'x', log: tail, stdout: 'nothing', stderr: '! Missing } inserted.' })
+    ).toBe('missing_brace');
+    expect(firstLatexErrorLineOf({ log: tail, stdout: 'x\n./main.tex:4: Undefined control sequence.' })).toBe(
+      './main.tex:4: Undefined control sequence.'
+    );
+    expect(firstLatexErrorLineOf({ log: tail })).toBeUndefined();
+  });
+
+  it('classifies by the details when the message is the generic one', () => {
+    expect(
+      classifyCompileError({
+        message: 'LaTeX compilation failed',
+        details: 'Compilation timed out after 90 seconds. Documents that take this long...',
+        log: 'Overfull \\hbox',
+      })
+    ).toBe('timeout');
+  });
+
   it('tells transport failures apart by HTTP status before looking at text', () => {
     expect(classifyCompileError({ message: 'LaTeX compilation timed out' }, 408)).toBe('timeout');
     expect(classifyCompileError({ message: 'x', log: '! Missing $ inserted.' }, 504)).toBe('timeout');
@@ -104,7 +131,65 @@ describe('classifyCompileError', () => {
   });
 });
 
+describe('firstLatexErrorLine', () => {
+  it('prefers a real error over "! Emergency stop." wherever it is', () => {
+    expect(firstLatexErrorLine('! Emergency stop.\n<*> main.tex\n\n! Missing $ inserted.')).toBe(
+      '! Missing $ inserted.'
+    );
+    expect(firstLatexErrorLine('! File ended while scanning use of \\abstract.\n! Emergency stop.')).toBe(
+      '! File ended while scanning use of \\abstract.'
+    );
+  });
+
+  it('appends the abort note when the emergency stop is the only error', () => {
+    const log = [
+      '(./main.tex',
+      '! Emergency stop.',
+      '<*> main.tex',
+      '',
+      '*** (job aborted, no legal \\end found)',
+      'No pages of output.',
+    ].join('\n');
+    expect(firstLatexErrorLine(log)).toBe('! Emergency stop. *** (job aborted, no legal \\end found)');
+    expect(firstLatexErrorLine('! Emergency stop.\n<*> main.tex')).toBe('! Emergency stop.');
+  });
+});
+
+describe('compileFailureMessage', () => {
+  it('prefers the details over the generic message only', () => {
+    expect(
+      compileFailureMessage({ message: 'LaTeX compilation failed', details: 'PDF file not generated' })
+    ).toBe('PDF file not generated');
+    expect(
+      compileFailureMessage({ message: 'Compilation failed with status 500', details: 'd' })
+    ).toBe('d');
+    expect(compileFailureMessage({ message: 'Failed to fetch', details: 'TypeError: ...' })).toBe(
+      'Failed to fetch'
+    );
+    expect(compileFailureMessage({ message: 'LaTeX compilation failed' })).toBe('LaTeX compilation failed');
+    expect(compileFailureMessage(null)).toBeUndefined();
+  });
+});
+
 describe('describeCompileFailure', () => {
+  it('summarises the details when the log has no error line and the message is generic', () => {
+    expect(
+      describeCompileFailure(
+        {
+          message: 'LaTeX compilation failed',
+          details: 'LaTeX toolchain exited with code 12',
+          log: 'Output written on main.xdv (7 pages, 25560 bytes).',
+        },
+        500
+      )
+    ).toEqual({
+      error_kind: 'latex_error',
+      error_summary: 'LaTeX toolchain exited with code 12',
+      error_count: 0,
+      http_status: 500,
+    });
+  });
+
   it('summarises the first `! ` line, counts the errors and keeps the status', () => {
     expect(
       describeCompileFailure({ message: 'LaTeX compilation failed', log: LOG }, 500)

@@ -17,6 +17,12 @@ services:
       - PORT=3001
       - HISTORY_DIR=/app/logs
       - GIN_MODE=release
+      # Requests reach the service through Cloudflare, which drops any
+      # response that takes longer than 100 s (the browser then sees a bare
+      # "Failed to fetch"). A compile that cannot finish inside this cap
+      # would never reach the user anyway, so stop it and say why instead
+      # of holding one of the two workers for the default 10 minutes.
+      - COMPILATION_TIMEOUT_SECONDS=${COMPILATION_TIMEOUT_SECONDS:-90}
       # Staging has no JWT secret wired in, so auth is explicitly disabled to
       # keep it reachable. To authenticate staging, drop this line and add an
       # env_file (or SUPABASE_JWT_SECRET) as docker-compose.prod.yml does.

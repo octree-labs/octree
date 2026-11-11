@@ -152,6 +152,13 @@ describe('firstLatexErrorLine', () => {
     ].join('\n');
     expect(firstLatexErrorLine(log)).toBe('! Emergency stop. *** (job aborted, no legal \\end found)');
     expect(firstLatexErrorLine('! Emergency stop.\n<*> main.tex')).toBe('! Emergency stop.');
+    // The -file-line-error form the compile service produces.
+    expect(
+      firstLatexErrorLine('./main.tex:1: Emergency stop.\n<*> main.tex\n\n*** (job aborted, no legal \\end found)')
+    ).toBe('./main.tex:1: Emergency stop. *** (job aborted, no legal \\end found)');
+    expect(firstLatexErrorLine('./main.tex:1: Emergency stop.\n./main.tex:3: Missing $ inserted.')).toBe(
+      './main.tex:3: Missing $ inserted.'
+    );
   });
 });
 

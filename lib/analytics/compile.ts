@@ -32,7 +32,8 @@ export function isLatexErrorLine(line: string): boolean {
   return line.startsWith('! ') || FILE_LINE_ERROR.test(line);
 }
 
-const EMERGENCY_STOP = /^! Emergency stop\.?$/;
+/** `! Emergency stop.` or, with -file-line-error, `./main.tex:12: Emergency stop.` */
+const EMERGENCY_STOP = /^(?:! |\S+:\d+: )Emergency stop\.?$/;
 /** TeX's note after an emergency stop, e.g. `*** (job aborted, no legal \end found)`. */
 const ABORT_NOTE = /^\*\*\* \(/;
 const ABORT_NOTE_LOOKAHEAD = 8;

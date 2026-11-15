@@ -12,6 +12,7 @@ import {
   resolveCheckoutPlan,
 } from '@/lib/checkout-plans';
 import { ensureOfferPromotionCode } from '@/lib/checkout-offers-stripe';
+import { countryFromHeaders, priceTierForCountry } from '@/lib/regional-pricing';
 import { EXPORT_ALREADY_UNLOCKED_MESSAGE, readExportUnlocked } from '@/lib/export-unlock';
 import { AnalyticsEvents } from '@/lib/analytics/events';
 import {
@@ -45,7 +46,9 @@ import {
  * project already unlocked is a 409 (it cannot be bought twice).
  *
  * Prices are looked up by Stripe `lookup_key` and created on first use
- * (lib/stripe-prices.ts). When the user already has a Stripe customer
+ * (lib/stripe-prices.ts). The visitor's country (Vercel's IP country header)
+ * picks the regional price tier (lib/regional-pricing.ts): the same rule GET
+ * /api/pricing gives the browser, so the price shown is the price charged. When the user already has a Stripe customer
  * (user_usage.stripe_customer_id, or found by email) the session is opened
  * on it so one user stays one customer.
  *
@@ -106,8 +109,10 @@ export async function POST(request: Request) {
     }
 
     const lookupKey = lookupKeyForPlan(resolved.plan);
+    const country = countryFromHeaders(headersList);
+    const priceTier = priceTierForCountry(country);
     const [priceId, customer, promotionCodeId] = await Promise.all([
-      getOrCreatePrice(lookupKey, stripe),
+      getOrCreatePrice(lookupKey, stripe, priceTier),
       resolveStripeCustomer(supabase, user).catch((error) => {
         console.error('Could not resolve Stripe customer for checkout:', error);
         return null;
@@ -126,6 +131,8 @@ export async function POST(request: Request) {
       source: resolved.source,
       entry: resolved.entry,
       ...(resolved.projectId ? { projectId: resolved.projectId } : {}),
+      priceTier,
+      country,
     };
     let offerApplied = !!resolved.offer && !!promotionCodeId;
     if (resolved.offer && !promotionCodeId) {
@@ -162,6 +169,8 @@ export async function POST(request: Request) {
       with_trial: resolved.withTrial,
       mode: isSubscriptionPlan(resolved.plan) ? 'subscription' : 'payment',
       price_lookup_key: lookupKey,
+      price_tier: priceTier,
+      country,
       session_id: session.id,
       captured: 'server',
       ...(resolved.offer ? { offer: offerApplied ? resolved.offer : undefined, offer_applied: offerApplied } : {}),

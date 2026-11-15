@@ -1,6 +1,12 @@
 import type Stripe from 'stripe';
 
 import { STRIPE_PRICE_IDS } from '@/lib/stripe-config';
+import {
+  regionalAmountCents,
+  regionalLookupKey,
+  type PriceTier,
+  type RegionalPlan,
+} from '@/lib/regional-pricing';
 
 /**
  * The Stripe prices the app sells, keyed by Stripe `lookup_key`. Prices are
@@ -29,6 +35,8 @@ export const PRICE_LOOKUP_KEYS = {
 export type PriceLookupKey = (typeof PRICE_LOOKUP_KEYS)[keyof typeof PRICE_LOOKUP_KEYS];
 
 export const PRICE_METADATA_KEY = 'octree_plan';
+/** `metadata.octree_price_tier` on a regional price (lib/regional-pricing.ts). */
+export const PRICE_TIER_METADATA_KEY = 'octree_price_tier';
 
 interface PriceDefinition {
   productName: string;
@@ -97,7 +105,7 @@ export type PriceClient = {
  * key at most once; the Stripe `lookup_key` (unique among active prices)
  * keeps different instances from creating duplicates.
  */
-const cache = new Map<PriceLookupKey, Promise<string>>();
+const cache = new Map<string, Promise<string>>();
 
 export function resetPriceCacheForTests(): void {
   cache.clear();
@@ -115,7 +123,7 @@ function preconfiguredPriceId(lookupKey: PriceLookupKey): string | null {
   return null;
 }
 
-async function findActivePrice(client: PriceClient, lookupKey: PriceLookupKey) {
+async function findActivePrice(client: PriceClient, lookupKey: string) {
   const { data } = await client.prices.list({ lookup_keys: [lookupKey], active: true, limit: 1 });
   return data[0] ?? null;
 }
@@ -175,19 +183,71 @@ async function resolvePrice(client: PriceClient, lookupKey: PriceLookupKey): Pro
   }
 }
 
+const PLAN_BY_PRICE_LOOKUP_KEY = Object.fromEntries(
+  Object.entries(PRICE_LOOKUP_KEYS).map(([plan, key]) => [key, plan])
+) as Record<PriceLookupKey, RegionalPlan>;
+
 /**
- * The Stripe price id for a lookup key, creating product and price on the
- * first miss. Results are cached for the life of the process; a failure is
- * not cached so the next call retries.
+ * A regional price (lib/regional-pricing.ts): its own `lookup_key`
+ * (`octree_pro_monthly__tier3`, ...), the tier's amount, and
+ * `metadata.octree_plan` set to the list price's key so the webhook maps it
+ * to the same plan. Created on first use like the list prices; the monthly
+ * one too, because no subscriber is on it yet.
  */
-export function getOrCreatePrice(lookupKey: PriceLookupKey, client: PriceClient): Promise<string> {
-  const cached = cache.get(lookupKey);
+async function resolveRegionalPrice(
+  client: PriceClient,
+  lookupKey: PriceLookupKey,
+  tier: Exclude<PriceTier, 'standard'>
+): Promise<string> {
+  const key = regionalLookupKey(lookupKey, tier);
+  const existing = await findActivePrice(client, key);
+  if (existing) return existing.id;
+
+  const def = PRICE_DEFINITIONS[lookupKey];
+  const metadata = { [PRICE_METADATA_KEY]: lookupKey, [PRICE_TIER_METADATA_KEY]: tier };
+  try {
+    const created = await client.prices.create(
+      {
+        currency: def.currency,
+        unit_amount: regionalAmountCents(PLAN_BY_PRICE_LOOKUP_KEY[lookupKey], tier),
+        ...(def.recurring ? { recurring: def.recurring } : {}),
+        lookup_key: key,
+        transfer_lookup_key: true,
+        metadata,
+        product_data: { name: def.productName, metadata },
+      },
+      { idempotencyKey: `octree-price-${key}-v1` }
+    );
+    return created.id;
+  } catch (error) {
+    if (!isAlreadyExistsError(error)) throw error;
+    const raced = await findActivePrice(client, key);
+    if (raced) return raced.id;
+    throw error;
+  }
+}
+
+/**
+ * The Stripe price id for a lookup key at a price tier (list price by
+ * default), creating product and price on the first miss. Results are
+ * cached for the life of the process; a failure is not cached so the next
+ * call retries.
+ */
+export function getOrCreatePrice(
+  lookupKey: PriceLookupKey,
+  client: PriceClient,
+  tier: PriceTier = 'standard'
+): Promise<string> {
+  const cacheKey = regionalLookupKey(lookupKey, tier);
+  const cached = cache.get(cacheKey);
   if (cached) return cached;
 
-  const pending = resolvePrice(client, lookupKey).catch((error) => {
-    cache.delete(lookupKey);
+  const pending = (
+    tier === 'standard' ? resolvePrice(client, lookupKey) : resolveRegionalPrice(client, lookupKey, tier)
+  ).catch((error) => {
+    cache.delete(cacheKey);
     throw error;
   });
-  cache.set(lookupKey, pending);
+  cache.set(cacheKey, pending);
   return pending;
 }

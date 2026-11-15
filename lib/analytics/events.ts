@@ -374,6 +374,9 @@ export interface AnalyticsEventProperties {
     mode: 'subscription' | 'payment';
     /** Stripe price lookup_key (lib/stripe-prices.ts). */
     price_lookup_key: string;
+    /** Regional price tier (lib/regional-pricing.ts) and the IP country it came from. */
+    price_tier?: 'standard' | 'tier2' | 'tier3';
+    country?: string | null;
     /** The Checkout Session id, to join with `subscription_started` / `checkout_abandoned`. */
     session_id: string;
     captured: 'server';

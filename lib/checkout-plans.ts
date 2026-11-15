@@ -8,6 +8,7 @@ import {
 } from '@/lib/analytics/events';
 import { PRICE_LOOKUP_KEYS, type PriceLookupKey } from '@/lib/stripe-prices';
 import { isCheckoutOfferId, offerAppliesToPlan, type CheckoutOfferId } from '@/lib/checkout-offers';
+import type { PriceTier } from '@/lib/regional-pricing';
 
 /**
  * What /api/checkout-session sells, and how a request body maps onto it.
@@ -232,6 +233,13 @@ export interface CheckoutSessionInput {
   promotionCodeId?: string | null;
   /** `export_single` only: the (ownership-checked) project to unlock. */
   projectId?: string;
+  /**
+   * The regional price tier `priceId` belongs to (lib/regional-pricing.ts)
+   * and the country it was chosen from; written to the metadata so a
+   * regional sale can be told apart. Omitted for the list price.
+   */
+  priceTier?: PriceTier;
+  country?: string | null;
 }
 
 /**
@@ -260,6 +268,10 @@ export function buildCheckoutSessionParams(
   const { plan, priceId, userId, customerId, email, origin, withTrial } = input;
   const nowSeconds = input.nowSeconds ?? Math.floor(Date.now() / 1000);
   const metadata = checkoutMetadata(userId, plan, { source: input.source, entry: input.entry });
+  if (input.priceTier && input.priceTier !== 'standard') {
+    metadata.price_tier = input.priceTier;
+    if (input.country) metadata.country = input.country;
+  }
   const discounted = !!input.offer && !!input.promotionCodeId;
   if (discounted) metadata.offer = input.offer!;
   const exportProjectId = isExportPlan(plan) ? input.projectId : undefined;

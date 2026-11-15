@@ -7,7 +7,8 @@ import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button, primaryClasses } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { CREDIT_PACKS, PRO_PLANS, type ProPlanId } from '@/data/constants';
+import { type ProPlanId } from '@/data/constants';
+import { useRegionalPricing } from '@/hooks/use-regional-pricing';
 import { discountedAmount } from '@/lib/checkout-offers';
 import { createCheckoutSession } from '@/lib/requests/subscription';
 import type { CheckoutSource } from '@/lib/analytics/events';
@@ -43,7 +44,8 @@ const FIRST_PERIOD: Record<PickerPlan, string> = {
  * The one place the app shows what it sells: Monthly / Annual toggle, the
  * Semester pass, and the 100-edit credit pack. Used by the paywall dialog,
  * onboarding, /buy, the settings card and the generate preview. Labels and
- * prices come from PRO_PLANS / CREDIT_PACKS in data/constants.ts.
+ * prices come from PRO_PLANS / CREDIT_PACKS in data/constants.ts, at the
+ * visitor's regional price tier (hooks/use-regional-pricing.ts).
  *
  * The picker only selects the recurring plan; the host renders its own
  * primary button and calls `createCheckoutSession({ plan })`. The credit
@@ -61,8 +63,8 @@ export function PlanPicker({
   offerPercentOff,
 }: PlanPickerProps) {
   const [isBuyingCredits, setIsBuyingCredits] = useState(false);
+  const { proPlans: PRO_PLANS, creditPack: pack } = useRegionalPricing();
   const selected = PRO_PLANS[plan];
-  const pack = CREDIT_PACKS.credits_100;
 
   const handleBuyCredits = async () => {
     setIsBuyingCredits(true);

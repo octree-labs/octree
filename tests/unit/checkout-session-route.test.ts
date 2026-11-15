@@ -147,6 +147,31 @@ describe('POST /api/checkout-session analytics', () => {
     }
   });
 
+  it('falls back to the list price when the regional price cannot be resolved', async () => {
+    vi.stubEnv('VERCEL_ENV', 'production');
+    requestHeaders.country = 'BR';
+    mocks.getOrCreatePrice.mockImplementation(async (_key: string, _client: unknown, tier = 'standard') => {
+      if (tier !== 'standard') throw new Error('rate limited');
+      return 'price_list';
+    });
+    try {
+      const response = await POST(post({ plan: 'monthly', source: 'paywall' }));
+
+      expect(response.status).toBe(200);
+      const params = mocks.sessionsCreate.mock.calls[0][0];
+      expect(params.line_items).toEqual([{ price: 'price_list', quantity: 1 }]);
+      expect(params.metadata).not.toHaveProperty('price_tier');
+      expect(mocks.captureEvent).toHaveBeenCalledWith(
+        'user-1',
+        'checkout_started',
+        expect.objectContaining({ price_tier: 'standard', country: 'BR' })
+      );
+    } finally {
+      requestHeaders.country = null;
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("reports source 'unknown' when the body sent none", async () => {
     await POST(post({ plan: 'credits_100' }));
     expect(mocks.captureEvent).toHaveBeenCalledWith(

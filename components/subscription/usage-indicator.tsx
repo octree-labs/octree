@@ -124,10 +124,13 @@ export function UpgradeButton() {
 }
 
 export function UsageIndicator({ className }: UsageIndicatorProps) {
-  const { creditPack } = useRegionalPricing();
   const [usageData, setUsageData] = useState<UsageData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [showCard, setShowCard] = useState(false);
+  // The credit price only appears in the at-limit copy: fetch the tier then.
+  const { creditPack } = useRegionalPricing({
+    enabled: !!usageData && (usageData.limitReached || usageData.monthlyLimitReached),
+  });
   const closeTimeout = useRef<NodeJS.Timeout | null>(null);
   // Losing focus closes the card only when the pointer isn't on it, so a
   // click on "Upgrade to Pro" after clicking the pill still lands.

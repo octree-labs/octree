@@ -17,8 +17,13 @@
  * (lib/stripe-prices.ts creates one Stripe price per plan and tier, keyed by
  * `regionalLookupKey`), GET /api/pricing returns the tier to the browser,
  * and `pricingCatalog(tier)` turns it into the display copy the paywall and
- * plan picker render. The country only ever lowers a price, so a missing or
- * spoofed header can at worst show the list price.
+ * plan picker render.
+ *
+ * A request without a country gets the list price. The country is the IP's,
+ * so a visitor on a VPN exit in a listed country does get the lower price;
+ * `metadata.price_tier` / `country` on every regional payment make that
+ * measurable (and blockable with a Stripe Radar rule on card country).
+ * Vercel overwrites `x-vercel-ip-country`, so it cannot be set by the client.
  */
 
 export const PRICE_TIERS = ['standard', 'tier2', 'tier3'] as const;
@@ -77,22 +82,24 @@ export type RegionalPlan =
   | 'generate_single'
   | 'export_single';
 
+export type RegionalTier = Exclude<PriceTier, 'standard'>;
+
 /**
- * Prices in US cents per plan and tier. `standard` must equal the list
- * prices in lib/stripe-prices.ts and data/constants.ts (a unit test checks
- * both). The regional amounts keep the plans in the same proportion: annual
+ * Regional prices in US cents per plan. The list prices live in one place,
+ * lib/stripe-prices.ts (PRICE_DEFINITIONS) with their display copy in
+ * data/constants.ts; these keep the plans in the same proportion, so annual
  * still saves about a third over twelve months.
  */
-export const REGIONAL_AMOUNT_CENTS: Record<RegionalPlan, Record<PriceTier, number>> = {
-  monthly: { standard: 999, tier2: 599, tier3: 399 },
-  annual: { standard: 7900, tier2: 4700, tier3: 3100 },
-  semester: { standard: 2900, tier2: 1700, tier3: 1200 },
-  credits_100: { standard: 500, tier2: 300, tier3: 200 },
-  generate_single: { standard: 299, tier2: 199, tier3: 99 },
-  export_single: { standard: 499, tier2: 299, tier3: 199 },
+export const REGIONAL_AMOUNT_CENTS: Record<RegionalPlan, Record<RegionalTier, number>> = {
+  monthly: { tier2: 599, tier3: 399 },
+  annual: { tier2: 4700, tier3: 3100 },
+  semester: { tier2: 1700, tier3: 1200 },
+  credits_100: { tier2: 300, tier3: 200 },
+  generate_single: { tier2: 199, tier3: 99 },
+  export_single: { tier2: 299, tier3: 199 },
 };
 
-export function regionalAmountCents(plan: RegionalPlan, tier: PriceTier): number {
+export function regionalAmountCents(plan: RegionalPlan, tier: RegionalTier): number {
   return REGIONAL_AMOUNT_CENTS[plan][tier];
 }
 

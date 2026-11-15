@@ -25,14 +25,17 @@ async function fetchTier(url: string): Promise<PriceTier> {
 
 /**
  * The prices to show this visitor: the list prices until GET /api/pricing
- * answers (or if it fails), then the regional ones for their country. One
- * request per page load, shared by every component that asks.
+ * answers (or if it fails), then the regional ones for their country. Every
+ * component that asks shares one request; it is refreshed when the tab
+ * regains focus, so a visitor whose network changed sees the new tier.
+ * `enabled: false` skips the request (a component that shows a price only
+ * in some states).
  */
-export function useRegionalPricing(): PricingCatalog {
-  const { data } = useSWR('/api/pricing', fetchTier, {
-    revalidateOnFocus: false,
+export function useRegionalPricing({ enabled = true }: { enabled?: boolean } = {}): PricingCatalog {
+  const { data } = useSWR(enabled ? '/api/pricing' : null, fetchTier, {
     revalidateOnReconnect: false,
-    dedupingInterval: 60 * 60 * 1000,
+    dedupingInterval: 5 * 60 * 1000,
+    focusThrottleInterval: 5 * 60 * 1000,
   });
   return catalogFor(data ?? 'standard');
 }

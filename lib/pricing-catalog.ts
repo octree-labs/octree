@@ -1,9 +1,16 @@
 import {
   CREDIT_PACKS,
+  EXPORT_SINGLE_PRICE,
+  GENERATE_SINGLE_PRICE,
   PRO_PLANS,
   type ProPlanId,
 } from '@/data/constants';
-import { formatUsd, regionalAmountCents, type PriceTier } from '@/lib/regional-pricing';
+import {
+  formatUsd,
+  regionalAmountCents,
+  type PriceTier,
+  type RegionalPlan,
+} from '@/lib/regional-pricing';
 
 /**
  * The display copy for everything the app sells, at one price tier: the
@@ -33,16 +40,30 @@ export interface PricingCatalog {
   generateSingle: { amount: number; price: string };
 }
 
+/** List prices, from the display constants (which match lib/stripe-prices.ts). */
+const LIST_AMOUNTS: Record<RegionalPlan, number> = {
+  monthly: PRO_PLANS.monthly.amount,
+  annual: PRO_PLANS.annual.amount,
+  semester: PRO_PLANS.semester.amount,
+  credits_100: CREDIT_PACKS.credits_100.amount,
+  generate_single: GENERATE_SINGLE_PRICE.amount,
+  export_single: EXPORT_SINGLE_PRICE.amount,
+};
+
+function cents(plan: RegionalPlan, tier: PriceTier): number {
+  return tier === 'standard' ? Math.round(LIST_AMOUNTS[plan] * 100) : regionalAmountCents(plan, tier);
+}
+
 function money(cents: number) {
   return { amount: cents / 100, price: formatUsd(cents) };
 }
 
 export function pricingCatalog(tier: PriceTier): PricingCatalog {
-  const monthly = money(regionalAmountCents('monthly', tier));
-  const annualCents = regionalAmountCents('annual', tier);
+  const monthly = money(cents('monthly', tier));
+  const annualCents = cents('annual', tier);
   const annual = money(annualCents);
-  const semester = money(regionalAmountCents('semester', tier));
-  const credits = money(regionalAmountCents('credits_100', tier));
+  const semester = money(cents('semester', tier));
+  const credits = money(cents('credits_100', tier));
   const pack = CREDIT_PACKS.credits_100;
 
   return {
@@ -61,8 +82,8 @@ export function pricingCatalog(tier: PriceTier): PricingCatalog {
       ...credits,
       label: `${pack.credits} AI edits for ${credits.price}`,
     },
-    exportSingle: { ...money(regionalAmountCents('export_single', tier)) },
-    generateSingle: { ...money(regionalAmountCents('generate_single', tier)) },
+    exportSingle: { ...money(cents('export_single', tier)) },
+    generateSingle: { ...money(cents('generate_single', tier)) },
   };
 }
 

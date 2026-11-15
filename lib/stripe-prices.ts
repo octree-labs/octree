@@ -5,6 +5,7 @@ import {
   regionalAmountCents,
   regionalLookupKey,
   type PriceTier,
+  type RegionalTier,
   type RegionalPlan,
 } from '@/lib/regional-pricing';
 
@@ -97,6 +98,7 @@ export type PriceClient = {
       params: Stripe.PriceCreateParams,
       options?: Stripe.RequestOptions
     ): Promise<Stripe.Price>;
+    retrieve(id: string): Promise<Pick<Stripe.Price, 'id' | 'product'>>;
   };
 };
 
@@ -155,76 +157,104 @@ async function resolvePrice(client: PriceClient, lookupKey: PriceLookupKey): Pro
   }
 
   const def = PRICE_DEFINITIONS[lookupKey];
-  try {
-    const created = await client.prices.create(
-      {
-        currency: def.currency,
-        unit_amount: def.unitAmount,
-        ...(def.recurring ? { recurring: def.recurring } : {}),
-        lookup_key: lookupKey,
-        transfer_lookup_key: true,
-        metadata: { [PRICE_METADATA_KEY]: lookupKey },
-        product_data: {
-          name: def.productName,
-          metadata: { [PRICE_METADATA_KEY]: lookupKey },
-        },
-      },
-      // Two cold instances creating the same key at once send the same
-      // idempotent request; Stripe returns one price for both (or rejects the
-      // second while the first is in flight, which the catch below retries).
-      { idempotencyKey: `octree-price-${lookupKey}-v1` }
-    );
-    return created.id;
-  } catch (error) {
-    if (!isAlreadyExistsError(error)) throw error;
-    const raced = await findActivePrice(client, lookupKey);
-    if (raced) return raced.id;
-    throw error;
-  }
+  const metadata = { [PRICE_METADATA_KEY]: lookupKey };
+  return createKeyedPrice(client, {
+    key: lookupKey,
+    unitAmount: def.unitAmount,
+    def,
+    metadata,
+    product: { product_data: { name: def.productName, metadata } },
+    idempotencyKey: `octree-price-${lookupKey}-v1`,
+  });
 }
 
-const PLAN_BY_PRICE_LOOKUP_KEY = Object.fromEntries(
-  Object.entries(PRICE_LOOKUP_KEYS).map(([plan, key]) => [key, plan])
-) as Record<PriceLookupKey, RegionalPlan>;
-
 /**
- * A regional price (lib/regional-pricing.ts): its own `lookup_key`
- * (`octree_pro_monthly__tier3`, ...), the tier's amount, and
- * `metadata.octree_plan` set to the list price's key so the webhook maps it
- * to the same plan. Created on first use like the list prices; the monthly
- * one too, because no subscriber is on it yet.
+ * Creates a price under `key` (taking the key over from any older price,
+ * `transfer_lookup_key`). Two cold instances creating the same key at once
+ * send the same idempotent request; Stripe returns one price for both, or
+ * rejects the second while the first is in flight, in which case the price
+ * the first one made is read back.
  */
-async function resolveRegionalPrice(
+async function createKeyedPrice(
   client: PriceClient,
-  lookupKey: PriceLookupKey,
-  tier: Exclude<PriceTier, 'standard'>
+  input: {
+    key: string;
+    unitAmount: number;
+    def: PriceDefinition;
+    metadata: Record<string, string>;
+    product: { product: string } | { product_data: Stripe.PriceCreateParams.ProductData };
+    idempotencyKey: string;
+    /** Regional prices: a raced price only counts if it is at `unitAmount`. */
+    requireAmount?: boolean;
+  }
 ): Promise<string> {
-  const key = regionalLookupKey(lookupKey, tier);
-  const existing = await findActivePrice(client, key);
-  if (existing) return existing.id;
-
-  const def = PRICE_DEFINITIONS[lookupKey];
-  const metadata = { [PRICE_METADATA_KEY]: lookupKey, [PRICE_TIER_METADATA_KEY]: tier };
+  const { key, unitAmount, def, metadata, product, idempotencyKey, requireAmount = false } = input;
   try {
     const created = await client.prices.create(
       {
         currency: def.currency,
-        unit_amount: regionalAmountCents(PLAN_BY_PRICE_LOOKUP_KEY[lookupKey], tier),
+        unit_amount: unitAmount,
         ...(def.recurring ? { recurring: def.recurring } : {}),
         lookup_key: key,
         transfer_lookup_key: true,
         metadata,
-        product_data: { name: def.productName, metadata },
+        ...product,
       },
-      { idempotencyKey: `octree-price-${key}-v1` }
+      { idempotencyKey }
     );
     return created.id;
   } catch (error) {
     if (!isAlreadyExistsError(error)) throw error;
     const raced = await findActivePrice(client, key);
-    if (raced) return raced.id;
+    if (raced && (!requireAmount || raced.unit_amount === unitAmount)) return raced.id;
     throw error;
   }
+}
+
+/** The plan behind each list-price key; a key added without a row fails to type-check. */
+const PLAN_BY_PRICE_LOOKUP_KEY: Record<PriceLookupKey, RegionalPlan> = {
+  octree_pro_monthly: 'monthly',
+  octree_pro_annual: 'annual',
+  octree_semester_pass: 'semester',
+  octree_credits_100: 'credits_100',
+  octree_generate_single: 'generate_single',
+  octree_export_single: 'export_single',
+};
+
+/**
+ * A regional price (lib/regional-pricing.ts): its own `lookup_key`
+ * (`octree_pro_monthly__tier3`, ...), the tier's amount, and
+ * `metadata.octree_plan` set to the list price's key so the webhook maps it
+ * to the same plan. It is created on the list price's product, so the tax
+ * code, portal settings and product reports carry over.
+ *
+ * An existing price under the key is reused only while its amount matches
+ * REGIONAL_AMOUNT_CENTS. When the table changes, a new price is created at
+ * the new amount and takes the key over, so the amount shown in the app
+ * (from the same table) is always the amount Stripe charges. Subscribers on
+ * the old price keep it.
+ */
+async function resolveRegionalPrice(
+  client: PriceClient,
+  lookupKey: PriceLookupKey,
+  tier: RegionalTier
+): Promise<string> {
+  const key = regionalLookupKey(lookupKey, tier);
+  const unitAmount = regionalAmountCents(PLAN_BY_PRICE_LOOKUP_KEY[lookupKey], tier);
+  const existing = await findActivePrice(client, key);
+  if (existing && existing.unit_amount === unitAmount) return existing.id;
+
+  const listPrice = await client.prices.retrieve(await getOrCreatePrice(lookupKey, client));
+  const productId = typeof listPrice.product === 'string' ? listPrice.product : listPrice.product.id;
+  return createKeyedPrice(client, {
+    key,
+    unitAmount,
+    def: PRICE_DEFINITIONS[lookupKey],
+    metadata: { [PRICE_METADATA_KEY]: lookupKey, [PRICE_TIER_METADATA_KEY]: tier },
+    product: { product: productId },
+    idempotencyKey: `octree-price-${key}-${unitAmount}-v1`,
+    requireAmount: true,
+  });
 }
 
 /**

@@ -110,9 +110,17 @@ export async function POST(request: Request) {
 
     const lookupKey = lookupKeyForPlan(resolved.plan);
     const country = countryFromHeaders(headersList);
-    const priceTier = priceTierForCountry(country);
+    let priceTier = priceTierForCountry(country);
     const [priceId, customer, promotionCodeId] = await Promise.all([
-      getOrCreatePrice(lookupKey, stripe, priceTier),
+      // A regional price that cannot be resolved (Stripe hiccup, creation
+      // refused) must not cost the visitor their checkout: open it at the
+      // list price instead, which Stripe shows them before they pay.
+      getOrCreatePrice(lookupKey, stripe, priceTier).catch((error) => {
+        if (priceTier === 'standard') throw error;
+        console.error(`[checkout] regional price ${priceTier} for ${lookupKey} failed; using list price:`, error);
+        priceTier = 'standard';
+        return getOrCreatePrice(lookupKey, stripe);
+      }),
       resolveStripeCustomer(supabase, user).catch((error) => {
         console.error('Could not resolve Stripe customer for checkout:', error);
         return null;

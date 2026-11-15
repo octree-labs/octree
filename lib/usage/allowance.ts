@@ -66,9 +66,12 @@ export function decideAllowance(
   return 'blocked';
 }
 
-/** The 429 body text when nothing is left; mentions the credit pack. */
+/**
+ * The 429 body text when nothing is left; mentions the credit pack without
+ * its price, which depends on the visitor's region (lib/regional-pricing.ts).
+ */
 export function limitReachedMessage(isPro: boolean): string {
   return isPro
-    ? `You've reached your monthly limit of ${PRO_MONTHLY_EDIT_LIMIT} edits. Your limit resets on your billing date, or buy 100 edits for $5 to keep going.`
-    : `You've reached your daily limit of ${FREE_DAILY_EDIT_LIMIT} edits. Upgrade to Pro for ${PRO_MONTHLY_EDIT_LIMIT} edits per month, or buy 100 edits for $5.`;
+    ? `You've reached your monthly limit of ${PRO_MONTHLY_EDIT_LIMIT} edits. Your limit resets on your billing date, or buy a pack of 100 edits to keep going.`
+    : `You've reached your daily limit of ${FREE_DAILY_EDIT_LIMIT} edits. Upgrade to Pro for ${PRO_MONTHLY_EDIT_LIMIT} edits per month, or buy a pack of 100 edits.`;
 }

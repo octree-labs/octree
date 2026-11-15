@@ -1,8 +1,27 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "crons": [
-    { "path": "/api/cron/daily-digest", "schedule": "0 13 * * *" },
-    { "path": "/api/cron/health-check", "schedule": "*/10 * * * *" },
-    { "path": "/api/cron/lifecycle", "schedule": "30 14 * * *" }
-  ]
+    {
+      "path": "/api/cron/daily-digest",
+      "schedule": "0 13 * * *"
+    },
+    {
+      "path": "/api/cron/health-check",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/lifecycle",
+      "schedule": "30 14 * * *"
+    }
+  ],
+  "experimentalServices": {
+    "frontend": {
+      "routePrefix": "/",
+      "framework": "nextjs"
+    },
+    "compile": {
+      "entrypoint": "services/compile",
+      "routePrefix": "/_/compile"
+    }
+  }
 }

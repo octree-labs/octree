@@ -18,6 +18,7 @@ import {
   type PriceClient,
 } from '@/lib/stripe-prices';
 import { planFromPrice } from '@/lib/stripe-webhook';
+import { STRIPE_PRICE_IDS } from '@/lib/stripe-config';
 import { buildCheckoutSessionParams } from '@/lib/checkout-plans';
 import { firstPurchaseOfferCopy } from '@/lib/first-purchase-offer';
 import {
@@ -26,6 +27,7 @@ import {
   GENERATE_SINGLE_PRICE,
   PRO_PLANS,
 } from '@/data/constants';
+import { limitReachedMessage } from '@/lib/usage/allowance';
 
 describe('priceTierForCountry', () => {
   it('maps the top sign-up countries to a regional tier', () => {
@@ -45,21 +47,31 @@ describe('priceTierForCountry', () => {
 });
 
 describe('regional amounts', () => {
-  it('standard equals the Stripe list prices and the display constants', () => {
-    for (const [plan, key] of Object.entries(PRICE_LOOKUP_KEYS)) {
-      expect(REGIONAL_AMOUNT_CENTS[plan as RegionalPlan].standard).toBe(PRICE_DEFINITIONS[key].unitAmount);
+  const PLAN_KEYS = Object.entries(PRICE_LOOKUP_KEYS) as [RegionalPlan, keyof typeof PRICE_DEFINITIONS][];
+
+  it('has a regional row for every plan Stripe sells', () => {
+    expect(Object.keys(REGIONAL_AMOUNT_CENTS).sort()).toEqual(Object.keys(PRICE_LOOKUP_KEYS).sort());
+  });
+
+  it('display list prices equal the Stripe list prices', () => {
+    const list = pricingCatalog('standard');
+    const shown: Record<RegionalPlan, number> = {
+      monthly: list.proPlans.monthly.amount,
+      annual: list.proPlans.annual.amount,
+      semester: list.proPlans.semester.amount,
+      credits_100: list.creditPack.amount,
+      generate_single: list.generateSingle.amount,
+      export_single: list.exportSingle.amount,
+    };
+    for (const [plan, key] of PLAN_KEYS) {
+      expect(Math.round(shown[plan] * 100)).toBe(PRICE_DEFINITIONS[key].unitAmount);
     }
-    expect(REGIONAL_AMOUNT_CENTS.monthly.standard / 100).toBe(PRO_PLANS.monthly.amount);
-    expect(REGIONAL_AMOUNT_CENTS.annual.standard / 100).toBe(PRO_PLANS.annual.amount);
-    expect(REGIONAL_AMOUNT_CENTS.semester.standard / 100).toBe(PRO_PLANS.semester.amount);
-    expect(REGIONAL_AMOUNT_CENTS.credits_100.standard / 100).toBe(CREDIT_PACKS.credits_100.amount);
-    expect(REGIONAL_AMOUNT_CENTS.export_single.standard / 100).toBe(EXPORT_SINGLE_PRICE.amount);
-    expect(REGIONAL_AMOUNT_CENTS.generate_single.standard / 100).toBe(GENERATE_SINGLE_PRICE.amount);
   });
 
   it('only ever lowers a price, and tier3 is the lowest', () => {
-    for (const amounts of Object.values(REGIONAL_AMOUNT_CENTS)) {
-      expect(amounts.tier2).toBeLessThan(amounts.standard);
+    for (const [plan, key] of PLAN_KEYS) {
+      const amounts = REGIONAL_AMOUNT_CENTS[plan];
+      expect(amounts.tier2).toBeLessThan(PRICE_DEFINITIONS[key].unitAmount);
       expect(amounts.tier3).toBeLessThan(amounts.tier2);
       // Stripe's minimum charge is $0.50.
       expect(amounts.tier3).toBeGreaterThanOrEqual(50);
@@ -131,33 +143,37 @@ describe('pricingCatalog', () => {
 describe('getOrCreatePrice with a regional tier', () => {
   beforeEach(() => resetPriceCacheForTests());
 
-  function makeClient(existing: { id: string }[] = []) {
+  function makeClient(existing: { id: string; unit_amount?: number }[] = []) {
     const list = vi.fn().mockResolvedValue({ data: existing });
     const create = vi.fn(async (params: any, _options?: any) => ({ id: `price_${params.lookup_key}`, ...params }));
-    return { client: { prices: { list, create } } as unknown as PriceClient, list, create };
+    const retrieve = vi.fn(async (id: string) => ({ id, product: `prod_of_${id}` }));
+    return { client: { prices: { list, create, retrieve } } as unknown as PriceClient, list, create, retrieve };
   }
 
-  it('creates the regional monthly price with its own key, amount and plan metadata', async () => {
-    const { client, list, create } = makeClient();
+  it("creates the regional monthly price on the list price's product, with its own key and amount", async () => {
+    const { client, list, create, retrieve } = makeClient();
 
     const id = await getOrCreatePrice(PRICE_LOOKUP_KEYS.monthly, client, 'tier3');
 
     expect(id).toBe('price_octree_pro_monthly__tier3');
     expect(list).toHaveBeenCalledWith({ lookup_keys: ['octree_pro_monthly__tier3'], active: true, limit: 1 });
+    expect(retrieve).toHaveBeenCalledWith(STRIPE_PRICE_IDS.proAnnual);
     const [params, options] = create.mock.calls[0];
     expect(params).toMatchObject({
       currency: 'usd',
       unit_amount: 399,
       recurring: { interval: 'month' },
       lookup_key: 'octree_pro_monthly__tier3',
+      transfer_lookup_key: true,
+      product: `prod_of_${STRIPE_PRICE_IDS.proAnnual}`,
       metadata: { octree_plan: 'octree_pro_monthly', octree_price_tier: 'tier3' },
-      product_data: { name: 'Octree Pro (Monthly)' },
     });
-    expect(options).toEqual({ idempotencyKey: 'octree-price-octree_pro_monthly__tier3-v1' });
+    expect(params).not.toHaveProperty('product_data');
+    expect(options).toEqual({ idempotencyKey: 'octree-price-octree_pro_monthly__tier3-399-v1' });
   });
 
-  it('reuses an existing regional price and caches per tier', async () => {
-    const { client, create, list } = makeClient([{ id: 'price_regional' }]);
+  it('reuses an existing regional price at the right amount and caches per tier', async () => {
+    const { client, create, list } = makeClient([{ id: 'price_regional', unit_amount: 299 }]);
 
     await expect(getOrCreatePrice(PRICE_LOOKUP_KEYS.export_single, client, 'tier2')).resolves.toBe('price_regional');
     await getOrCreatePrice(PRICE_LOOKUP_KEYS.export_single, client, 'tier2');
@@ -166,10 +182,27 @@ describe('getOrCreatePrice with a regional tier', () => {
     expect(list).toHaveBeenCalledTimes(1);
   });
 
+  it('replaces a regional price whose amount no longer matches the table', async () => {
+    const { client, create } = makeClient([{ id: 'price_old', unit_amount: 249 }]);
+
+    const id = await getOrCreatePrice(PRICE_LOOKUP_KEYS.export_single, client, 'tier2');
+
+    expect(id).toBe('price_octree_export_single__tier2');
+    expect(create.mock.calls.at(-1)?.[0]).toMatchObject({
+      lookup_key: 'octree_export_single__tier2',
+      unit_amount: 299,
+      transfer_lookup_key: true,
+    });
+  });
+
   it('leaves the list price path untouched', async () => {
     const { client, create } = makeClient();
     await getOrCreatePrice(PRICE_LOOKUP_KEYS.export_single, client);
-    expect(create.mock.calls[0][0]).toMatchObject({ lookup_key: 'octree_export_single', unit_amount: 499 });
+    expect(create.mock.calls[0][0]).toMatchObject({
+      lookup_key: 'octree_export_single',
+      unit_amount: 499,
+      product_data: { name: 'Octree — Export this document' },
+    });
   });
 });
 
@@ -204,5 +237,14 @@ describe('checkout metadata', () => {
     const params = buildCheckoutSessionParams({ ...base, plan: 'monthly', priceTier: 'standard', country: 'US' });
     expect(params.metadata).not.toHaveProperty('price_tier');
     expect(params.metadata).not.toHaveProperty('country');
+  });
+});
+
+describe('limit messages', () => {
+  it('name the credit pack without a price, which depends on the region', () => {
+    for (const isPro of [true, false]) {
+      expect(limitReachedMessage(isPro)).toContain('100 edits');
+      expect(limitReachedMessage(isPro)).not.toMatch(/\$/);
+    }
   });
 });

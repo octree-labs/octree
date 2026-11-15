@@ -27,10 +27,17 @@ vi.mock('@/lib/checkout-offers-stripe', () => ({
   ensureOfferPromotionCode: mocks.ensureOfferPromotionCode,
 }));
 
-const requestHeaders = vi.hoisted(() => ({ origin: 'https://app.example.com' as string | null }));
+const requestHeaders = vi.hoisted(() => ({
+  origin: 'https://app.example.com' as string | null,
+  country: null as string | null,
+}));
 
 vi.mock('next/headers', () => ({
-  headers: async () => new Headers(requestHeaders.origin ? { origin: requestHeaders.origin } : {}),
+  headers: async () =>
+    new Headers({
+      ...(requestHeaders.origin ? { origin: requestHeaders.origin } : {}),
+      ...(requestHeaders.country ? { 'x-vercel-ip-country': requestHeaders.country } : {}),
+    }),
 }));
 
 vi.mock('@/lib/supabase/server', () => ({
@@ -89,6 +96,8 @@ describe('POST /api/checkout-session analytics', () => {
       with_trial: true,
       mode: 'subscription',
       price_lookup_key: 'octree_pro_monthly',
+      price_tier: 'standard',
+      country: null,
       session_id: 'cs_test_1',
       captured: 'server',
     });
@@ -115,6 +124,52 @@ describe('POST /api/checkout-session analytics', () => {
         price_lookup_key: 'octree_generate_single',
       })
     );
+  });
+
+  it('charges the regional price for the visitor\'s country and records the tier', async () => {
+    vi.stubEnv('VERCEL_ENV', 'production');
+    requestHeaders.country = 'IN';
+    try {
+      const response = await POST(post({ plan: 'monthly', source: 'paywall' }));
+
+      expect(response.status).toBe(200);
+      expect(mocks.getOrCreatePrice).toHaveBeenCalledWith('octree_pro_monthly', expect.anything(), 'tier3');
+      const params = mocks.sessionsCreate.mock.calls[0][0];
+      expect(params.metadata).toMatchObject({ price_tier: 'tier3', country: 'IN' });
+      expect(mocks.captureEvent).toHaveBeenCalledWith(
+        'user-1',
+        'checkout_started',
+        expect.objectContaining({ price_tier: 'tier3', country: 'IN' })
+      );
+    } finally {
+      requestHeaders.country = null;
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('falls back to the list price when the regional price cannot be resolved', async () => {
+    vi.stubEnv('VERCEL_ENV', 'production');
+    requestHeaders.country = 'BR';
+    mocks.getOrCreatePrice.mockImplementation(async (_key: string, _client: unknown, tier = 'standard') => {
+      if (tier !== 'standard') throw new Error('rate limited');
+      return 'price_list';
+    });
+    try {
+      const response = await POST(post({ plan: 'monthly', source: 'paywall' }));
+
+      expect(response.status).toBe(200);
+      const params = mocks.sessionsCreate.mock.calls[0][0];
+      expect(params.line_items).toEqual([{ price: 'price_list', quantity: 1 }]);
+      expect(params.metadata).not.toHaveProperty('price_tier');
+      expect(mocks.captureEvent).toHaveBeenCalledWith(
+        'user-1',
+        'checkout_started',
+        expect.objectContaining({ price_tier: 'standard', country: 'BR' })
+      );
+    } finally {
+      requestHeaders.country = null;
+      vi.unstubAllEnvs();
+    }
   });
 
   it("reports source 'unknown' when the body sent none", async () => {
@@ -286,7 +341,7 @@ describe('POST /api/checkout-session export_single', () => {
     expect(mocks.from).toHaveBeenCalledWith('projects');
     expect(mocks.projectEq).toHaveBeenCalledWith('id', projectId);
     expect(mocks.projectEq).toHaveBeenCalledWith('user_id', 'user-1');
-    expect(mocks.getOrCreatePrice).toHaveBeenCalledWith('octree_export_single', expect.anything());
+    expect(mocks.getOrCreatePrice).toHaveBeenCalledWith('octree_export_single', expect.anything(), 'standard');
     // The offer is dropped: no promotion code lookup, no discount.
     expect(mocks.ensureOfferPromotionCode).not.toHaveBeenCalled();
 

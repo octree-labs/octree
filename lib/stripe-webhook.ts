@@ -15,6 +15,7 @@ import {
 import { OCTREE_STRIPE_APP, isSubscriptionPlan, isPurchasePlan, isProjectId } from '@/lib/checkout-plans';
 import { STRIPE_PRICE_IDS } from '@/lib/stripe-config';
 import { PRICE_LOOKUP_KEYS, PRICE_METADATA_KEY, isPriceLookupKey } from '@/lib/stripe-prices';
+import { baseLookupKey } from '@/lib/regional-pricing';
 import { isMissingExportUnlockSchema } from '@/lib/export-unlock';
 
 /** One server-side analytics event with its typed properties. */
@@ -41,7 +42,10 @@ export function planFromPrice(
   price: Pick<Stripe.Price, 'id'> & Partial<Pick<Stripe.Price, 'lookup_key' | 'metadata'>> | null | undefined
 ): CheckoutPlan | 'unknown' {
   if (!price) return 'unknown';
-  const key = price.lookup_key ?? price.metadata?.[PRICE_METADATA_KEY];
+  // A regional price (lib/regional-pricing.ts) is the same plan as its list
+  // price: strip the tier suffix from its lookup key.
+  const rawKey = price.lookup_key ?? price.metadata?.[PRICE_METADATA_KEY];
+  const key = typeof rawKey === 'string' ? baseLookupKey(rawKey) : rawKey;
   if (isPriceLookupKey(key) && key in PLAN_BY_LOOKUP_KEY) return PLAN_BY_LOOKUP_KEY[key];
   if (price.id === STRIPE_PRICE_IDS.proAnnual) return 'monthly';
   if (price.id === STRIPE_PRICE_IDS.pro) return 'weekly';

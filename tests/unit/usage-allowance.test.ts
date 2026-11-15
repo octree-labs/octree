@@ -160,9 +160,9 @@ describe('remainingAllowance', () => {
 
 describe('limitReachedMessage', () => {
   it('offers the credit pack to free and Pro users alike', () => {
-    expect(limitReachedMessage(false)).toContain('buy 100 edits for $5');
+    expect(limitReachedMessage(false)).toContain('buy a pack of 100 edits');
     expect(limitReachedMessage(false)).toContain('Upgrade to Pro');
-    expect(limitReachedMessage(true)).toContain('buy 100 edits for $5');
+    expect(limitReachedMessage(true)).toContain('buy a pack of 100 edits');
     expect(limitReachedMessage(true)).not.toContain('Upgrade');
   });
 });

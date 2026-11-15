@@ -14,15 +14,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { PlanPicker, type PickerPlan } from '@/components/subscription/plan-picker';
 import { createCheckoutSession } from '@/lib/requests/subscription';
-import {
-  CREDIT_PACKS,
-  EXPORT_SINGLE_PRICE,
-  FREE_DAILY_EDIT_LIMIT,
-  GENERATE_SINGLE_PRICE,
-  PRO_FEATURES,
-  PRO_MONTHLY_EDIT_LIMIT,
-  PRO_PLANS,
-} from '@/data/constants';
+import { FREE_DAILY_EDIT_LIMIT, PRO_FEATURES, PRO_MONTHLY_EDIT_LIMIT } from '@/data/constants';
+import { useRegionalPricing } from '@/hooks/use-regional-pricing';
 import type { ProFeature } from '@/lib/subscription/features';
 import { CHECKOUT_OFFERS, offerAppliesToPlan } from '@/lib/checkout-offers';
 import { firstPurchaseOfferCopy } from '@/lib/first-purchase-offer';
@@ -30,10 +23,10 @@ import { EXPORT_ALREADY_UNLOCKED_MESSAGE } from '@/lib/export-unlock';
 import { PaywallActions, paywallOfferFor, usePaywall } from '@/stores/paywall';
 import { ProjectActions } from '@/stores/project';
 
-const COPY: Record<ProFeature, { title: string; description: string }> = {
+const copyFor = (creditPrice: string): Record<ProFeature, { title: string; description: string }> => ({
   'ai-edit': {
     title: "You've used today's free AI edits",
-    description: `The free plan includes ${FREE_DAILY_EDIT_LIMIT} AI edits a day. Pro gives you ${PRO_MONTHLY_EDIT_LIMIT} a month, or buy ${CREDIT_PACKS.credits_100.credits} edits for ${CREDIT_PACKS.credits_100.price} that never expire.`,
+    description: `The free plan includes ${FREE_DAILY_EDIT_LIMIT} AI edits a day. Pro gives you ${PRO_MONTHLY_EDIT_LIMIT} a month, or buy 100 edits for ${creditPrice} that never expire.`,
   },
   export: {
     title: 'Export is a Pro feature',
@@ -47,13 +40,13 @@ const COPY: Record<ProFeature, { title: string; description: string }> = {
     title: 'Resume check is a Pro feature',
     description: 'See how hiring software reads your resume and match it to any job.',
   },
-};
+});
 
 /** A Pro subscriber out of monthly edits: upgrading cannot help, credits can. */
-const MONTHLY_LIMIT_COPY = {
+const monthlyLimitCopy = (creditPrice: string) => ({
   title: "You've used this month's AI edits",
-  description: `Pro includes ${PRO_MONTHLY_EDIT_LIMIT} AI edits a month. Buy ${CREDIT_PACKS.credits_100.credits} more for ${CREDIT_PACKS.credits_100.price} (credits never expire) or wait for your monthly reset.`,
-};
+  description: `Pro includes ${PRO_MONTHLY_EDIT_LIMIT} AI edits a month. Buy 100 more for ${creditPrice} (credits never expire) or wait for your monthly reset.`,
+});
 
 /** The free generation is spent: sell Pro, or just this one document. */
 const GENERATE_QUOTA_COPY = {
@@ -112,6 +105,7 @@ export function PaywallDialog() {
   const { open, feature, reason, offers, firstPurchaseOffer, context } = usePaywall();
   const [plan, setPlan] = useState<PickerPlan>('monthly');
   const [isSubmitting, setIsSubmitting] = useState<'pro' | 'single' | null>(null);
+  const pricing = useRegionalPricing();
 
   const creditsOnly = reason === 'monthly_limit';
   const exportProjectId = feature === 'export' ? context?.projectId : undefined;
@@ -120,15 +114,15 @@ export function PaywallDialog() {
     : feature === 'generate'
       ? {
           heading: 'Just this document',
-          price: `${GENERATE_SINGLE_PRICE.price} once`,
+          price: `${pricing.generateSingle.price} once`,
           blurb: 'One more generation, no subscription.',
-          button: `Generate this one — ${GENERATE_SINGLE_PRICE.price}`,
+          button: `Generate this one — ${pricing.generateSingle.price}`,
           request: { plan: 'generate_single', source: 'paywall' },
         }
       : exportProjectId
         ? {
             heading: 'Export this document',
-            price: `${EXPORT_SINGLE_PRICE.price} once`,
+            price: `${pricing.exportSingle.price} once`,
             blurb: 'PDF and ZIP, no subscription.',
             button: 'Unlock export',
             request: { plan: 'export_single', projectId: exportProjectId, source: 'paywall' },
@@ -136,14 +130,14 @@ export function PaywallDialog() {
         : null;
   const offersSingle = singleOffer !== null;
   const copy = creditsOnly
-    ? MONTHLY_LIMIT_COPY
+    ? monthlyLimitCopy(pricing.creditPack.price)
     : feature === 'generate' && reason === 'generate_quota'
       ? GENERATE_QUOTA_COPY
       : feature === 'export' && reason === 'free_export_used'
         ? FREE_EXPORT_USED_COPY
         : feature === 'export' && offersSingle
           ? EXPORT_SINGLE_COPY
-          : COPY[feature ?? 'ai-edit'];
+          : copyFor(pricing.creditPack.price)[feature ?? 'ai-edit'];
   // After the free export, Pro is the first card and carries the primary button.
   const proLeads = feature === 'export' && reason === 'free_export_used';
 
@@ -177,7 +171,7 @@ export function PaywallDialog() {
 
   // Never on monthly_limit (credits only); the offer covers the monthly plan.
   const offer = paywallOfferFor(reason, firstPurchaseOffer);
-  const offerCopy = offer ? firstPurchaseOfferCopy(offer) : null;
+  const offerCopy = offer ? firstPurchaseOfferCopy(offer, pricing.proPlans.monthly) : null;
   const pickerOffer = offer && offerAppliesToPlan(offer, plan) ? offer : null;
 
   const handleSubscribe = () =>
@@ -211,7 +205,7 @@ export function PaywallDialog() {
         <div className="flex items-baseline justify-between gap-2">
           <p className="font-semibold">Octree Pro</p>
           <p className="text-sm text-muted-foreground">
-            {offerCopy ? offerCopy.priceLine : `${PRO_PLANS.monthly.price}/mo`}
+            {offerCopy ? offerCopy.priceLine : `${pricing.proPlans.monthly.price}/mo`}
           </p>
         </div>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -235,7 +229,7 @@ export function PaywallDialog() {
             ? 'Loading...'
             : offerCopy
               ? offerCopy.button
-              : `Go Pro for ${PRO_PLANS.monthly.price}/mo`}
+              : `Go Pro for ${pricing.proPlans.monthly.price}/mo`}
         </Button>
       </div>
     );

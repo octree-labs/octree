@@ -10,6 +10,7 @@ import {
 } from '@/data/constants';
 import { createCheckoutSession } from '@/lib/requests/subscription';
 import { cn } from '@/lib/utils';
+import { useRegionalPricing } from '@/hooks/use-regional-pricing';
 
 type UsageTone = 'ok' | 'low' | 'limit';
 
@@ -126,6 +127,10 @@ export function UsageIndicator({ className }: UsageIndicatorProps) {
   const [usageData, setUsageData] = useState<UsageData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [showCard, setShowCard] = useState(false);
+  // The credit price only appears in the at-limit copy: fetch the tier then.
+  const { creditPack } = useRegionalPricing({
+    enabled: !!usageData && (usageData.limitReached || usageData.monthlyLimitReached),
+  });
   const closeTimeout = useRef<NodeJS.Timeout | null>(null);
   // Losing focus closes the card only when the pointer isn't on it, so a
   // click on "Upgrade to Pro" after clicking the pill still lands.
@@ -287,8 +292,8 @@ export function UsageIndicator({ className }: UsageIndicatorProps) {
               <p className={cn('text-[11px] leading-snug', isAtLimit ? 'text-red-600' : 'text-slate-500')}>
                 {isAtLimit
                   ? usageData.isPro
-                    ? 'Monthly limit reached. Resets next billing cycle, or buy 100 edits for $5 in Settings.'
-                    : 'No free edits left. Resets tomorrow, or buy 100 edits for $5.'
+                    ? `Monthly limit reached. Resets next billing cycle, or buy 100 edits for ${creditPack.price} in Settings.`
+                    : `No free edits left. Resets tomorrow, or buy 100 edits for ${creditPack.price}.`
                   : usageData.isPro
                     ? 'Resets with your billing cycle.'
                     : 'Resets every day.'}

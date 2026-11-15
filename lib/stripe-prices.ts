@@ -1,6 +1,13 @@
 import type Stripe from 'stripe';
 
 import { STRIPE_PRICE_IDS } from '@/lib/stripe-config';
+import {
+  regionalAmountCents,
+  regionalLookupKey,
+  type PriceTier,
+  type RegionalTier,
+  type RegionalPlan,
+} from '@/lib/regional-pricing';
 
 /**
  * The Stripe prices the app sells, keyed by Stripe `lookup_key`. Prices are
@@ -29,6 +36,8 @@ export const PRICE_LOOKUP_KEYS = {
 export type PriceLookupKey = (typeof PRICE_LOOKUP_KEYS)[keyof typeof PRICE_LOOKUP_KEYS];
 
 export const PRICE_METADATA_KEY = 'octree_plan';
+/** `metadata.octree_price_tier` on a regional price (lib/regional-pricing.ts). */
+export const PRICE_TIER_METADATA_KEY = 'octree_price_tier';
 
 interface PriceDefinition {
   productName: string;
@@ -89,6 +98,7 @@ export type PriceClient = {
       params: Stripe.PriceCreateParams,
       options?: Stripe.RequestOptions
     ): Promise<Stripe.Price>;
+    retrieve(id: string): Promise<Pick<Stripe.Price, 'id' | 'product'>>;
   };
 };
 
@@ -97,7 +107,7 @@ export type PriceClient = {
  * key at most once; the Stripe `lookup_key` (unique among active prices)
  * keeps different instances from creating duplicates.
  */
-const cache = new Map<PriceLookupKey, Promise<string>>();
+const cache = new Map<string, Promise<string>>();
 
 export function resetPriceCacheForTests(): void {
   cache.clear();
@@ -115,7 +125,7 @@ function preconfiguredPriceId(lookupKey: PriceLookupKey): string | null {
   return null;
 }
 
-async function findActivePrice(client: PriceClient, lookupKey: PriceLookupKey) {
+async function findActivePrice(client: PriceClient, lookupKey: string) {
   const { data } = await client.prices.list({ lookup_keys: [lookupKey], active: true, limit: 1 });
   return data[0] ?? null;
 }
@@ -147,47 +157,127 @@ async function resolvePrice(client: PriceClient, lookupKey: PriceLookupKey): Pro
   }
 
   const def = PRICE_DEFINITIONS[lookupKey];
+  const metadata = { [PRICE_METADATA_KEY]: lookupKey };
+  return createKeyedPrice(client, {
+    key: lookupKey,
+    unitAmount: def.unitAmount,
+    def,
+    metadata,
+    product: { product_data: { name: def.productName, metadata } },
+    idempotencyKey: `octree-price-${lookupKey}-v1`,
+  });
+}
+
+/**
+ * Creates a price under `key` (taking the key over from any older price,
+ * `transfer_lookup_key`). Two cold instances creating the same key at once
+ * send the same idempotent request; Stripe returns one price for both, or
+ * rejects the second while the first is in flight, in which case the price
+ * the first one made is read back.
+ */
+async function createKeyedPrice(
+  client: PriceClient,
+  input: {
+    key: string;
+    unitAmount: number;
+    def: PriceDefinition;
+    metadata: Record<string, string>;
+    product: { product: string } | { product_data: Stripe.PriceCreateParams.ProductData };
+    idempotencyKey: string;
+    /** Regional prices: a raced price only counts if it is at `unitAmount`. */
+    requireAmount?: boolean;
+  }
+): Promise<string> {
+  const { key, unitAmount, def, metadata, product, idempotencyKey, requireAmount = false } = input;
   try {
     const created = await client.prices.create(
       {
         currency: def.currency,
-        unit_amount: def.unitAmount,
+        unit_amount: unitAmount,
         ...(def.recurring ? { recurring: def.recurring } : {}),
-        lookup_key: lookupKey,
+        lookup_key: key,
         transfer_lookup_key: true,
-        metadata: { [PRICE_METADATA_KEY]: lookupKey },
-        product_data: {
-          name: def.productName,
-          metadata: { [PRICE_METADATA_KEY]: lookupKey },
-        },
+        metadata,
+        ...product,
       },
-      // Two cold instances creating the same key at once send the same
-      // idempotent request; Stripe returns one price for both (or rejects the
-      // second while the first is in flight, which the catch below retries).
-      { idempotencyKey: `octree-price-${lookupKey}-v1` }
+      { idempotencyKey }
     );
     return created.id;
   } catch (error) {
     if (!isAlreadyExistsError(error)) throw error;
-    const raced = await findActivePrice(client, lookupKey);
-    if (raced) return raced.id;
+    const raced = await findActivePrice(client, key);
+    if (raced && (!requireAmount || raced.unit_amount === unitAmount)) return raced.id;
     throw error;
   }
 }
 
+/** The plan behind each list-price key; a key added without a row fails to type-check. */
+const PLAN_BY_PRICE_LOOKUP_KEY: Record<PriceLookupKey, RegionalPlan> = {
+  octree_pro_monthly: 'monthly',
+  octree_pro_annual: 'annual',
+  octree_semester_pass: 'semester',
+  octree_credits_100: 'credits_100',
+  octree_generate_single: 'generate_single',
+  octree_export_single: 'export_single',
+};
+
 /**
- * The Stripe price id for a lookup key, creating product and price on the
- * first miss. Results are cached for the life of the process; a failure is
- * not cached so the next call retries.
+ * A regional price (lib/regional-pricing.ts): its own `lookup_key`
+ * (`octree_pro_monthly__tier3`, ...), the tier's amount, and
+ * `metadata.octree_plan` set to the list price's key so the webhook maps it
+ * to the same plan. It is created on the list price's product, so the tax
+ * code, portal settings and product reports carry over.
+ *
+ * An existing price under the key is reused only while its amount matches
+ * REGIONAL_AMOUNT_CENTS. When the table changes, a new price is created at
+ * the new amount and takes the key over, so the amount shown in the app
+ * (from the same table) is always the amount Stripe charges. Subscribers on
+ * the old price keep it.
  */
-export function getOrCreatePrice(lookupKey: PriceLookupKey, client: PriceClient): Promise<string> {
-  const cached = cache.get(lookupKey);
+async function resolveRegionalPrice(
+  client: PriceClient,
+  lookupKey: PriceLookupKey,
+  tier: RegionalTier
+): Promise<string> {
+  const key = regionalLookupKey(lookupKey, tier);
+  const unitAmount = regionalAmountCents(PLAN_BY_PRICE_LOOKUP_KEY[lookupKey], tier);
+  const existing = await findActivePrice(client, key);
+  if (existing && existing.unit_amount === unitAmount) return existing.id;
+
+  const listPrice = await client.prices.retrieve(await getOrCreatePrice(lookupKey, client));
+  const productId = typeof listPrice.product === 'string' ? listPrice.product : listPrice.product.id;
+  return createKeyedPrice(client, {
+    key,
+    unitAmount,
+    def: PRICE_DEFINITIONS[lookupKey],
+    metadata: { [PRICE_METADATA_KEY]: lookupKey, [PRICE_TIER_METADATA_KEY]: tier },
+    product: { product: productId },
+    idempotencyKey: `octree-price-${key}-${unitAmount}-v1`,
+    requireAmount: true,
+  });
+}
+
+/**
+ * The Stripe price id for a lookup key at a price tier (list price by
+ * default), creating product and price on the first miss. Results are
+ * cached for the life of the process; a failure is not cached so the next
+ * call retries.
+ */
+export function getOrCreatePrice(
+  lookupKey: PriceLookupKey,
+  client: PriceClient,
+  tier: PriceTier = 'standard'
+): Promise<string> {
+  const cacheKey = regionalLookupKey(lookupKey, tier);
+  const cached = cache.get(cacheKey);
   if (cached) return cached;
 
-  const pending = resolvePrice(client, lookupKey).catch((error) => {
-    cache.delete(lookupKey);
+  const pending = (
+    tier === 'standard' ? resolvePrice(client, lookupKey) : resolveRegionalPrice(client, lookupKey, tier)
+  ).catch((error) => {
+    cache.delete(cacheKey);
     throw error;
   });
-  cache.set(lookupKey, pending);
+  cache.set(cacheKey, pending);
   return pending;
 }

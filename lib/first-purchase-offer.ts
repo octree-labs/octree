@@ -98,9 +98,12 @@ export function firstPurchaseOfferFor(
 }
 
 /** Copy for the paywall's Pro card under an offer, from PRO_PLANS and the offer. */
-export function firstPurchaseOfferCopy(offerId: CheckoutOfferId) {
+export function firstPurchaseOfferCopy(
+  offerId: CheckoutOfferId,
+  /** The monthly plan at the visitor's price tier (lib/pricing-catalog.ts); list price by default. */
+  monthly: { amount: number; price: string } = PRO_PLANS.monthly
+) {
   const offer = CHECKOUT_OFFERS[offerId];
-  const monthly = PRO_PLANS.monthly;
   const firstMonth = `$${discountedAmount(monthly.amount, offer.percentOff).toFixed(2)}`;
   return {
     /** "$4.99 first month, then $9.99/mo" */

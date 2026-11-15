@@ -4,7 +4,8 @@ import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { AlertCircle, PauseCircle } from 'lucide-react';
-import { CREDIT_PACKS, FREE_DAILY_EDIT_LIMIT, PRO_MONTHLY_EDIT_LIMIT } from '@/data/constants';
+import { FREE_DAILY_EDIT_LIMIT, PRO_MONTHLY_EDIT_LIMIT } from '@/data/constants';
+import { useRegionalPricing } from '@/hooks/use-regional-pricing';
 import { CancelDialog } from '@/components/subscription/cancel-dialog';
 import { PlanPicker, type PickerPlan } from '@/components/subscription/plan-picker';
 import { SettingsCard, SettingsRow } from '@/components/settings/settings-card';
@@ -60,6 +61,7 @@ interface SubscriptionData {
 }
 
 export function SubscriptionStatus() {
+  const { creditPack } = useRegionalPricing();
   const [subscriptionData, setSubscriptionData] =
     useState<SubscriptionData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -131,7 +133,7 @@ export function SubscriptionStatus() {
           onClick={handleBuyCredits}
           disabled={isCreditsLoading}
         >
-          {isCreditsLoading ? 'Loading...' : `Buy ${CREDIT_PACKS.credits_100.credits} for ${CREDIT_PACKS.credits_100.price}`}
+          {isCreditsLoading ? 'Loading...' : `Buy ${creditPack.credits} for ${creditPack.price}`}
         </Button>
       </div>
     </SettingsRow>

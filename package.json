@@ -7,13 +7,14 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "vitest run",
+    "test": "vitest run && npm run test:race",
     "test:watch": "vitest --watch",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage",
     "dev:all": "supabase start && concurrently -n web,agent,compile -c blue,magenta,yellow \"npm run dev\" \"npm --prefix services/agent run dev\" \"make -C services/compile run\"",
     "resume:redesign": "tsx scripts/resume/redesign.ts",
-    "reconcile:pro": "tsx scripts/reconcile-pro-from-stripe.ts"
+    "reconcile:pro": "tsx scripts/reconcile-pro-from-stripe.ts",
+    "test:race": "npx -y viberaven@1.10.0 race . --spec race/webhook.race.json --migrations race"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^2.0.107",

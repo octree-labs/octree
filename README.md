@@ -158,3 +158,7 @@ If hosting remotely, replace with your public/internal URL.
 ## License
 
 LGPL-3.0 — see [LICENSE](LICENSE) for details.
+
+## Webhook concurrency test
+
+Payment providers can deliver webhook events late, twice, or out of order. `npm run test:race` runs the webhook's database writes in every possible order on a real Postgres with [VibeRaven](https://viberaven.dev) (`npx -y viberaven race`) and fails if any order breaks the rule in `race/webhook.race.json`. It also runs in `npm test`. Add a rule there when you add a webhook handler.

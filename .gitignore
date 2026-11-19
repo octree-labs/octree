@@ -50,3 +50,6 @@ services/agent/.env
 
 # Paradev personal overrides (never committed)
 .paradev/config.local.toml
+
+# VibeRaven race output
+.viberaven/

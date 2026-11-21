@@ -74,6 +74,8 @@ export const AnalyticsEvents = {
   EXPORT_FREE_USED: 'export_free_used',
   // Billing recovery (Stripe webhook + lifecycle cron)
   CHECKOUT_ABANDONED: 'checkout_abandoned',
+  // The buyer left Stripe Checkout with its back link (app/checkout/canceled).
+  CHECKOUT_CANCELED: 'checkout_canceled',
   CHECKOUT_RECOVERY_EMAIL_SENT: 'checkout_recovery_email_sent',
   PAYMENT_FAILED_EMAIL_SENT: 'payment_failed_email_sent',
   PRO_ENTITLEMENT_REVOKED: 'pro_entitlement_revoked',
@@ -468,6 +470,16 @@ export interface AnalyticsEventProperties {
     mode: 'subscription' | 'payment' | 'setup';
     /** Whether Stripe issued a recovery URL for it. */
     recoverable: boolean;
+  };
+  /**
+   * The buyer left Stripe Checkout through its back link, before the session
+   * expired. `return_path` is the app path they were sent back to, without
+   * the query.
+   */
+  [AnalyticsEvents.CHECKOUT_CANCELED]: {
+    plan: PurchasePlan | 'unknown';
+    source: CheckoutSource | 'unknown';
+    return_path: string;
   };
   /** A recovery email for an expired checkout went out. */
   [AnalyticsEvents.CHECKOUT_RECOVERY_EMAIL_SENT]: {

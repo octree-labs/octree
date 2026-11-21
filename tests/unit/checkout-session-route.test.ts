@@ -357,7 +357,9 @@ describe('POST /api/checkout-session export_single', () => {
     });
     expect(params.payment_intent_data.metadata).toEqual(params.metadata);
     expect(params.success_url).toBe(`https://app.example.com/projects/${projectId}?export=unlocked`);
-    expect(params.cancel_url).toBe(`https://app.example.com/projects/${projectId}`);
+    expect(params.cancel_url).toBe(
+      `https://app.example.com/checkout/canceled?to=%2Fprojects%2F${projectId}&plan=export_single&source=paywall`
+    );
     expect(params.customer_creation).toBe('always');
 
     expect(mocks.captureEvent).toHaveBeenCalledWith(
@@ -375,7 +377,9 @@ describe('POST /api/checkout-session export_single', () => {
       expect(response.status).toBe(200);
       const params = mocks.sessionsCreate.mock.calls[0][0];
       expect(params.success_url).toBe(`http://localhost/projects/${projectId}?export=unlocked`);
-      expect(params.cancel_url).toBe(`http://localhost/projects/${projectId}`);
+      expect(params.cancel_url).toBe(
+        `http://localhost/checkout/canceled?to=%2Fprojects%2F${projectId}&plan=export_single&source=paywall`
+      );
     } finally {
       requestHeaders.origin = 'https://app.example.com';
     }

@@ -139,6 +139,7 @@ export async function POST(request: Request) {
       source: resolved.source,
       entry: resolved.entry,
       ...(resolved.projectId ? { projectId: resolved.projectId } : {}),
+      ...(resolved.returnPath ? { returnPath: resolved.returnPath } : {}),
       priceTier,
       country,
     };

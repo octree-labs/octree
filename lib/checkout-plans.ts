@@ -103,6 +103,32 @@ export interface CheckoutAttribution {
   entry?: GenerateEntry;
 }
 
+const RETURN_PATH_MAX_LENGTH = 512;
+const RETURN_PATH_BASE = 'https://return-path.invalid';
+const RETURN_PATH_BLOCKED_PREFIXES = ['/api/', '/auth/', '/checkout/', '/success'];
+
+/**
+ * The in-app page a checkout was started from, where Stripe's back link
+ * returns the buyer. Only a same-origin path (with its query) is kept;
+ * anything that could leave the app (`//host`, `/\\host`, an absolute URL),
+ * an API, auth or checkout route, or an over-long value is dropped, never
+ * refused: the checkout then returns to the plan's default page.
+ */
+export function resolveReturnPath(value: unknown): string | undefined {
+  if (typeof value !== 'string' || value.length > RETURN_PATH_MAX_LENGTH) return undefined;
+  if (!value.startsWith('/') || value.startsWith('//') || value.includes('\\')) return undefined;
+  if (/[\u0000-\u001f]/.test(value)) return undefined;
+  let url: URL;
+  try {
+    url = new URL(value, RETURN_PATH_BASE);
+  } catch {
+    return undefined;
+  }
+  if (url.origin !== RETURN_PATH_BASE) return undefined;
+  if (RETURN_PATH_BLOCKED_PREFIXES.some((prefix) => url.pathname.startsWith(prefix))) return undefined;
+  return `${url.pathname}${url.search}`;
+}
+
 export type ResolvedCheckoutPlan =
   | ({
       ok: true;
@@ -118,6 +144,8 @@ export type ResolvedCheckoutPlan =
        * the route's check). Ignored, and absent, for every other plan.
        */
       projectId?: string;
+      /** Where Stripe's back link returns the buyer (`resolveReturnPath`). */
+      returnPath?: string;
     } & CheckoutAttribution)
   | { ok: false; error: string };
 
@@ -156,7 +184,8 @@ export function resolveCheckoutAttribution(body: unknown): CheckoutAttribution {
 export function resolveCheckoutPlan(body: unknown): ResolvedCheckoutPlan {
   const input = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
   const withTrial = input.withTrial === true;
-  const attribution = resolveCheckoutAttribution(input);
+  const returnPath = resolveReturnPath(input.returnPath);
+  const attribution = { ...resolveCheckoutAttribution(input), ...(returnPath ? { returnPath } : {}) };
   const offer = resolveOffer(input.offer);
   if (!offer.ok) return offer;
 
@@ -233,6 +262,8 @@ export interface CheckoutSessionInput {
   promotionCodeId?: string | null;
   /** `export_single` only: the (ownership-checked) project to unlock. */
   projectId?: string;
+  /** The page the checkout was started from (`resolveReturnPath`). */
+  returnPath?: string;
   /**
    * The regional price tier `priceId` belongs to (lib/regional-pricing.ts)
    * and the country it was chosen from; written to the metadata so a
@@ -254,6 +285,34 @@ export interface CheckoutSessionInput {
 export const CHECKOUT_SESSION_TTL_SECONDS = 24 * 60 * 60 - 5 * 60;
 export const CHECKOUT_SESSION_MIN_TTL_SECONDS = 30 * 60;
 export const CHECKOUT_SESSION_MAX_TTL_SECONDS = 24 * 60 * 60;
+
+/**
+ * Where the buyer lands after leaving Checkout with its back link: the
+ * project for an export unlock (the purchase is tied to it), otherwise the
+ * page the checkout was started from, falling back to /generate for a
+ * generation credit and to the billing page (which says no charge was made)
+ * for everything else.
+ */
+export function cancelReturnPath(plan: PurchasePlan, returnPath: string | undefined, projectId: string | undefined): string {
+  if (projectId) return `/projects/${projectId}`;
+  if (returnPath) return returnPath;
+  return isGenerationPlan(plan) ? '/generate' : '/settings/billing?canceled=true';
+}
+
+/**
+ * Stripe's back link goes through app/checkout/canceled, which records
+ * `checkout_canceled` and redirects to `returnPath`.
+ */
+export function checkoutCanceledUrl(
+  origin: string,
+  plan: PurchasePlan,
+  source: CheckoutSource | undefined,
+  returnPath: string
+): string {
+  const params = new URLSearchParams({ to: returnPath, plan });
+  if (source) params.set('source', source);
+  return `${origin}/checkout/canceled?${params.toString()}`;
+}
 
 /**
  * The Checkout Session parameters for a plan. Subscription plans carry the
@@ -291,13 +350,7 @@ export function buildCheckoutSessionParams(
       : isGenerationPlan(plan)
         ? `${origin}/generate?purchased=1`
         : `${origin}/success?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: projectUrl
-      ? projectUrl
-      : isSubscriptionPlan(plan)
-        ? `${origin}/onboarding?canceled=true`
-        : isGenerationPlan(plan)
-          ? `${origin}/generate`
-          : `${origin}/settings?canceled=true`,
+    cancel_url: checkoutCanceledUrl(origin, plan, input.source, cancelReturnPath(plan, input.returnPath, exportProjectId)),
     automatic_tax: { enabled: true },
     allow_promotion_codes: true,
     locale: 'auto',

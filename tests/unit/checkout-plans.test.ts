@@ -9,6 +9,7 @@ import {
   buildCheckoutSessionParams,
   lookupKeyForPlan,
   resolveCheckoutPlan,
+  resolveReturnPath,
 } from '@/lib/checkout-plans';
 
 describe('resolveCheckoutPlan', () => {
@@ -68,6 +69,48 @@ describe('resolveCheckoutPlan', () => {
   });
 });
 
+describe('resolveReturnPath', () => {
+  it('keeps an in-app path with its query', () => {
+    expect(resolveReturnPath('/projects/abc?tab=pdf')).toBe('/projects/abc?tab=pdf');
+    expect(resolveReturnPath('/onboarding')).toBe('/onboarding');
+    expect(resolveReturnPath('/')).toBe('/');
+  });
+
+  it('drops anything that could leave the app or loop back into checkout', () => {
+    for (const value of [
+      'https://evil.example/',
+      '//evil.example/x',
+      '/\\evil.example',
+      'projects/abc',
+      '/api/checkout-session',
+      '/auth/login',
+      '/checkout/canceled?to=/',
+      '/success?session_id=cs_1',
+      '/a\nb',
+      `/${'x'.repeat(600)}`,
+      42,
+      undefined,
+    ]) {
+      expect(resolveReturnPath(value)).toBeUndefined();
+    }
+  });
+
+  it('is carried through resolveCheckoutPlan when valid and dropped otherwise', () => {
+    expect(resolveCheckoutPlan({ plan: 'monthly', source: 'toolbar', returnPath: '/projects/abc' })).toEqual({
+      ok: true,
+      plan: 'monthly',
+      withTrial: false,
+      source: 'toolbar',
+      returnPath: '/projects/abc',
+    });
+    expect(resolveCheckoutPlan({ plan: 'monthly', returnPath: '//evil.example' })).toEqual({
+      ok: true,
+      plan: 'monthly',
+      withTrial: false,
+    });
+  });
+});
+
 describe('lookupKeyForPlan', () => {
   it('maps each plan to its Stripe lookup key', () => {
     expect(lookupKeyForPlan('monthly')).toBe('octree_pro_monthly');
@@ -94,7 +137,7 @@ describe('buildCheckoutSessionParams', () => {
       mode: 'subscription',
       line_items: [{ price: 'price_123', quantity: 1 }],
       success_url: 'https://app.example.com/success?session_id={CHECKOUT_SESSION_ID}',
-      cancel_url: 'https://app.example.com/onboarding?canceled=true',
+      cancel_url: 'https://app.example.com/checkout/canceled?to=%2Fsettings%2Fbilling%3Fcanceled%3Dtrue&plan=annual',
       automatic_tax: { enabled: true },
       allow_promotion_codes: true,
       locale: 'auto',
@@ -117,6 +160,13 @@ describe('buildCheckoutSessionParams', () => {
 
     // Without attribution the metadata is exactly what it was.
     expect(buildCheckoutSessionParams({ ...base, plan: 'monthly' }).metadata).toEqual({ app: 'octree', user_id: 'user-1', plan: 'monthly' });
+  });
+
+  it('sends the back link through /checkout/canceled to the page the checkout started from', () => {
+    const params = buildCheckoutSessionParams({ ...base, plan: 'monthly', source: 'toolbar', returnPath: '/projects/abc?x=1' });
+    const cancel = new URL(params.cancel_url!);
+    expect(cancel.origin + cancel.pathname).toBe('https://app.example.com/checkout/canceled');
+    expect(Object.fromEntries(cancel.searchParams)).toEqual({ to: '/projects/abc?x=1', plan: 'monthly', source: 'toolbar' });
   });
 
   it('adds the 3-day trial only when asked', () => {
@@ -171,7 +221,7 @@ describe('buildCheckoutSessionParams', () => {
 
     expect(params).toMatchObject({
       mode: 'payment',
-      cancel_url: 'https://app.example.com/settings?canceled=true',
+      cancel_url: 'https://app.example.com/checkout/canceled?to=%2Fsettings%2Fbilling%3Fcanceled%3Dtrue&plan=credits_100',
       metadata: { app: 'octree', user_id: 'user-1', plan: 'credits_100', credits: '100' },
       payment_intent_data: { metadata: { app: 'octree', user_id: 'user-1', plan: 'credits_100' } },
       customer_creation: 'always',
@@ -191,7 +241,7 @@ describe('buildCheckoutSessionParams', () => {
     expect(params).toMatchObject({
       mode: 'payment',
       success_url: 'https://app.example.com/generate?purchased=1',
-      cancel_url: 'https://app.example.com/generate',
+      cancel_url: 'https://app.example.com/checkout/canceled?to=%2Fgenerate&plan=generate_single',
       metadata: { app: 'octree', user_id: 'user-1', plan: 'generate_single', generation_credits: '1' },
       payment_intent_data: { metadata: { app: 'octree', user_id: 'user-1', plan: 'generate_single' } },
       customer_creation: 'always',
@@ -313,7 +363,7 @@ describe('export_single (one-off export unlock for one project)', () => {
       mode: 'payment',
       line_items: [{ price: 'price_export', quantity: 1 }],
       success_url: `https://app.example.com/projects/${projectId}?export=unlocked`,
-      cancel_url: `https://app.example.com/projects/${projectId}`,
+      cancel_url: `https://app.example.com/checkout/canceled?to=%2Fprojects%2F${projectId}&plan=export_single&source=paywall`,
       customer_email: 'buyer@example.com',
       customer_creation: 'always',
       allow_promotion_codes: true,

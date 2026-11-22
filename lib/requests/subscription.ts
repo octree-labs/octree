@@ -69,6 +69,7 @@ export const createCheckoutSession = async ({
       entry,
       ...(offer ? { offer } : {}),
       ...(projectId ? { projectId } : {}),
+      returnPath: `${window.location.pathname}${window.location.search}`,
     }),
   });
 

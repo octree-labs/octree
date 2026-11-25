@@ -79,6 +79,7 @@ async function handleCompileSuccess(
     durationMs: durationMs ? Number(durationMs) : null,
     queueMs: queueMs ? Number(queueMs) : null,
     sha256,
+    engine: response.headers.get('x-compile-engine'),
   };
 }
 
@@ -119,6 +120,7 @@ async function handleCompileError(
       queueMs: queueMs ? Number(queueMs) : errorData.queueMs,
       durationMs: durationMs ? Number(durationMs) : errorData.durationMs,
       pdfBuffer: errorData.pdfBuffer, // Base64-encoded partial PDF if available
+      engine: response.headers.get('x-compile-engine'),
     },
   };
 }

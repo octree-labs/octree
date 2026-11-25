@@ -11,7 +11,8 @@ export const CORS_HEADERS: Record<string, string> = {
   'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
   'Access-Control-Allow-Headers':
     'Authorization, Content-Type, Accept, Mcp-Session-Id, Mcp-Protocol-Version, Last-Event-ID',
-  'Access-Control-Expose-Headers': 'Mcp-Session-Id, WWW-Authenticate, Retry-After',
+  'Access-Control-Expose-Headers':
+    'Mcp-Session-Id, WWW-Authenticate, Retry-After, X-Octree-Duration-Ms, X-Octree-Pages, X-Octree-Engine, X-Octree-Quota-Remaining',
   'Access-Control-Max-Age': '86400',
 };
 

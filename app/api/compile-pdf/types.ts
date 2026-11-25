@@ -32,6 +32,8 @@ export interface CompilerResponse {
   durationMs?: number | null;
   queueMs?: number | null;
   sha256?: string | null;
+  /** `X-Compile-Engine`: pdflatex, xelatex or lualatex; null when the service did not say. */
+  engine?: string | null;
   error?: {
     /** HTTP status of the compile service's error response; absent when no response came back. */
     status?: number;
@@ -47,6 +49,7 @@ export interface CompilerResponse {
     queueMs?: number | null;
     durationMs?: number | null;
     pdfBuffer?: string; // Base64-encoded partial PDF if available
+    engine?: string | null;
   };
 }
 

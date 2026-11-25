@@ -580,12 +580,17 @@ export interface AnalyticsEventProperties {
     duration_ms: number;
     source_bytes: number;
     plan: 'free' | 'pro';
+    /** `check` for MCP check_latex (its own daily counter), else `compile`. */
+    mode?: 'compile' | 'check';
+    /** Whether a signed PDF link was handed out (successful compiles that asked for one). */
+    pdf_url?: boolean;
   };
   /** A compile was refused by the daily API quota (lib/api/quota.ts). */
   [AnalyticsEvents.API_QUOTA_EXCEEDED]: {
     via: ApiVia;
     limit: number;
     plan: 'free' | 'pro';
+    counter?: 'compiles' | 'checks';
   };
 }
 

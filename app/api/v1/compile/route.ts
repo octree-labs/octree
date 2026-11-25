@@ -62,12 +62,19 @@ export async function POST(request: Request) {
     const validation = validateApiCompileRequest(body, acceptPdf);
     if (!validation.ok) return apiJson(validation.error.body, validation.error.status);
 
-    const outcome = await runApiCompile(principal, validation.request, 'rest');
+    // A JSON answer carries the PDF inline (pdf_base64). A signed `pdf_url`
+    // (which stores the PDF privately for 24 hours) is opt-in with
+    // `"pdf_url": true`; a raw PDF answer never stores anything.
+    const wantsPdf = validation.request.response === 'pdf';
+    const storePdf = !wantsPdf && validation.request.pdfUrl === true;
+    const outcome = await runApiCompile(principal, validation.request, 'rest', { storePdf });
     if (outcome.kind === 'error') return apiJson(outcome.body, outcome.status, outcome.headers);
 
-    if (validation.request.response === 'pdf' && outcome.json.ok && outcome.pdf) {
+    if (wantsPdf && outcome.json.ok && outcome.pdf) {
       const headers: Record<string, string> = { 'X-Octree-Duration-Ms': String(outcome.json.duration_ms) };
       if (outcome.json.pages) headers['X-Octree-Pages'] = String(outcome.json.pages);
+      if (outcome.json.engine) headers['X-Octree-Engine'] = outcome.json.engine;
+      if (outcome.json.quota) headers['X-Octree-Quota-Remaining'] = String(outcome.json.quota.remaining);
       return apiPdf(outcome.pdf, headers);
     }
     return apiJson(outcome.json, 200);

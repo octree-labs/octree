@@ -74,16 +74,19 @@ export type Database = {
       }
       api_usage_daily: {
         Row: {
+          checks: number
           compiles: number
           day: string
           user_id: string
         }
         Insert: {
+          checks?: number
           compiles?: number
           day: string
           user_id: string
         }
         Update: {
+          checks?: number
           compiles?: number
           day?: string
           user_id?: string
@@ -759,6 +762,10 @@ export type Database = {
           p_user_id: string
         }
         Returns: number | null
+      }
+      increment_api_check_usage: {
+        Args: { p_day: string; p_user_id: string }
+        Returns: number
       }
       increment_api_usage: {
         Args: { p_day: string; p_user_id: string }

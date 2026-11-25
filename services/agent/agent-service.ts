@@ -22,6 +22,7 @@ import {
   getAgentUserClaims,
 } from './lib/auth-claims.js';
 import type { AgentUserClaims } from './lib/auth-claims.js';
+import { PROXY_SECRET_HEADER, checkProxySecret } from './lib/proxy-secret.js';
 
 const SUPABASE_JWT_SECRET: string = (() => {
   const s = process.env.SUPABASE_JWT_SECRET;
@@ -61,13 +62,42 @@ async function verifySupabaseToken(token: string): Promise<AgentUserClaims> {
   return claims;
 }
 
+// Shared secret with the Next.js proxy, which enforces quotas and the paywall.
+// Unset keeps the old JWT-only behaviour so this can deploy before the env is
+// configured; set it on both sides and every non-health request must carry it.
+const AGENT_SERVICE_SECRET = process.env.AGENT_SERVICE_SECRET || undefined;
+if (!AGENT_SERVICE_SECRET) {
+  console.warn(
+    '[SECURITY WARNING] AGENT_SERVICE_SECRET is not set: /agent accepts any signed-in user token ' +
+      'without the proxy secret, bypassing usage limits. Set it here and on the Next.js app.'
+  );
+}
+
 const app = express();
-app.use(cors());
-app.use(express.json({ limit: '10mb' }));
+// Only the Next.js server calls this service; no browser origin is allowed.
+app.use(cors({ origin: false }));
 
 app.get('/health', (_req: express.Request, res: express.Response) => {
   res.json({ status: 'ok' });
 });
+
+function proxySecretMiddleware(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const result = checkProxySecret(AGENT_SERVICE_SECRET, req.headers[PROXY_SECRET_HEADER]);
+  if (result === 'missing') {
+    res.status(401).json({ error: 'Proxy credentials required' });
+    return;
+  }
+  if (result === 'invalid') {
+    res.status(403).json({ error: 'Invalid proxy credentials' });
+    return;
+  }
+  next();
+}
+
+// Everything registered after this line (all routes but /health) needs the
+// proxy secret when it is configured. Checked before parsing the body.
+app.use(proxySecretMiddleware);
+app.use(express.json({ limit: '10mb' }));
 
 async function jwtAuthMiddleware(req: express.Request, res: express.Response, next: express.NextFunction) {
   const authHeader = req.headers.authorization;

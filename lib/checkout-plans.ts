@@ -146,6 +146,8 @@ export type ResolvedCheckoutPlan =
       projectId?: string;
       /** Where Stripe's back link returns the buyer (`resolveReturnPath`). */
       returnPath?: string;
+      /** Where /success sends the buyer on to (`resolveReturnPath`); subscription plans only. */
+      successPath?: string;
     } & CheckoutAttribution)
   | { ok: false; error: string };
 
@@ -185,7 +187,12 @@ export function resolveCheckoutPlan(body: unknown): ResolvedCheckoutPlan {
   const input = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
   const withTrial = input.withTrial === true;
   const returnPath = resolveReturnPath(input.returnPath);
-  const attribution = { ...resolveCheckoutAttribution(input), ...(returnPath ? { returnPath } : {}) };
+  const successPath = resolveReturnPath(input.successPath);
+  const attribution = {
+    ...resolveCheckoutAttribution(input),
+    ...(returnPath ? { returnPath } : {}),
+    ...(successPath ? { successPath } : {}),
+  };
   const offer = resolveOffer(input.offer);
   if (!offer.ok) return offer;
 
@@ -265,6 +272,12 @@ export interface CheckoutSessionInput {
   /** The page the checkout was started from (`resolveReturnPath`). */
   returnPath?: string;
   /**
+   * Subscription plans: the page /success continues to (`resolveReturnPath`),
+   * e.g. the project a tools draft became when the buyer was sent through
+   * the onboarding paywall. Without it /success offers the dashboard.
+   */
+  successPath?: string;
+  /**
    * The regional price tier `priceId` belongs to (lib/regional-pricing.ts)
    * and the country it was chosen from; written to the metadata so a
    * regional sale can be told apart. Omitted for the list price.
@@ -315,6 +328,15 @@ export function checkoutCanceledUrl(
 }
 
 /**
+ * /success for a subscription or the credit pack. `{CHECKOUT_SESSION_ID}` is
+ * Stripe's template and must stay unencoded; `next` is a validated in-app path.
+ */
+function successUrl(origin: string, successPath: string | undefined): string {
+  const base = `${origin}/success?session_id={CHECKOUT_SESSION_ID}`;
+  return successPath ? `${base}&next=${encodeURIComponent(successPath)}` : base;
+}
+
+/**
  * The Checkout Session parameters for a plan. Subscription plans carry the
  * user id on the subscription (the webhook keys on it); the credit pack
  * carries the credit count on the session instead, and the generation
@@ -349,7 +371,7 @@ export function buildCheckoutSessionParams(
       ? `${projectUrl}?export=unlocked`
       : isGenerationPlan(plan)
         ? `${origin}/generate?purchased=1`
-        : `${origin}/success?session_id={CHECKOUT_SESSION_ID}`,
+        : successUrl(origin, isSubscriptionPlan(plan) ? input.successPath : undefined),
     cancel_url: checkoutCanceledUrl(origin, plan, input.source, cancelReturnPath(plan, input.returnPath, exportProjectId)),
     automatic_tax: { enabled: true },
     allow_promotion_codes: true,

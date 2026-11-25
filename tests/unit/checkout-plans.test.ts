@@ -13,6 +13,21 @@ import {
 } from '@/lib/checkout-plans';
 
 describe('resolveCheckoutPlan', () => {
+  it('keeps a valid successPath and drops an unsafe one', () => {
+    expect(resolveCheckoutPlan({ plan: 'annual', source: 'onboarding', successPath: '/projects/abc' })).toEqual({
+      ok: true,
+      plan: 'annual',
+      withTrial: false,
+      source: 'onboarding',
+      successPath: '/projects/abc',
+    });
+    expect(resolveCheckoutPlan({ plan: 'annual', successPath: '//evil.example' })).toEqual({
+      ok: true,
+      plan: 'annual',
+      withTrial: false,
+    });
+  });
+
   it('accepts every plan the picker can send', () => {
     for (const plan of ['monthly', 'annual', 'semester', 'credits_100'] as const) {
       expect(resolveCheckoutPlan({ plan })).toEqual({ ok: true, plan, withTrial: false });
@@ -129,6 +144,15 @@ describe('buildCheckoutSessionParams', () => {
     origin: 'https://app.example.com',
     withTrial: false,
   };
+
+  it('continues /success to the onboarding paywall\'s next page for a subscription only', () => {
+    const sub = buildCheckoutSessionParams({ ...base, plan: 'monthly', source: 'onboarding', successPath: '/projects/abc' });
+    expect(sub.success_url).toBe(
+      'https://app.example.com/success?session_id={CHECKOUT_SESSION_ID}&next=%2Fprojects%2Fabc'
+    );
+    const credits = buildCheckoutSessionParams({ ...base, plan: 'credits_100', successPath: '/projects/abc' });
+    expect(credits.success_url).toBe('https://app.example.com/success?session_id={CHECKOUT_SESSION_ID}');
+  });
 
   it('opens a subscription session for a recurring plan with the user id on the subscription', () => {
     const params = buildCheckoutSessionParams({ ...base, plan: 'annual' });

@@ -30,6 +30,16 @@ interface CreateCheckoutSessionOptions {
   offer?: CheckoutOfferId;
   /** Required for `export_single`: the project whose export is unlocked. Ignored otherwise. */
   projectId?: string;
+  /**
+   * The onboarding plan step with no free path (data/constants.ts
+   * ONBOARDING_PAYWALL_REQUIRED): tagged on `checkout_started`.
+   */
+  onboardingPaywall?: boolean;
+  /**
+   * An in-app page to continue to after paying (e.g. the project a tools
+   * draft became); /success links there instead of the dashboard.
+   */
+  successPath?: string;
 }
 
 /**
@@ -46,6 +56,8 @@ export const createCheckoutSession = async ({
   entry,
   offer,
   projectId,
+  onboardingPaywall,
+  successPath,
 }: CreateCheckoutSessionOptions = {}): Promise<string> => {
   const supabase = createClient();
 
@@ -69,6 +81,8 @@ export const createCheckoutSession = async ({
       entry,
       ...(offer ? { offer } : {}),
       ...(projectId ? { projectId } : {}),
+      ...(onboardingPaywall ? { onboardingPaywall: true } : {}),
+      ...(successPath ? { successPath } : {}),
       returnPath: `${window.location.pathname}${window.location.search}`,
     }),
   });

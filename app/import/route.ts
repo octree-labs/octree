@@ -222,6 +222,9 @@ export async function GET(request: NextRequest) {
   });
 
   // Always land in the editor; `welcome=1` lets the editor show its own
-  // onboarding / Pro prompt instead of bouncing through /onboarding.
+  // onboarding / Pro prompt. Under the onboarding paywall
+  // (data/constants.ts) a new, non-Pro user is sent from the editor to
+  // /onboarding?next=/projects/<id> and returns to this project after
+  // checkout; the draft is already a project by then, so nothing is lost.
   return redirectAndForget(projectUrl(url.origin, project.id, true), url.searchParams);
 }

@@ -2,6 +2,7 @@
 
 import { cn } from '@/lib/utils';
 import { createClient } from '@/lib/supabase/client';
+import { safeRedirectPath } from '@/lib/auth/redirect';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -50,7 +51,7 @@ export function LoginForm({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: 'user/signed-in' }),
       }).catch(() => {});
-      router.push(nextPath);
+      router.push(safeRedirectPath(nextPath) ?? '/');
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : 'An error occurred');
     } finally {
@@ -68,7 +69,7 @@ export function LoginForm({
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${window.location.origin}/auth/oauth?next=${encodeURIComponent(nextPath)}`,
+          redirectTo: `${window.location.origin}/auth/oauth?next=${encodeURIComponent(safeRedirectPath(nextPath) ?? '/')}`,
         },
       });
 

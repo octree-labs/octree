@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { safeRedirectPath } from '@/lib/auth/redirect';
 
 const allowedOrigin = process.env.ALLOWED_TOOLS_ORIGIN || 'https://tools.useoctree.com';
 
@@ -34,7 +35,7 @@ export async function POST(req: NextRequest) {
       const body = await req.json();
       access_token = body.access_token || null;
       refresh_token = body.refresh_token || null;
-      next = typeof body.next === 'string' && body.next.startsWith('/') ? body.next : '/';
+      next = safeRedirectPath(body.next) ?? '/';
       content = body.content || null;
       title = body.title || null;
       source = body.source || null;
@@ -42,8 +43,7 @@ export async function POST(req: NextRequest) {
       const form = await req.formData();
       access_token = (form.get('access_token') as string) || null;
       refresh_token = (form.get('refresh_token') as string) || null;
-      const rawNext = (form.get('next') as string) || '/';
-      next = typeof rawNext === 'string' && rawNext.startsWith('/') ? rawNext : '/';
+      next = safeRedirectPath(form.get('next')) ?? '/';
       content = (form.get('content') as string) || null;
       title = (form.get('title') as string) || null;
       source = (form.get('source') as string) || null;

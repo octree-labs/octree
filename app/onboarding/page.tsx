@@ -101,6 +101,21 @@ export default function OnboardingPage() {
 
         if (hasFinishedOnboarding(usageData, applies)) {
           router.push(next ?? '/');
+          return;
+        }
+
+        // Back from Stripe (or a reload): the profile step was already answered,
+        // so go straight to the plans instead of asking again.
+        const { data: profile } = await supabase
+          .from('user_usage')
+          .select('role, use_case, referral_source')
+          .eq('user_id', user.id)
+          .maybeSingle<{ role: string | null; use_case: string | null; referral_source: string | null }>();
+        if (profile?.role && profile.use_case && profile.referral_source) {
+          setRole(profile.role);
+          setUseCase(profile.use_case);
+          setReferralSource(profile.referral_source);
+          setCurrentStep((step) => (step === 0 ? PLAN_STEP : step));
         }
       }
     };

@@ -8,6 +8,29 @@ import {
   isBinaryFile,
 } from '@/lib/constants/file-types';
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * True when `projectId` is a project the signed-in user owns. projects RLS
+ * already limits rows to the owner; the explicit user_id filter keeps this
+ * check from depending on that. A malformed id never reaches storage, so it
+ * cannot widen the `projects/<id>` prefix used below.
+ */
+async function ownsProject(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  projectId: string,
+  userId: string
+): Promise<boolean> {
+  if (!UUID_RE.test(projectId)) return false;
+  const { data, error } = await supabase
+    .from('projects')
+    .select('id')
+    .eq('id', projectId)
+    .eq('user_id', userId)
+    .maybeSingle();
+  return !error && !!data;
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ projectId: string; fileId: string }> }
@@ -23,6 +46,10 @@ export async function GET(
     }
 
     const { projectId, fileId } = await params;
+
+    if (!(await ownsProject(supabase, projectId, user.id))) {
+      return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+    }
 
     const { data: storageFiles, error: listError } = await supabase.storage
       .from('octree')
@@ -106,6 +133,11 @@ export async function PUT(
     }
 
     const { projectId, fileId } = await params;
+
+    if (!(await ownsProject(supabase, projectId, user.id))) {
+      return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+    }
+
     const { content } = await request.json();
 
     if (content === undefined || content === null) {

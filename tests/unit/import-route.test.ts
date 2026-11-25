@@ -290,6 +290,11 @@ describe('GET /import', () => {
 
     expect(mocks.projectDeleteEq).toHaveBeenCalledWith('id', PROJECT_ID);
     expect(mocks.remove).toHaveBeenCalledWith([`projects/${PROJECT_ID}/main.tex`]);
+    // Storage policies only allow projects/<id>/ while the user owns <id>,
+    // so the objects must go before the projects row.
+    expect(mocks.remove.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.projectDeleteEq.mock.invocationCallOrder[0]
+    );
     expect(res.headers.get('location')).toBe('https://app.useoctree.com/projects/first?welcome=1');
     expect(res.headers.get('set-cookie')).toMatch(/Max-Age=0/i);
   });

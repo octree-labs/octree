@@ -1,6 +1,12 @@
 import { NextResponse } from 'next/server';
+import { createClient } from '@/lib/supabase/server';
+import { createRateLimiter } from '@/lib/import/rate-limit';
 
 export const runtime = 'nodejs';
+
+// Every request is a paid Exa call: signed-in users only, and a per-user cap
+// well above what the search panel sends by hand.
+const searchLimiter = createRateLimiter({ limit: 30, windowMs: 60_000 });
 
 interface ExaResult {
   title: string;
@@ -13,6 +19,22 @@ interface ExaResult {
 
 export async function POST(request: Request) {
   try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const limit = searchLimiter.check(user.id);
+    if (!limit.allowed) {
+      return NextResponse.json(
+        { error: 'Too many searches. Please wait a moment and try again.' },
+        { status: 429, headers: { 'Retry-After': String(limit.retryAfterSeconds) } }
+      );
+    }
+
     const apiKey = process.env.EXA_API_KEY;
     if (!apiKey) {
       return NextResponse.json(

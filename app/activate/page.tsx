@@ -172,6 +172,11 @@ function ConsentCard({
       <Card>
         <CardHeader className="space-y-3">
           <CardTitle className="text-xl">Connect {name} to your Octree account?</CardTitle>
+          <p className="text-xs text-muted-foreground">
+            &ldquo;{name}&rdquo; is the name the requesting app gave itself; Octree has not verified it. Requested{' '}
+            {Math.max(0, Math.round((now - Date.parse(row.created_at)) / 60000))} min ago
+            {row.ip ? <> from IP {row.ip}</> : null}. Only approve if you just started this from your own agent or terminal.
+          </p>
           <CardDescription>
             It gets its own API key, which can compile LaTeX through the Octree API and MCP server, using your
             plan&apos;s daily quota: {API_FREE_DAILY_COMPILES} compiles a day on Free,{' '}

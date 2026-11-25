@@ -606,7 +606,7 @@ export interface AnalyticsEventProperties {
     client_name: string | null;
     scope: string;
     request_id: string;
-  };
+   $process_person_profile?: boolean; };
   /** The user approved a device at /activate; an API key was created (never sent). */
   [AnalyticsEvents.DEVICE_AUTHORIZATION_APPROVED]: {
     client_name: string | null;

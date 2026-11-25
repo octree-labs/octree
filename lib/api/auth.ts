@@ -81,7 +81,7 @@ function blockedFor(ip: string, now: number): number {
   return Math.ceil((until - now) / 1000);
 }
 
-function recordFailure(ip: string, message: string): Response {
+function recordFailure(ip: string, message: string, origin?: string): Response {
   const now = Date.now();
   const decision = failures.check(ip, now);
   if (!decision.allowed) {
@@ -89,7 +89,7 @@ function recordFailure(ip: string, message: string): Response {
     if (blocked.size > 10_000) blocked.delete(blocked.keys().next().value as string);
     return rateLimitedResponse(decision.retryAfterSeconds);
   }
-  return unauthorizedResponse(message);
+  return unauthorizedResponse(message, true, origin);
 }
 
 /** Free or Pro, by the app's one entitlement rule (lib/subscription/entitlement.ts). */
@@ -156,7 +156,7 @@ async function authenticate(request: Request): Promise<ApiAuthResult> {
     };
   }
   if (!isApiKeyFormat(token)) {
-    return { ok: false, response: recordFailure(ip, 'Malformed API key. Keys look like oct_live_ followed by 32 characters.') };
+    return { ok: false, response: recordFailure(ip, 'Malformed API key. Keys look like oct_live_ followed by 32 characters.', origin) };
   }
 
   const hash = hashApiKey(token);
@@ -178,7 +178,7 @@ async function authenticate(request: Request): Promise<ApiAuthResult> {
   }
   if (!key || key.revoked_at) {
     principals.delete(hash);
-    return { ok: false, response: recordFailure(ip, 'Invalid or revoked API key.') };
+    return { ok: false, response: recordFailure(ip, 'Invalid or revoked API key.', origin) };
   }
 
   const plan = await resolvePlan(admin, key.user_id);

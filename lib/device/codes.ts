@@ -140,7 +140,7 @@ export function noCredentialsMessage(origin: string): string {
   return (
     `No credentials. Start device authorization: POST ${base}${DEVICE_CODE_PATH}, then ask the user to open ` +
     `verification_uri_complete; poll ${DEVICE_TOKEN_PATH}. Or send "Authorization: Bearer oct_live_..." ` +
-    `(an API key) or sign in through OAuth.`
+    `(an API key from Settings > API).`
   );
 }
 

@@ -1,4 +1,4 @@
-import { apiJson, apiPreflight } from '@/lib/api/http';
+import { apiJsonNoCors as apiJson } from '@/lib/api/http';
 import { requestOrigin } from '@/lib/api/origin';
 import { AnalyticsEvents } from '@/lib/analytics/events';
 import { DEVICE_SCOPES, type DeviceScope, parseClientName } from '@/lib/device/codes';
@@ -35,9 +35,6 @@ function invalid(description: string): Response {
   return apiJson({ error: 'invalid_request', error_description: description, message: description }, 400);
 }
 
-export async function OPTIONS() {
-  return apiPreflight();
-}
 
 export async function GET() {
   return apiJson(
@@ -90,6 +87,7 @@ export async function POST(request: Request) {
       client_name: clientName.name,
       scope,
       request_id: result.row.id,
+      $process_person_profile: false,
     });
     return apiJson(result.body);
   } catch (error) {

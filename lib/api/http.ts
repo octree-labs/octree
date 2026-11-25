@@ -53,3 +53,15 @@ export function withCors(response: Response): Response {
   for (const [name, value] of Object.entries(CORS_HEADERS)) headers.set(name, value);
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
+
+/**
+ * JSON without the CORS headers. The device authorization endpoints are for
+ * agents and CLIs, which do not need CORS; leaving it off stops a web page
+ * from starting a device flow in a signed-in visitor's browser and reading
+ * the device_code (and later the key) back.
+ */
+export function apiJsonNoCors(body: unknown, status = 200, extra: Record<string, string> = {}): Response {
+  const response = apiJson(body, status, extra);
+  for (const name of Object.keys(CORS_HEADERS)) response.headers.delete(name);
+  return response;
+}

@@ -47,6 +47,7 @@ export interface DeviceRow {
   approved_at: string | null;
   consumed_at: string | null;
   last_polled_at: string | null;
+  ip: string | null;
 }
 
 export interface NewDeviceRow {
@@ -173,7 +174,9 @@ const EXPIRED: PollResult = {
 async function expire(store: DeviceStore, row: DeviceRow, at: string): Promise<void> {
   if (row.status !== 'pending' && row.status !== 'approved') return;
   const done = await store.transition(row.id, row.status, { status: 'expired', key_ciphertext: null });
-  if (done && row.status === 'approved' && row.api_key_id) await store.revokeApiKey(row.api_key_id, at);
+  // The updated row, not the snapshot: an approval can store its key id
+  // between our read and this update.
+  if (done?.api_key_id) await store.revokeApiKey(done.api_key_id, at);
 }
 
 export async function pollDeviceToken(
@@ -299,12 +302,20 @@ export async function approveDeviceAuthorization(
   }
 
   const keyId = created.summary.id || null;
-  const stored = await store.transition(
-    row.id,
-    'approved',
-    { key_ciphertext: encryptDeviceKey(created.key, row.id, input.secret), api_key_id: keyId },
-    { ciphertext: 'absent' }
-  );
+  let stored: DeviceRow | null;
+  try {
+    stored = await store.transition(
+      row.id,
+      'approved',
+      { key_ciphertext: encryptDeviceKey(created.key, row.id, input.secret), api_key_id: keyId },
+      { ciphertext: 'absent' }
+    );
+  } catch (error) {
+    // The key exists but was never recorded on the request: revoke it
+    // rather than leave an undeliverable key holding one of the 5 slots.
+    if (keyId) await store.revokeApiKey(keyId, nowIso);
+    throw error;
+  }
   if (!stored) {
     // Expired (or otherwise moved on) between the claim and now.
     if (keyId) await store.revokeApiKey(keyId, nowIso);

@@ -12,7 +12,7 @@ import type { DeviceRow, DeviceStore } from '@/lib/device/flow';
 type AdminClient = ReturnType<typeof createAdminClient>;
 
 const COLUMNS =
-  'id, device_code_hash, user_code, client_name, scope, status, user_id, api_key_id, key_ciphertext, created_at, expires_at, approved_at, consumed_at, last_polled_at';
+  'id, device_code_hash, user_code, client_name, scope, status, user_id, api_key_id, key_ciphertext, created_at, expires_at, approved_at, consumed_at, last_polled_at, ip';
 
 function fail(op: string, message: string): never {
   throw new Error(`device_authorizations ${op} failed: ${message}`);
@@ -114,7 +114,26 @@ export async function cleanupDeviceAuthorizations(
     const done = await store.transition(row.id, 'approved', { status: 'expired', key_ciphertext: null });
     if (!done) continue;
     expiredUncollected += 1;
-    if (row.api_key_id) await store.revokeApiKey(row.api_key_id, nowIso);
+  }
+  // Every key id on an expired row belongs to a key that was never
+  // delivered (delivered ones end `consumed`). Revoking them all here, not
+  // per transition above, also retries a revoke that failed on an earlier
+  // poll or run, and catches a key id stored after the row was read.
+  const { data: undelivered, error: undeliveredError } = await admin
+    .from('device_authorizations')
+    .select('api_key_id')
+    .eq('status', 'expired')
+    .not('api_key_id', 'is', null)
+    .limit(500);
+  if (undeliveredError) fail('select', undeliveredError.message);
+  const keyIds = (undelivered ?? []).map((r) => r.api_key_id).filter((id): id is string => Boolean(id));
+  if (keyIds.length > 0) {
+    const { error: revokeError } = await admin
+      .from('api_keys')
+      .update({ revoked_at: nowIso })
+      .in('id', keyIds)
+      .is('revoked_at', null);
+    if (revokeError) fail('revoke', revokeError.message);
   }
   // Abandoned pending requests: free their user codes.
   const { error: pendingError } = await admin

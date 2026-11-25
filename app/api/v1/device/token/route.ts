@@ -1,4 +1,4 @@
-import { apiJson, apiPreflight } from '@/lib/api/http';
+import { apiJsonNoCors as apiJson } from '@/lib/api/http';
 import { requestOrigin } from '@/lib/api/origin';
 import { AnalyticsEvents } from '@/lib/analytics/events';
 import { DEVICE_CODE_GRANT_TYPE, DEVICE_POLL_INTERVAL, hashDeviceCode, isDeviceCodeFormat } from '@/lib/device/codes';
@@ -45,9 +45,6 @@ function oauthError(error: string, description: string, status = 400, extra: Rec
   return apiJson({ error, error_description: description, ...extra }, status);
 }
 
-export async function OPTIONS() {
-  return apiPreflight();
-}
 
 export async function GET() {
   return apiJson(

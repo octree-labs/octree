@@ -29,6 +29,7 @@ export function createMemoryDeviceStore() {
         approved_at: null,
         consumed_at: null,
         last_polled_at: null,
+        ip: row.ip ?? null,
       };
       rows.set(full.id, full);
       return { ok: true, row: { ...full } };

@@ -39,7 +39,7 @@ echo ""
 
 # ── Validate local files ────────────────────────────────────────────────────
 
-for f in Dockerfile docker-compose.yml vector.yaml agent-service.ts; do
+for f in Dockerfile docker-compose.yml vector.yaml Caddyfile agent-service.ts; do
     if [ ! -f "$AGENT_SERVER_DIR/$f" ]; then
         echo -e "${RED}Error: $f not found in $AGENT_SERVER_DIR${NC}"
         exit 1
@@ -59,6 +59,7 @@ ssh "$SERVER_HOST" "mkdir -p $SERVER_PATH/lib"
 scp "$AGENT_SERVER_DIR/Dockerfile" "$SERVER_HOST:$SERVER_PATH/"
 scp "$AGENT_SERVER_DIR/docker-compose.yml" "$SERVER_HOST:$SERVER_PATH/"
 scp "$AGENT_SERVER_DIR/vector.yaml" "$SERVER_HOST:$SERVER_PATH/"
+scp "$AGENT_SERVER_DIR/Caddyfile" "$SERVER_HOST:$SERVER_PATH/"
 scp "$AGENT_SERVER_DIR/package.json" "$SERVER_HOST:$SERVER_PATH/"
 scp "$AGENT_SERVER_DIR/package-lock.json" "$SERVER_HOST:$SERVER_PATH/"
 scp "$AGENT_SERVER_DIR/tsconfig.json" "$SERVER_HOST:$SERVER_PATH/"
@@ -92,8 +93,10 @@ echo ""
 echo -e "${YELLOW}Step 4/4: Health check...${NC}"
 sleep 3
 
-RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" "http://$DEPLOY_HOST:8787/health" \
-  --max-time 5 || echo "000")
+# Checked from the droplet itself: :8787 may be bound to 127.0.0.1 (AGENT_BIND).
+RESPONSE=$(ssh "$SERVER_HOST" 'curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://127.0.0.1:8787/health' 2>/dev/null || echo "000")
+TLS_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "https://${AGENT_DOMAIN:-agent.useoctree.com}/health" 2>/dev/null || echo "000")
+echo -e "  HTTPS (${AGENT_DOMAIN:-agent.useoctree.com}/health): HTTP $TLS_RESPONSE"
 
 if [ "$RESPONSE" = "200" ]; then
     echo -e "${GREEN}  Health check passed (HTTP 200)${NC}"

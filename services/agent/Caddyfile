@@ -1,0 +1,17 @@
+# TLS in front of the agent service (agent.useoctree.com -> agent:8787).
+# Port 80 on this droplet belongs to the compile service, so Caddy only
+# listens on 443 and gets its certificate with the TLS-ALPN-01 challenge.
+{
+	auto_https disable_redirects
+}
+
+{$AGENT_DOMAIN:agent.useoctree.com} {
+	encode gzip
+	reverse_proxy agent:8787 {
+		# Long SSE streams from the agent.
+		flush_interval -1
+		transport http {
+			read_timeout 15m
+		}
+	}
+}

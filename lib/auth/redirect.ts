@@ -34,14 +34,27 @@ const SAFE_PATH_BASE = 'https://redirect-path.invalid';
  * `//host` and `/\host` as protocol-relative, and strip tabs/newlines before
  * parsing, so a plain `startsWith('/')` check is not enough.
  */
-export function safeRedirectPath(value: unknown): string | null {
+export function safeRedirectPath(value: unknown, sameOrigin?: string): string | null {
   if (typeof value !== 'string' || value.length === 0) return null;
+  // An absolute URL on our own origin (e.g. an email link that carries the
+  // full redirect URL) is reduced to its path; any other origin is rejected.
+  if (sameOrigin && !value.startsWith('/')) {
+    let absolute: URL;
+    try {
+      absolute = new URL(value);
+    } catch {
+      return null;
+    }
+    if (absolute.origin !== new URL(sameOrigin).origin) return null;
+    return safeRedirectPath(`${absolute.pathname}${absolute.search}${absolute.hash}`);
+  }
   if (!value.startsWith('/')) return null;
   if (value.startsWith('//') || value.startsWith('/\\')) return null;
   if (value.includes('\\')) return null;
-  // Control characters and any whitespace (the URL parser silently drops
-  // tab/CR/LF, which would turn `/\t/host` into `//host`).
-  if (/[\u0000-\u001f\u007f\s]/.test(value)) return null;
+  // Control characters (the URL parser silently drops tab/CR/LF, which would
+  // turn `/\t/host` into `//host`). A plain space after the leading slash is
+  // harmless: the parser percent-encodes it.
+  if (/[\u0000-\u001f\u007f]/.test(value)) return null;
   let url: URL;
   try {
     url = new URL(value, SAFE_PATH_BASE);

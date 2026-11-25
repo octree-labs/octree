@@ -85,7 +85,7 @@ async function jwtAuthMiddleware(req: express.Request, res: express.Response, ne
   const token = authHeader.slice(prefix.length);
 
   try {
-    await verifySupabaseToken(token);
+    res.locals.user = await verifySupabaseToken(token);
   } catch {
     res.status(401).json({ error: 'Invalid or expired token' });
     return;
@@ -172,8 +172,13 @@ app.post('/agent', jwtAuthMiddleware, async (req: express.Request, res: express.
       authToken,
     });
 
+    // Session memory is per user: a caller-chosen sessionId alone must not
+    // reach another user's conversation summary.
+    const user = res.locals.user as AgentUserClaims;
+    const sessionKey =
+      typeof sessionId === 'string' && sessionId ? `${user.sub}:${sessionId}` : undefined;
     const sessionManager = SessionManager.getInstance();
-    const currentSession = sessionId ? sessionManager.getSession(sessionId) : undefined;
+    const currentSession = sessionKey ? sessionManager.getSession(sessionKey) : undefined;
     const sessionSummary = currentSession?.summary || null;
     const lastInteraction = currentSession?.lastInteraction || null;
 
@@ -219,10 +224,10 @@ app.post('/agent', jwtAuthMiddleware, async (req: express.Request, res: express.
 
     const finalText = await processFullStream(result.fullStream, writeEvent, collectedEdits);
 
-    if (sessionId) {
-      sessionManager.storeLastInteraction(sessionId, userText, finalText);
+    if (sessionKey) {
+      sessionManager.storeLastInteraction(sessionKey, userText, finalText);
       console.log('[Session] Generating updated summary for:', sessionId);
-      sessionManager.generateUpdatedSummary(sessionId, sessionSummary || '', userText, finalText).catch(console.error);
+      sessionManager.generateUpdatedSummary(sessionKey, sessionSummary || '', userText, finalText).catch(console.error);
     } else {
       console.log('[Session] No sessionId provided - skipping session update');
     }

@@ -102,6 +102,20 @@ describe('safeRedirectPath', () => {
     expect(safeRedirectPath('/import?draft=abc')).toBe('/import?draft=abc');
   });
 
+  it('keeps a path whose query has a decoded space', () => {
+    expect(safeRedirectPath('/generate?q=a b')).toBe('/generate?q=a%20b');
+  });
+
+  it('reduces a same-origin absolute URL to its path when an origin is given', () => {
+    const origin = 'https://app.useoctree.com';
+    expect(safeRedirectPath('https://app.useoctree.com/auth/update-password', origin)).toBe('/auth/update-password');
+    expect(safeRedirectPath('https://app.useoctree.com/import?draft=abc#h', origin)).toBe('/import?draft=abc#h');
+    expect(safeRedirectPath('https://evil.com/auth/update-password', origin)).toBeNull();
+    expect(safeRedirectPath('https://app.useoctree.com/\t/evil.com', origin)).toBeNull();
+    expect(safeRedirectPath('javascript:alert(1)', origin)).toBeNull();
+    expect(safeRedirectPath('https://app.useoctree.com/x')).toBeNull();
+  });
+
   it('buildRedirectUrl never leaves the origin for a hostile next', () => {
     const headers = new Headers({ host: 'app.useoctree.com', 'x-forwarded-proto': 'https' });
     for (const next of ['//evil.com', '/\\evil.com', 'https://evil.com', '/\t/evil.com']) {

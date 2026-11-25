@@ -8,7 +8,7 @@ import { inngest } from '@/lib/inngest/client';
 import { PENDING_DRAFT_COOKIE, isDraftId } from '@/lib/import/pending-draft';
 
 export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
+  const { searchParams, origin } = new URL(request.url);
   const token_hash = searchParams.get('token_hash');
   const type = searchParams.get('type') as EmailOtpType | null;
   // No explicit `next` (e.g. the email template's default): if the visitor
@@ -19,7 +19,8 @@ export async function GET(request: NextRequest) {
     type !== 'email_change' &&
     isDraftId(request.cookies.get(PENDING_DRAFT_COOKIE)?.value);
   const next =
-    safeRedirectPath(searchParams.get('next')) ?? (resumeImport ? '/import' : '/onboarding');
+    safeRedirectPath(searchParams.get('next'), origin) ??
+    (resumeImport ? '/import' : '/onboarding');
 
   if (token_hash && type) {
     const supabase = await createClient();

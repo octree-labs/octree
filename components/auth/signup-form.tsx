@@ -85,7 +85,8 @@ export function SignUpForm({
     }
   };
 
-  const loginHref = `/auth/login${nextPath ? `?next=${encodeURIComponent(nextPath)}` : ''}`;
+  const safeLoginNext = safeRedirectPath(nextPath);
+  const loginHref = `/auth/login${safeLoginNext ? `?next=${encodeURIComponent(safeLoginNext)}` : ''}`;
 
   if (signupSuccess) {
     return (

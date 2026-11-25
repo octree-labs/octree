@@ -2,6 +2,7 @@ import { type EmailOtpType } from '@supabase/supabase-js';
 import { type NextRequest } from 'next/server';
 import { redirect } from 'next/navigation';
 
+import { safeRedirectPath } from '@/lib/auth/redirect';
 import { createClient } from '@/lib/supabase/server';
 import { inngest } from '@/lib/inngest/client';
 import { PENDING_DRAFT_COOKIE, isDraftId } from '@/lib/import/pending-draft';
@@ -17,7 +18,8 @@ export async function GET(request: NextRequest) {
     type !== 'recovery' &&
     type !== 'email_change' &&
     isDraftId(request.cookies.get(PENDING_DRAFT_COOKIE)?.value);
-  const next = searchParams.get('next') ?? (resumeImport ? '/import' : '/onboarding');
+  const next =
+    safeRedirectPath(searchParams.get('next')) ?? (resumeImport ? '/import' : '/onboarding');
 
   if (token_hash && type) {
     const supabase = await createClient();

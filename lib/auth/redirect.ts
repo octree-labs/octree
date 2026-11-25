@@ -25,6 +25,36 @@ function parseHeaderList(value: string | undefined): string[] {
     .filter(Boolean);
 }
 
+const SAFE_PATH_BASE = 'https://redirect-path.invalid';
+
+/**
+ * Returns `value` as a same-origin, app-relative path (pathname + search +
+ * hash), or null if it could point anywhere else. Every user-supplied `next`
+ * must go through this before it is used as a redirect target: browsers treat
+ * `//host` and `/\host` as protocol-relative, and strip tabs/newlines before
+ * parsing, so a plain `startsWith('/')` check is not enough.
+ */
+export function safeRedirectPath(value: unknown): string | null {
+  if (typeof value !== 'string' || value.length === 0) return null;
+  if (!value.startsWith('/')) return null;
+  if (value.startsWith('//') || value.startsWith('/\\')) return null;
+  if (value.includes('\\')) return null;
+  // Control characters and any whitespace (the URL parser silently drops
+  // tab/CR/LF, which would turn `/\t/host` into `//host`).
+  if (/[\u0000-\u001f\u007f\s]/.test(value)) return null;
+  let url: URL;
+  try {
+    url = new URL(value, SAFE_PATH_BASE);
+  } catch {
+    return null;
+  }
+  if (url.origin !== SAFE_PATH_BASE) return null;
+  const path = `${url.pathname}${url.search}${url.hash}`;
+  // The normalised path must itself still be app-relative.
+  if (!path.startsWith('/') || path.startsWith('//')) return null;
+  return path;
+}
+
 /**
  * Resolve the host + protocol used for post-OAuth redirects.
  *
@@ -84,5 +114,8 @@ export function buildRedirectUrl(
   allowedHostsEnv = process.env.ALLOWED_REDIRECT_HOSTS
 ): string {
   const baseUrl = resolveRedirectBase(headers, new URL(origin), allowedHostsEnv);
-  return new URL(nextPath, baseUrl).toString();
+  const url = new URL(safeRedirectPath(nextPath) ?? '/', baseUrl);
+  // Defense in depth: never leave the resolved base origin.
+  if (url.origin !== baseUrl.origin) return new URL('/', baseUrl).toString();
+  return url.toString();
 }

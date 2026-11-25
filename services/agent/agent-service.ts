@@ -16,6 +16,12 @@ import { createOctraTools } from './lib/tools.js';
 import type { StringEdit } from './lib/edits.js';
 import { createSSEHeaders, processFullStream } from './lib/stream-handling.js';
 import { SessionManager } from './lib/session-manager.js';
+import {
+  ALLOWED_JWKS_ALGORITHMS,
+  ALLOWED_SECRET_ALGORITHMS,
+  getAgentUserClaims,
+} from './lib/auth-claims.js';
+import type { AgentUserClaims } from './lib/auth-claims.js';
 
 const SUPABASE_JWT_SECRET: string = (() => {
   const s = process.env.SUPABASE_JWT_SECRET;
@@ -35,13 +41,24 @@ const SUPABASE_JWKS = process.env.SUPABASE_URL
     )
   : null;
 
-async function verifySupabaseToken(token: string): Promise<void> {
+// Verifies the signature (HS256 only against the shared secret; ES256/RS256
+// only against the JWKS, so no algorithm confusion) and then requires a
+// signed-in user token. Throws on any failure.
+async function verifySupabaseToken(token: string): Promise<AgentUserClaims> {
+  let payload: unknown;
   try {
-    jwt.verify(token, SUPABASE_JWT_SECRET, { algorithms: ['HS256'] });
+    payload = jwt.verify(token, SUPABASE_JWT_SECRET, {
+      algorithms: [...ALLOWED_SECRET_ALGORITHMS],
+    });
   } catch (error) {
     if (!SUPABASE_JWKS) throw error;
-    await jwtVerify(token, SUPABASE_JWKS, { algorithms: ['ES256', 'RS256'] });
+    ({ payload } = await jwtVerify(token, SUPABASE_JWKS, {
+      algorithms: [...ALLOWED_JWKS_ALGORITHMS],
+    }));
   }
+  const claims = getAgentUserClaims(payload);
+  if (!claims) throw new Error('Token is not a signed-in user token');
+  return claims;
 }
 
 const app = express();

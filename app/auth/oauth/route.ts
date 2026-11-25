@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { buildRedirectUrl } from '@/lib/auth/redirect';
+import { buildRedirectUrl, safeRedirectPath } from '@/lib/auth/redirect';
 import { createClient } from '@/lib/supabase/server';
 import { pendingDraftFromCookieHeader } from '@/lib/import/pending-draft';
 import { AnalyticsEvents } from '@/lib/analytics/events';
@@ -12,8 +12,7 @@ const NEW_ACCOUNT_WINDOW_MS = 5 * 60 * 1000;
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get('code');
-  const nextParam = searchParams.get('next') ?? '/';
-  let next = nextParam.startsWith('/') ? nextParam : '/';
+  let next = safeRedirectPath(searchParams.get('next')) ?? '/';
 
   // A draft posted from tools.useoctree.com is still waiting: finish the
   // import instead of landing on the dashboard. The import route reads the

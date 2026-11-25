@@ -1,11 +1,11 @@
 import { LoginForm } from '@/components/auth/login-form';
 import { AuthMarketingSection } from '@/components/auth/auth-marketing-section';
 import { OctreeLogo, OctreeWordmark } from '@/components/icons/octree-logo';
+import { safeRedirectPath } from '@/lib/auth/redirect';
 
 export default async function Page({ searchParams }: { searchParams?: Promise<{ next?: string }> }) {
   const params = (await searchParams) ?? {};
-  const raw = params.next ?? '/';
-  const next = typeof raw === 'string' && raw.startsWith('/') ? raw : '/';
+  const next = safeRedirectPath(params.next) ?? '/';
   
   return (
     <div className="flex min-h-screen w-full">

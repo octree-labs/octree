@@ -1,6 +1,7 @@
 import { SignUpForm } from '@/components/auth/signup-form';
 import { AuthMarketingSection } from '@/components/auth/auth-marketing-section';
 import { OctreeLogo, OctreeWordmark } from '@/components/icons/octree-logo';
+import { safeRedirectPath } from '@/lib/auth/redirect';
 
 interface PageProps {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
@@ -8,7 +9,7 @@ interface PageProps {
 
 export default async function Page({ searchParams }: PageProps) {
   const params = await searchParams;
-  const nextPath = typeof params.next === 'string' ? params.next : null;
+  const nextPath = safeRedirectPath(params.next);
 
   return (
     <div className="flex min-h-screen w-full">

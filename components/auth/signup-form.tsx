@@ -2,6 +2,7 @@
 
 import { cn } from '@/lib/utils';
 import { createClient } from '@/lib/supabase/client';
+import { safeRedirectPath } from '@/lib/auth/redirect';
 import { AnalyticsEvents } from '@/lib/analytics/events';
 import { track } from '@/lib/analytics/track';
 import { Button } from '@/components/ui/button';
@@ -53,8 +54,9 @@ export function SignUpForm({
         emailRedirectTo?: string;
       } = {};
 
-      if (nextPath) {
-        signUpOptions.emailRedirectTo = `${window.location.origin}${nextPath}`;
+      const safeNext = safeRedirectPath(nextPath);
+      if (safeNext) {
+        signUpOptions.emailRedirectTo = `${window.location.origin}${safeNext}`;
       }
 
       const { error } = await supabase.auth.signUp({

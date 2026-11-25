@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildRedirectUrl, resolveRedirectBase } from '@/lib/auth/redirect';
+import { buildRedirectUrl, resolveRedirectBase, safeRedirectPath } from '@/lib/auth/redirect';
 
 describe('Redirect URL handling', () => {
   it('prefers the direct host header over forwarded host', () => {
@@ -61,5 +61,51 @@ describe('Redirect URL handling', () => {
 
     const base = resolveRedirectBase(headers, new URL('https://ai-latex-editor.useoctree.com/auth/oauth'));
     expect(base.origin).toBe('https://ai-latex-editor.useoctree.com');
+  });
+});
+
+describe('safeRedirectPath', () => {
+  it.each([
+    '//evil.com',
+    '//evil.com/path',
+    '/\\evil.com',
+    '/\\/evil.com',
+    'https://evil.com',
+    'http:/evil.com',
+    'javascript:alert(1)',
+    '/\t/evil.com',
+    '/\n/evil.com',
+    '/\r\n/evil.com',
+    ' /projects',
+    '/a/..//evil.com',
+    '',
+    'projects/x',
+  ])('rejects %j', (value) => {
+    expect(safeRedirectPath(value)).toBeNull();
+  });
+
+  it('rejects non-strings', () => {
+    expect(safeRedirectPath(undefined)).toBeNull();
+    expect(safeRedirectPath(null)).toBeNull();
+    expect(safeRedirectPath(['/x'])).toBeNull();
+  });
+
+  it('keeps an encoded slash path on the same origin', () => {
+    expect(safeRedirectPath('/%2F%2Fevil.com')).toBe('/%2F%2Fevil.com');
+    expect(buildRedirectUrl(new Headers({ host: 'app.useoctree.com' }), 'https://app.useoctree.com', '/%2F%2Fevil.com'))
+      .toBe('https://app.useoctree.com/%2F%2Fevil.com');
+  });
+
+  it('keeps normal in-app paths with query and hash', () => {
+    expect(safeRedirectPath('/projects/x?y=1#z')).toBe('/projects/x?y=1#z');
+    expect(safeRedirectPath('/')).toBe('/');
+    expect(safeRedirectPath('/import?draft=abc')).toBe('/import?draft=abc');
+  });
+
+  it('buildRedirectUrl never leaves the origin for a hostile next', () => {
+    const headers = new Headers({ host: 'app.useoctree.com', 'x-forwarded-proto': 'https' });
+    for (const next of ['//evil.com', '/\\evil.com', 'https://evil.com', '/\t/evil.com']) {
+      expect(buildRedirectUrl(headers, 'https://app.useoctree.com', next)).toBe('https://app.useoctree.com/');
+    }
   });
 });

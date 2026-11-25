@@ -8,8 +8,9 @@ import { previewPath } from '@/lib/utils/project-preview-path';
 
 /**
  * The caller's projects, newest first, each with a signed thumbnail URL
- * (the `octree` bucket is private). All thumbnails are signed in one batched
- * request; a project without a thumbnail gets null.
+ * (the `octree` bucket is private). Thumbnails are signed in batches of
+ * MAX_PATHS_PER_SIGN_REQUEST (one request for most users); a project
+ * without a thumbnail gets null.
  */
 export async function getAllProjects(): Promise<DashboardProject[] | null> {
   const supabase = await createClient();

@@ -49,6 +49,15 @@ describe('storagePathFromUrl', () => {
     );
   });
 
+  it('keeps `?` and `#` that encodeURI left in a public URL, drops a signed token', () => {
+    expect(storagePathFromUrl(`${BASE}/public/chat-attachments/u1/d1/f1.scan#2`, 'chat-attachments')).toBe(
+      'u1/d1/f1.scan#2'
+    );
+    expect(storagePathFromUrl(`${BASE}/sign/chat-attachments/u1/d1/f1.png?token=abc`, 'chat-attachments')).toBe(
+      'u1/d1/f1.png'
+    );
+  });
+
   it('refuses another bucket, non-storage URLs and junk', () => {
     expect(storagePathFromUrl(`${BASE}/public/octree/projects/p/a.jpg`, 'chat-attachments')).toBeNull();
     expect(storagePathFromUrl('blob:https://app.useoctree.com/123', 'chat-attachments')).toBeNull();

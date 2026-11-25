@@ -68,19 +68,24 @@ export async function createSignedUrlMap(
  */
 export function storagePathFromUrl(url: string | null | undefined, bucket: string): string | null {
   if (!url) return null;
-  let pathname: string;
+  let parsed: URL;
   try {
-    pathname = new URL(url).pathname;
+    parsed = new URL(url);
   } catch {
     return null;
   }
 
-  const match = pathname.match(/\/storage\/v1\/object\/(?:public|sign|authenticated)\/([^/]+)\/(.+)$/);
+  const match = parsed.pathname.match(/\/storage\/v1\/object\/(public|sign|authenticated)\/([^/]+)\/(.+)$/);
   if (!match) return null;
+  const [, kind, rawBucket] = match;
+  // getPublicUrl encodes with encodeURI, which leaves `?` and `#` in an
+  // object name as they are, so on a public URL they belong to the path.
+  // (Signed URLs carry `?token=`, which is not part of it.)
+  const rawPath = kind === 'public' ? match[3] + parsed.search + parsed.hash : match[3];
 
   try {
-    if (decodeURIComponent(match[1]) !== bucket) return null;
-    const path = match[2]
+    if (decodeURIComponent(rawBucket) !== bucket) return null;
+    const path = rawPath
       .split('/')
       .map((segment) => decodeURIComponent(segment))
       .join('/');

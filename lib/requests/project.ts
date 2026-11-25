@@ -1,6 +1,8 @@
 import { createClient } from '@/lib/supabase/client';
 import type { ProjectFile } from '@/hooks/use-file-editor';
 import { isBinaryFile } from '@/lib/constants/file-types';
+import { createSignedUrlMap } from '@/lib/storage/signed-urls';
+import { previewPath } from '@/lib/utils/project-preview-path';
 
 export const getProject = async (projectId: string) => {
   const supabase = createClient();
@@ -59,6 +61,19 @@ async function listAllFiles(
 
   return allFiles;
 }
+
+/**
+ * A fresh signed URL for a project's dashboard thumbnail, or null when it
+ * cannot be signed (no thumbnail, not the caller's project). Used when the
+ * URL signed at render time has expired.
+ */
+export const getProjectPreviewUrl = async (
+  projectId: string
+): Promise<string | null> => {
+  const path = previewPath(projectId);
+  const signed = await createSignedUrlMap(createClient(), 'octree', [path]);
+  return signed.get(path) ?? null;
+};
 
 export const getProjectFiles = async (
   projectId: string

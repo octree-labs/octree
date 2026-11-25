@@ -54,6 +54,9 @@ export function useGenerate(options: UseGenerateOptions = {}) {
   const abortControllerRef = useRef<AbortController | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lastAttemptRef = useRef<{ prompt: string; files: AttachedFile[] } | null>(null);
+  // Bumped by every restore and reset, so a late signing result for a
+  // conversation no longer shown is dropped.
+  const restoreIdRef = useRef(0);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -130,6 +133,7 @@ export function useGenerate(options: UseGenerateOptions = {}) {
   }, []);
 
   const resetState = useCallback(() => {
+    restoreIdRef.current += 1;
     GenerateActions.reset();
     setCurrentDocument(null);
     setMessages([]);
@@ -192,10 +196,32 @@ export function useGenerate(options: UseGenerateOptions = {}) {
     setError(null);
     setPrompt('');
 
+    const restoreId = ++restoreIdRef.current;
     void signAttachmentPreviews<MessageAttachment, Message>(supabase, initialMessages).then((signed) => {
       if (signed === initialMessages) return;
-      // Only if nothing replaced the restored conversation in the meantime.
-      setMessages((prev) => (prev === initialMessages ? signed : prev));
+      // Only for the conversation still shown (no other restore or reset since).
+      if (restoreIdRef.current !== restoreId) return;
+      const previews = new Map<string, string>();
+      for (const m of signed) {
+        for (const a of m.attachments ?? []) {
+          if (a.path && a.preview) previews.set(a.path, a.preview);
+        }
+      }
+      if (previews.size === 0) return;
+      // Merged into the current messages: the user may already have sent a
+      // follow-up, which must not be dropped (or drop these previews).
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.attachments?.some((a) => !a.preview && a.path && previews.has(a.path))
+            ? {
+                ...m,
+                attachments: m.attachments.map((a) =>
+                  !a.preview && a.path && previews.has(a.path) ? { ...a, preview: previews.get(a.path)! } : a
+                ),
+              }
+            : m
+        )
+      );
     });
   }, [supabase]);
 

@@ -183,7 +183,15 @@ describe('GET /api/v1/me and openapi.json', () => {
   it('serves an OpenAPI 3.1 document for the endpoints', async () => {
     const doc = await (await openApi()).json();
     expect(doc.openapi).toBe('3.1.0');
-    expect(Object.keys(doc.paths).sort()).toEqual(['/api/v1/compile', '/api/v1/me']);
+    expect(Object.keys(doc.paths).sort()).toEqual([
+      '/api/v1/compile',
+      '/api/v1/device/code',
+      '/api/v1/device/token',
+      '/api/v1/me',
+    ]);
+    // The device endpoints are how an agent without credentials gets some.
+    expect(doc.paths['/api/v1/device/code'].post.security).toEqual([]);
+    expect(doc.paths['/api/v1/device/token'].post.security).toEqual([]);
     expect(doc.components.schemas.CompileRequest.properties).not.toHaveProperty('engine');
     expect(doc.info.description).toMatch(/check_latex/);
   });

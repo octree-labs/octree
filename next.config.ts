@@ -17,6 +17,19 @@ const nextConfig: NextConfig = {
   async rewrites() {
     return posthogRelayRewrites(process.env.NEXT_PUBLIC_POSTHOG_HOST);
   },
+  // The device authorization consent page (app/activate) must never be
+  // framed: an invisible iframe could trick a signed-in user into Approve.
+  async headers() {
+    return [
+      {
+        source: '/activate',
+        headers: [
+          { key: 'X-Frame-Options', value: 'DENY' },
+          { key: 'Content-Security-Policy', value: "frame-ancestors 'none'" },
+        ],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

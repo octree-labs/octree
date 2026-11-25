@@ -8,6 +8,7 @@ import { clientIp, createRateLimiter } from '@/lib/import/rate-limit';
 import { bearerToken, hashApiKey, isApiKeyFormat } from '@/lib/api/keys';
 import { apiJson } from '@/lib/api/http';
 import type { ApiPlan } from '@/lib/api/quota';
+import { credentialHints, noCredentialsMessage } from '@/lib/device/codes';
 
 /**
  * Bearer API-key authentication for the public API and the MCP server.
@@ -51,9 +52,13 @@ const blocked = (globalForApiAuth.__octreeApiAuthBlocked__ ??= new Map());
 const principals = (globalForApiAuth.__octreeApiPrincipals__ ??= new Map());
 const lastUsedWrites = (globalForApiAuth.__octreeApiLastUsed__ ??= new Map());
 
-/** 401 + WWW-Authenticate (RFC 6750: no error code when no credentials were sent). */
-export function unauthorizedResponse(message: string, invalidToken = true): Response {
-  return apiJson({ error: 'unauthorized', message }, 401, {
+/**
+ * 401 + WWW-Authenticate (RFC 6750: no error code when no credentials were
+ * sent). The body also carries device authorization hints
+ * (lib/device/codes.ts credentialHints) so headless agents can get a key.
+ */
+export function unauthorizedResponse(message: string, invalidToken = true, origin = 'https://app.useoctree.com'): Response {
+  return apiJson({ error: 'unauthorized', message, ...credentialHints(origin) }, 401, {
     'WWW-Authenticate': invalidToken ? 'Bearer realm="octree", error="invalid_token"' : 'Bearer realm="octree"',
   });
 }
@@ -76,7 +81,7 @@ function blockedFor(ip: string, now: number): number {
   return Math.ceil((until - now) / 1000);
 }
 
-function recordFailure(ip: string, message: string): Response {
+function recordFailure(ip: string, message: string, origin?: string): Response {
   const now = Date.now();
   const decision = failures.check(ip, now);
   if (!decision.allowed) {
@@ -84,7 +89,7 @@ function recordFailure(ip: string, message: string): Response {
     if (blocked.size > 10_000) blocked.delete(blocked.keys().next().value as string);
     return rateLimitedResponse(decision.retryAfterSeconds);
   }
-  return unauthorizedResponse(message);
+  return unauthorizedResponse(message, true, origin);
 }
 
 /** Free or Pro, by the app's one entitlement rule (lib/subscription/entitlement.ts). */
@@ -136,6 +141,7 @@ export async function authenticateApiRequest(request: Request): Promise<ApiAuthR
 
 async function authenticate(request: Request): Promise<ApiAuthResult> {
   const now = Date.now();
+  const origin = new URL(request.url).origin;
   const ip = clientIp(request.headers);
   const wait = blockedFor(ip, now);
   if (wait > 0) return { ok: false, response: rateLimitedResponse(wait) };
@@ -146,11 +152,11 @@ async function authenticate(request: Request): Promise<ApiAuthResult> {
     // answer 401 + WWW-Authenticate, but do not count it as a failure.
     return {
       ok: false,
-      response: unauthorizedResponse('Missing API key. Send "Authorization: Bearer oct_live_...".', false),
+      response: unauthorizedResponse(noCredentialsMessage(origin), false, origin),
     };
   }
   if (!isApiKeyFormat(token)) {
-    return { ok: false, response: recordFailure(ip, 'Malformed API key. Keys look like oct_live_ followed by 32 characters.') };
+    return { ok: false, response: recordFailure(ip, 'Malformed API key. Keys look like oct_live_ followed by 32 characters.', origin) };
   }
 
   const hash = hashApiKey(token);
@@ -172,7 +178,7 @@ async function authenticate(request: Request): Promise<ApiAuthResult> {
   }
   if (!key || key.revoked_at) {
     principals.delete(hash);
-    return { ok: false, response: recordFailure(ip, 'Invalid or revoked API key.') };
+    return { ok: false, response: recordFailure(ip, 'Invalid or revoked API key.', origin) };
   }
 
   const plan = await resolvePlan(admin, key.user_id);

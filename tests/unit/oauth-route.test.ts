@@ -91,9 +91,23 @@ describe('GET /auth/oauth signup_completed referral_source', () => {
     expect(signupProps()).toEqual({ provider: 'google' });
   });
 
-  it('still auto-completes onboarding for a tools referer and tags the event', async () => {
+  it('tags a tools referer sign-up but, under the onboarding paywall, does not auto-complete onboarding', async () => {
     await GET(request('', { referer: 'https://tools.useoctree.com/x' }));
     expect(signupProps()).toEqual({ provider: 'google', referral_source: 'tools' });
+    expect(mocks.usageUpsert).not.toHaveBeenCalled();
+  });
+
+  it('does not let next=/projects/... skip the onboarding paywall for a new account', async () => {
+    await GET(request('&next=/projects/abc'));
+    expect(mocks.usageUpsert).not.toHaveBeenCalled();
+  });
+
+  it('still auto-completes onboarding from tools for an account older than the paywall', async () => {
+    mocks.exchangeCodeForSession.mockResolvedValue({
+      data: { user: { id: USER_ID, created_at: '2026-01-01T00:00:00Z', app_metadata: { provider: 'google' } } },
+      error: null,
+    });
+    await GET(request('', { referer: 'https://tools.useoctree.com/x' }));
     expect(mocks.usageUpsert).toHaveBeenCalledWith(
       expect.objectContaining({ user_id: USER_ID, onboarding_completed: true, referral_source: 'tools' }),
       { onConflict: 'user_id' }

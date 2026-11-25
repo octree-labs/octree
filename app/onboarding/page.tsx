@@ -43,7 +43,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { completeFreeOnboarding } from '@/lib/requests/onboarding';
 import { AuthMarketingSection } from '@/components/auth/auth-marketing-section';
 import { StartWithDocument } from '@/components/onboarding/start-with-document';
-import { hasFinishedOnboarding, safeNextPath } from '@/lib/onboarding/paywall-gate';
+import { hasFinishedOnboarding, onboardingPaywallApplies, safeNextPath } from '@/lib/onboarding/paywall-gate';
 import { PlanStepActions } from './components/plan-step-actions';
 
 // What Pro adds over the free plan, kept to three lines (see app/onboarding/components/feature-list.tsx for the full list).
@@ -60,11 +60,6 @@ const PAYWALL_HIGHLIGHTS = [
   `${PRO_MONTHLY_EDIT_LIMIT} AI edits a month, plus PDF and ZIP export`,
 ];
 
-// With the paywall on the "Start with your document" step is never reached
-// (it followed the free path); paid users land on the dashboard's empty
-// state, which offers the same options.
-const VISIBLE_STEPS = ONBOARDING_PAYWALL_REQUIRED ? PLAN_STEP + 1 : TOTAL_STEPS;
-
 export default function OnboardingPage() {
   const [currentStep, setCurrentStep] = useState(0);
   const [referralSource, setReferralSource] = useState<string>('');
@@ -76,7 +71,14 @@ export default function OnboardingPage() {
   // The page to continue to after checkout: the project a tools.useoctree.com
   // draft was imported into, or /generate (lib/onboarding/paywall-gate-server.ts).
   const [nextPath, setNextPath] = useState<string | undefined>();
+  // Whether this account is under the onboarding paywall (the switch, and
+  // not older than ONBOARDING_PAYWALL_SINCE); settled once the user loads.
+  const [paywallRequired, setPaywallRequired] = useState(ONBOARDING_PAYWALL_REQUIRED);
   const router = useRouter();
+  // With the paywall on the "Start with your document" step is never reached
+  // (it followed the free path); paid users land on the dashboard's empty
+  // state, which offers the same options.
+  const visibleSteps = paywallRequired ? PLAN_STEP + 1 : TOTAL_STEPS;
 
   useEffect(() => {
     const checkUserStatus = async () => {
@@ -88,13 +90,16 @@ export default function OnboardingPage() {
       const next = safeNextPath(new URLSearchParams(window.location.search).get('next'));
       setNextPath(next);
 
+      const applies = onboardingPaywallApplies(user?.created_at);
+      setPaywallRequired(applies);
+
       if (user?.email) {
         setUserEmail(user.email);
 
         // Already onboarded (free or Pro): on to where they were going
         const usageData = await getUserUsageStatus(user.id);
 
-        if (hasFinishedOnboarding(usageData)) {
+        if (hasFinishedOnboarding(usageData, applies)) {
           router.push(next ?? '/');
         }
       }
@@ -164,7 +169,7 @@ export default function OnboardingPage() {
           plan,
           withTrial: false,
           source: 'onboarding',
-          ...(ONBOARDING_PAYWALL_REQUIRED ? { onboardingPaywall: true } : {}),
+          ...(paywallRequired ? { onboardingPaywall: true } : {}),
           ...(nextPath ? { successPath: nextPath } : {}),
         });
         // The user has only clicked through to Stripe here; `Purchase` is sent
@@ -300,7 +305,7 @@ export default function OnboardingPage() {
             <div className="space-y-1.5">
               <h2 className="text-2xl font-semibold leading-none tracking-tight">Write better papers, faster</h2>
               <p className="text-sm text-muted-foreground">
-                {ONBOARDING_PAYWALL_REQUIRED
+                {paywallRequired
                   ? 'Pick a plan to start writing with Octree Pro.'
                   : 'Stop wrestling with LaTeX. Let AI handle the formatting.'}
               </p>
@@ -316,7 +321,7 @@ export default function OnboardingPage() {
 
               {/* Short on purpose: the buttons below must stay in view. */}
               <ul className="space-y-2">
-                {(ONBOARDING_PAYWALL_REQUIRED ? PAYWALL_HIGHLIGHTS : PRO_HIGHLIGHTS).map((text) => (
+                {(paywallRequired ? PAYWALL_HIGHLIGHTS : PRO_HIGHLIGHTS).map((text) => (
                   <li key={text} className="flex gap-2 text-sm text-muted-foreground">
                     <Check className="mt-0.5 size-4 shrink-0 text-primary" />
                     {text}
@@ -376,7 +381,7 @@ export default function OnboardingPage() {
               {/* The start step's cards are their own actions; no footer button. */}
               {currentStep === PLAN_STEP && (
                 <PlanStepActions
-                  paywallRequired={ONBOARDING_PAYWALL_REQUIRED}
+                  paywallRequired={paywallRequired}
                   isSubmitting={isSubmitting}
                   onCheckout={handleNext}
                   onContinueFree={handleContinueFree}
@@ -400,7 +405,7 @@ export default function OnboardingPage() {
               <div className="flex items-center gap-3">
                 <ProgressDots
                   currentStep={currentStep}
-                  totalSteps={VISIBLE_STEPS}
+                  totalSteps={visibleSteps}
                 />
                 {currentStep > 0 && currentStep !== START_STEP && (
                   <Button

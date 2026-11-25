@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
-import type Stripe from 'stripe';
 import Link from 'next/link';
+import type Stripe from 'stripe';
 import { CheckCircle, ArrowRight } from 'lucide-react';
 
 import { stripe } from '../../lib/stripe';
@@ -29,7 +29,7 @@ export default async function Success({ searchParams }: SuccessPageProps) {
     throw new Error('Please provide a valid session_id (`cs_test_...`)');
 
   const session = await stripe.checkout.sessions.retrieve(session_id, {
-    expand: ['line_items', 'payment_intent'],
+    expand: ['line_items', 'payment_intent', 'subscription'],
   });
 
   if (session.status === 'open') {
@@ -111,6 +111,10 @@ async function markOnboardedAfterPayment(session: Stripe.Checkout.Session): Prom
   try {
     if (session.mode !== 'subscription' || session.payment_status === 'unpaid') return;
     if (!isOctreeCheckoutSession(session)) return;
+    // An old completed session (a subscription since canceled) proves nothing.
+    const subscription = session.subscription;
+    if (!subscription || typeof subscription === 'string') return;
+    if (subscription.status !== 'active' && subscription.status !== 'trialing') return;
     const supabase = await createClient();
     const {
       data: { user },

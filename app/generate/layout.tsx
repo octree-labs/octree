@@ -12,7 +12,7 @@ export default async function GenerateLayout({
 }) {
     // Onboarding paywall: a new, non-Pro user goes to /onboarding first.
     const user = await getCurrentUser();
-    if (user) await enforceOnboardingPaywall(user.id, '/generate');
+    if (user) await enforceOnboardingPaywall(user, '/generate');
 
     return (
         <SidebarProvider defaultOpen={true}>

@@ -94,6 +94,17 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: resolved.error }, { status: 400 });
     }
 
+    // The onboarding plan step can be reached again while a payment is still
+    // landing (webhook lag, a back button from Stripe, a second tab, a
+    // delayed payment method): a second subscription would be charged.
+    if (
+      resolved.source === 'onboarding' &&
+      isSubscriptionPlan(resolved.plan) &&
+      (await hasSubscriptionInFlight(supabase, user.id))
+    ) {
+      return NextResponse.json({ error: ALREADY_SUBSCRIBED_MESSAGE }, { status: 409 });
+    }
+
     if (resolved.projectId) {
       const { data: project, error: projectError } = await supabase
         .from('projects')
@@ -200,6 +211,33 @@ export async function POST(request: Request) {
       { error: err?.message || 'An error occurred' },
       { status: err?.statusCode || 500 }
     );
+  }
+}
+
+const ALREADY_SUBSCRIBED_MESSAGE =
+  'You already have an Octree Pro subscription (it can take a minute to activate). Refresh the page in a moment.';
+
+/** Subscription states in which another onboarding checkout would charge twice. */
+const IN_FLIGHT_SUBSCRIPTION_STATUSES = new Set(['active', 'trialing', 'incomplete', 'past_due']);
+
+/**
+ * Whether the user is Pro already or has a subscription Stripe is still
+ * settling. A failed read lets the checkout through (never blocks a sale).
+ */
+async function hasSubscriptionInFlight(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string
+): Promise<boolean> {
+  try {
+    const { data } = await (supabase.from('user_usage') as any)
+      .select('is_pro, subscription_status')
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (!data) return false;
+    return !!data.is_pro || IN_FLIGHT_SUBSCRIPTION_STATUSES.has(data.subscription_status ?? '');
+  } catch (error) {
+    console.error('[checkout] could not read the subscription state:', error);
+    return false;
   }
 }
 

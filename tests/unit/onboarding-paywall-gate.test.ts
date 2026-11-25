@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 
 import {
   hasFinishedOnboarding,
+  onboardingPaywallApplies,
   onboardingPath,
   safeNextPath,
   shouldRedirectToOnboarding,
@@ -97,5 +98,24 @@ describe('safeNextPath / onboardingPath', () => {
     expect(onboardingPath('/projects/abc')).toBe('/onboarding?next=%2Fprojects%2Fabc');
     expect(onboardingPath('//evil.example')).toBe('/onboarding');
     expect(onboardingPath()).toBe('/onboarding');
+  });
+});
+
+describe('onboardingPaywallApplies', () => {
+  const since = '2026-11-25T00:00:00Z';
+
+  it('is off when the switch is off', () => {
+    expect(onboardingPaywallApplies('2027-01-01T00:00:00Z', false, since)).toBe(false);
+  });
+
+  it('spares accounts created before the paywall (tools imports never set onboarding_completed)', () => {
+    expect(onboardingPaywallApplies('2026-10-01T12:00:00Z', true, since)).toBe(false);
+  });
+
+  it('applies to accounts created since, and to an unknown creation date', () => {
+    expect(onboardingPaywallApplies('2026-11-25T00:00:00Z', true, since)).toBe(true);
+    expect(onboardingPaywallApplies('2026-12-01T00:00:00Z', true, since)).toBe(true);
+    expect(onboardingPaywallApplies(undefined, true, since)).toBe(true);
+    expect(onboardingPaywallApplies('not a date', true, since)).toBe(true);
   });
 });

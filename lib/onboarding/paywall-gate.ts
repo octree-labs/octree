@@ -1,4 +1,21 @@
-import { ONBOARDING_PAYWALL_REQUIRED } from '@/data/constants';
+import { ONBOARDING_PAYWALL_REQUIRED, ONBOARDING_PAYWALL_SINCE } from '@/data/constants';
+
+/**
+ * Whether the onboarding paywall applies to an account created at
+ * `createdAt` (auth.users.created_at): the switch is on and the account is
+ * not older than ONBOARDING_PAYWALL_SINCE. An unknown date counts as new.
+ * Pass the result as `paywallRequired` to the functions below.
+ */
+export function onboardingPaywallApplies(
+  createdAt: string | null | undefined,
+  paywallRequired: boolean = ONBOARDING_PAYWALL_REQUIRED,
+  since: string = ONBOARDING_PAYWALL_SINCE
+): boolean {
+  if (!paywallRequired) return false;
+  const created = Date.parse(createdAt ?? '');
+  if (!Number.isFinite(created)) return true;
+  return created >= Date.parse(since);
+}
 
 /**
  * Who has to go (back) to /onboarding, under the onboarding paywall

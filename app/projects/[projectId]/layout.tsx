@@ -33,7 +33,7 @@ export default async function ProjectLayout({
   const [, project, exportUnlocked, walkthroughStatus] = await Promise.all([
     // Onboarding paywall: a new, non-Pro user goes to /onboarding and comes
     // back to this project after checkout (a tools draft is already a project).
-    user ? enforceOnboardingPaywall(user.id, `/projects/${projectId}`) : Promise.resolve(),
+    user ? enforceOnboardingPaywall(user, `/projects/${projectId}`) : Promise.resolve(),
     getProjectById(projectId),
     // The one-off export unlock for this project (owner-only by RLS).
     user ? getProjectExportUnlocked(projectId) : Promise.resolve(false),

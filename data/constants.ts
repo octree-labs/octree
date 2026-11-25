@@ -208,3 +208,12 @@ export const API_PRO_DAILY_COMPILES = 1000;
  * it): the free path and today's routing come back exactly as they were.
  */
 export const ONBOARDING_PAYWALL_REQUIRED = process.env.NEXT_PUBLIC_ONBOARDING_PAYWALL !== 'off';
+
+/**
+ * Accounts created before this instant are never under the onboarding
+ * paywall. Not every older account has onboarding_completed = true: a
+ * tools.useoctree.com import (app/import/route.ts) has landed sign-ups in
+ * the editor without setting it, and they have projects there. They keep
+ * today's behaviour (the free path, editor and /generate open).
+ */
+export const ONBOARDING_PAYWALL_SINCE = '2026-11-25T00:00:00Z';

@@ -5,6 +5,7 @@ import type { TablesInsert } from '@/database.types';
 
 // Import helper modules
 import { createSSEHeaders } from '@/lib/octra-agent/stream-handling';
+import { agentServiceHeaders } from '@/lib/octra-agent/agent-service-request';
 import { decideAllowance, limitReachedMessage } from '@/lib/usage/allowance';
 import { AnalyticsEvents } from '@/lib/analytics/events';
 import { captureServerEventAfterResponse, captureServerExceptionAfterResponse } from '@/lib/posthog-server';
@@ -206,11 +207,7 @@ export async function POST(request: Request) {
 
     const res = await fetch(remoteUrl, {
       method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        accept: 'text/event-stream',
-        'authorization': `Bearer ${session.access_token}`,
-      },
+      headers: agentServiceHeaders(session.access_token),
       body: JSON.stringify(body),
     });
 

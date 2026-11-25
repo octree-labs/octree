@@ -143,6 +143,25 @@ describe('POST /api/octra-agent: AI edit counting', () => {
     expect(mocks.rpc).toHaveBeenCalledTimes(1);
   });
 
+  it('sends AGENT_SERVICE_SECRET to the agent service in the proxy secret header', async () => {
+    const original = process.env.AGENT_SERVICE_SECRET;
+    process.env.AGENT_SERVICE_SECRET = 'proxy-secret';
+    try {
+      const res = await POST(request());
+
+      expect(res.status).toBe(200);
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const [url, init] = fetchSpy.mock.calls[0];
+      expect(url).toBe('https://agent.test/agent');
+      const headers = (init as RequestInit).headers as Record<string, string>;
+      expect(headers['x-octree-proxy-secret']).toBe('proxy-secret');
+      expect(headers.authorization).toBe('Bearer tok');
+    } finally {
+      if (original === undefined) delete process.env.AGENT_SERVICE_SECRET;
+      else process.env.AGENT_SERVICE_SECRET = original;
+    }
+  });
+
   it('never counts a whitelisted account', async () => {
     // First entry of lib/paywall.ts UNLIMITED_EDIT_EMAILS.
     mocks.getSession.mockResolvedValue(session('rascodes123@gmail.com'));

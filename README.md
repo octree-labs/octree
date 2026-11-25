@@ -142,6 +142,7 @@ docker compose up -d
 - `ANTHROPIC_API_KEY` (required)
 - `SUPABASE_JWT_SECRET` (optional but recommended; when set, `/agent` requires Bearer JWT)
 - `SUPABASE_URL` (optional; also accepts tokens signed with the project's asymmetric JWT signing keys, e.g. local `supabase start` stacks)
+- `AGENT_SERVICE_SECRET` (recommended; when set, every request except `/health` must carry it in the `X-Octree-Proxy-Secret` header, which the Next.js proxy sends from its own `AGENT_SERVICE_SECRET`. Unset logs a warning and skips the check)
 - `COMPILE_SERVICE_URL` (optional; enables agent compile tool)
 - `PORT` (optional; defaults to `8787`)
 
@@ -151,6 +152,7 @@ Set in `.env.local`:
 
 ```bash
 CLAUDE_AGENT_SERVICE_URL=http://localhost:8787
+AGENT_SERVICE_SECRET=  # same value as in services/agent/.env
 ```
 
 If hosting remotely, replace with your public/internal URL.

@@ -27,6 +27,13 @@ const errorSchema = {
       ],
     },
     message: { type: 'string' },
+    device_authorization_endpoint: {
+      type: 'string',
+      format: 'uri',
+      description: '401 only: start here to get an API key without a browser (POST /api/v1/device/code).',
+    },
+    token_endpoint: { type: 'string', format: 'uri', description: '401 only: poll here (POST /api/v1/device/token).' },
+    docs: { type: 'string', format: 'uri' },
   },
 };
 
@@ -39,10 +46,11 @@ export const openApiDocument = {
   openapi: '3.1.0',
   info: {
     title: 'Octree Compile API',
-    version: '1.1.0',
+    version: '1.2.0',
     description:
       `Compile LaTeX to PDF with one call. Authenticate with an API key from https://app.useoctree.com/settings#api-keys ` +
-      `(Authorization: Bearer oct_live_...). Free accounts get ${API_FREE_DAILY_COMPILES} compiles a day, Pro ` +
+      `(Authorization: Bearer oct_live_...), or let an agent get one itself with POST /api/v1/device/code (device authorization: ` +
+      `the user approves with one click). Free accounts get ${API_FREE_DAILY_COMPILES} compiles a day, Pro ` +
       `${API_PRO_DAILY_COMPILES} (UTC days). The same key works with the MCP server at https://app.useoctree.com/api/mcp. ` +
       `The engine is pdfLaTeX unless the document needs XeLaTeX (fontspec, polyglossia, unicode-math, ...) or LuaLaTeX ` +
       `(luacode, \\directlua, ...), which are selected automatically. Shell escape is disabled. Text files only in v1. ` +
@@ -114,6 +122,65 @@ export const openApiDocument = {
             content: { 'application/json': { schema: { $ref: '#/components/schemas/Me' } } },
           },
           '401': errorResponse('Missing, invalid or revoked API key.'),
+        },
+      },
+    },
+    '/api/v1/device/code': {
+      post: {
+        operationId: 'deviceCode',
+        summary: 'Start device authorization (get an API key without a browser)',
+        description:
+          'OAuth 2.0 Device Authorization Grant style (RFC 8628). No authentication. Show the user verification_uri_complete ' +
+          '(or user_code and verification_uri); once they approve, POST /api/v1/device/token returns an API key once. ' +
+          `Limited to 10 requests per IP per 10 minutes.`,
+        security: [],
+        requestBody: {
+          required: false,
+          content: {
+            'application/json': { schema: { $ref: '#/components/schemas/DeviceCodeRequest' } },
+            'application/x-www-form-urlencoded': { schema: { $ref: '#/components/schemas/DeviceCodeRequest' } },
+          },
+        },
+        responses: {
+          '200': {
+            description: 'A pending device authorization.',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/DeviceCodeResponse' } } },
+          },
+          '400': {
+            description: 'invalid_request or invalid_scope',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/DeviceTokenError' } } },
+          },
+          '429': errorResponse('Too many requests from this address.'),
+        },
+      },
+    },
+    '/api/v1/device/token': {
+      post: {
+        operationId: 'deviceToken',
+        summary: 'Poll for the API key of a device authorization',
+        description:
+          `Poll no faster than every \`interval\` seconds. 400 authorization_pending until the user decides; slow_down means ` +
+          'add 5 seconds to the interval; access_denied when the user said no; expired_token after 15 minutes or once the ' +
+          'key was delivered. The key is returned exactly once. Accepts JSON {"device_code"} or form-encoded ' +
+          'grant_type=urn:ietf:params:oauth:grant-type:device_code&device_code=...',
+        security: [],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': { schema: { $ref: '#/components/schemas/DeviceTokenRequest' } },
+            'application/x-www-form-urlencoded': { schema: { $ref: '#/components/schemas/DeviceTokenRequest' } },
+          },
+        },
+        responses: {
+          '200': {
+            description: 'Approved: the API key (only on this one response).',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/DeviceTokenResponse' } } },
+          },
+          '400': {
+            description: 'Not (yet) approved, or a bad request (RFC 6749 section 5.2 error).',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/DeviceTokenError' } } },
+          },
+          '429': errorResponse('Too many requests from this address.'),
         },
       },
     },
@@ -245,6 +312,68 @@ export const openApiDocument = {
           checks_used_today: { type: 'integer' },
           resets_at: { type: 'string', format: 'date-time' },
           upgrade_url: { type: 'string', description: 'Free plan only: where to upgrade.' },
+        },
+      },
+      DeviceCodeRequest: {
+        type: 'object',
+        properties: {
+          client_name: { type: 'string', maxLength: 60, description: 'Shown to the user on the approval page.' },
+          scope: { type: 'string', enum: ['compile'], default: 'compile' },
+        },
+      },
+      DeviceCodeResponse: {
+        type: 'object',
+        required: ['device_code', 'user_code', 'verification_uri', 'verification_uri_complete', 'expires_in', 'interval'],
+        properties: {
+          device_code: { type: 'string', description: 'Secret; keep it in the agent and send it to /api/v1/device/token.' },
+          user_code: { type: 'string', pattern: '^[BCDFGHJKLMNPQRSTVWXZ]{4}-[BCDFGHJKLMNPQRSTVWXZ]{4}$', examples: ['WDJB-MJHT'] },
+          verification_uri: { type: 'string', format: 'uri', examples: ['https://app.useoctree.com/activate'] },
+          verification_uri_complete: {
+            type: 'string',
+            format: 'uri',
+            examples: ['https://app.useoctree.com/activate?code=WDJB-MJHT'],
+          },
+          expires_in: { type: 'integer', examples: [900] },
+          interval: { type: 'integer', examples: [5] },
+        },
+      },
+      DeviceTokenRequest: {
+        type: 'object',
+        required: ['device_code'],
+        properties: {
+          device_code: { type: 'string' },
+          grant_type: { type: 'string', const: 'urn:ietf:params:oauth:grant-type:device_code' },
+        },
+      },
+      DeviceTokenResponse: {
+        type: 'object',
+        required: ['api_key', 'token_type', 'mcp_url', 'rest_base'],
+        properties: {
+          api_key: { type: 'string', description: 'oct_live_... Use as Authorization: Bearer <api_key>.' },
+          token_type: { const: 'bearer' },
+          mcp_url: { type: 'string', format: 'uri' },
+          rest_base: { type: 'string', format: 'uri' },
+        },
+      },
+      DeviceTokenError: {
+        type: 'object',
+        required: ['error'],
+        properties: {
+          error: {
+            type: 'string',
+            enum: [
+              'authorization_pending',
+              'slow_down',
+              'access_denied',
+              'expired_token',
+              'invalid_grant',
+              'invalid_request',
+              'invalid_scope',
+              'unsupported_grant_type',
+            ],
+          },
+          error_description: { type: 'string' },
+          interval: { type: 'integer', description: 'slow_down only: the interval to use from now on.' },
         },
       },
       Error: errorSchema,

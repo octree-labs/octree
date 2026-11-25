@@ -123,6 +123,60 @@ export type Database = {
         }
         Relationships: []
       }
+      device_authorizations: {
+        Row: {
+          api_key_id: string | null
+          approved_at: string | null
+          client_name: string | null
+          consumed_at: string | null
+          created_at: string
+          device_code_hash: string
+          expires_at: string
+          id: string
+          ip: string | null
+          key_ciphertext: string | null
+          last_polled_at: string | null
+          scope: string
+          status: string
+          user_code: string
+          user_id: string | null
+        }
+        Insert: {
+          api_key_id?: string | null
+          approved_at?: string | null
+          client_name?: string | null
+          consumed_at?: string | null
+          created_at?: string
+          device_code_hash: string
+          expires_at: string
+          id?: string
+          ip?: string | null
+          key_ciphertext?: string | null
+          last_polled_at?: string | null
+          scope?: string
+          status?: string
+          user_code: string
+          user_id?: string | null
+        }
+        Update: {
+          api_key_id?: string | null
+          approved_at?: string | null
+          client_name?: string | null
+          consumed_at?: string | null
+          created_at?: string
+          device_code_hash?: string
+          expires_at?: string
+          id?: string
+          ip?: string | null
+          key_ciphertext?: string | null
+          last_polled_at?: string | null
+          scope?: string
+          status?: string
+          user_code?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       drafts: {
         Row: {
           consumed_at: string | null

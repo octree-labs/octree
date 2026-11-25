@@ -83,6 +83,11 @@ export const AnalyticsEvents = {
   API_KEY_CREATED: 'api_key_created',
   API_COMPILE: 'api_compile',
   API_QUOTA_EXCEEDED: 'api_quota_exceeded',
+  // Device authorization for headless agents (app/api/v1/device, app/activate)
+  DEVICE_CODE_ISSUED: 'device_code_issued',
+  DEVICE_AUTHORIZATION_APPROVED: 'device_authorization_approved',
+  DEVICE_AUTHORIZATION_DENIED: 'device_authorization_denied',
+  DEVICE_TOKEN_ISSUED: 'device_token_issued',
 } as const;
 
 export type AnalyticsEvent = (typeof AnalyticsEvents)[keyof typeof AnalyticsEvents];
@@ -591,6 +596,32 @@ export interface AnalyticsEventProperties {
     limit: number;
     plan: 'free' | 'pro';
     counter?: 'compiles' | 'checks';
+  };
+  /**
+   * An agent started device authorization (POST /api/v1/device/code).
+   * distinct_id is `device:<request id>` (no user yet). `client_name` is
+   * what the agent called itself, as shown on /activate.
+   */
+  [AnalyticsEvents.DEVICE_CODE_ISSUED]: {
+    client_name: string | null;
+    scope: string;
+    request_id: string;
+  };
+  /** The user approved a device at /activate; an API key was created (never sent). */
+  [AnalyticsEvents.DEVICE_AUTHORIZATION_APPROVED]: {
+    client_name: string | null;
+    request_id: string;
+  };
+  [AnalyticsEvents.DEVICE_AUTHORIZATION_DENIED]: {
+    client_name: string | null;
+    request_id: string;
+  };
+  /** The agent collected its API key from POST /api/v1/device/token (the key is never sent). */
+  [AnalyticsEvents.DEVICE_TOKEN_ISSUED]: {
+    client_name: string | null;
+    request_id: string;
+    /** Seconds from issue to collection. */
+    seconds_to_complete: number;
   };
 }
 

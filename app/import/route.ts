@@ -129,9 +129,11 @@ export async function GET(request: NextRequest) {
     console.error('Error uploading file to storage:', written.mainError);
     captureServerExceptionAfterResponse(written.mainError, { distinctId: user.id, route: 'import', extra: { step: 'upload' } });
     // No main file means nothing to open: drop the empty project (and any
-    // extras that did land) instead of leaving it on the dashboard.
-    await (supabase.from('projects') as any).delete().eq('id', project.id);
+    // extras that did land) instead of leaving it on the dashboard. Storage
+    // goes first: the octree storage policies only allow touching
+    // projects/<id>/ while the user still owns project <id>.
     if (storagePaths.length > 0) await supabase.storage.from('octree').remove(storagePaths);
+    await (supabase.from('projects') as any).delete().eq('id', project.id);
     return redirectAndForget(new URL('/', url.origin), url.searchParams);
   }
   if (written.failed.length > 0) {
@@ -181,9 +183,10 @@ export async function GET(request: NextRequest) {
     };
 
     if (current?.consumed_at) {
-      // Lost the race: drop the duplicate project and land on the first one.
-      await (supabase.from('projects') as any).delete().eq('id', project.id);
+      // Lost the race: drop the duplicate project and land on the first one
+      // (storage before the row, see above).
       await supabase.storage.from('octree').remove(storagePaths);
+      await (supabase.from('projects') as any).delete().eq('id', project.id);
       if (current.consumed_by === user.id && current.project_id) {
         return redirectAndForget(projectUrl(url.origin, current.project_id, true), url.searchParams);
       }

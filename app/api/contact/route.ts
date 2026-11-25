@@ -1,5 +1,10 @@
 import { NextResponse } from 'next/server';
 import { resend, FROM_ADDRESS } from '@/lib/email/client';
+import { clientIp, createRateLimiter } from '@/lib/import/rate-limit';
+
+// Public on purpose (the help page works logged out), so each send is capped
+// per IP to keep the form from being used to burn the Resend quota.
+const contactLimiter = createRateLimiter({ limit: 5, windowMs: 10 * 60_000 });
 
 const CONTACT_INBOX =
   process.env.CONTACT_INBOX || process.env.OPS_ALERT_EMAIL || 'basil@useoctree.com';
@@ -15,6 +20,14 @@ function escapeHtml(value: unknown): string {
 
 export async function POST(request: Request) {
   try {
+    const limit = contactLimiter.check(clientIp(request.headers));
+    if (!limit.allowed) {
+      return NextResponse.json(
+        { error: 'too many messages, please try again later' },
+        { status: 429, headers: { 'Retry-After': String(limit.retryAfterSeconds) } }
+      );
+    }
+
     const body = await request.json();
     const { name, email, subject, message } = body;
 

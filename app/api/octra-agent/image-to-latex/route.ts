@@ -1,7 +1,29 @@
 import { NextRequest } from 'next/server';
+import { createClient } from '@/lib/supabase/server';
+import { createRateLimiter } from '@/lib/import/rate-limit';
+
+// Every request is a paid OpenAI vision call: signed-in users only, capped
+// per user (one call per attached image in the chat).
+const imageLimiter = createRateLimiter({ limit: 20, windowMs: 60_000 });
 
 export async function POST(request: NextRequest) {
   try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      return new Response('Unauthorized', { status: 401 });
+    }
+
+    const limit = imageLimiter.check(user.id);
+    if (!limit.allowed) {
+      return new Response('Too many requests', {
+        status: 429,
+        headers: { 'Retry-After': String(limit.retryAfterSeconds) },
+      });
+    }
+
     const { image, fileName } = await request.json();
 
     if (!image) {

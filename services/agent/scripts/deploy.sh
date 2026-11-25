@@ -70,6 +70,9 @@ ssh "$SERVER_HOST" "test -f ${SERVER_PATH}/.env" 2>/dev/null || {
     echo -e "  ${YELLOW}No .env on server — syncing local .env (minus DEPLOY_HOST)...${NC}"
     grep -v '^DEPLOY_HOST=' "$AGENT_SERVER_DIR/.env" | ssh "$SERVER_HOST" "cat > ${SERVER_PATH}/.env"
 }
+# The server .env is never overwritten, so new variables must be added there by hand.
+ssh "$SERVER_HOST" "grep -q '^AGENT_SERVICE_SECRET=.' ${SERVER_PATH}/.env" 2>/dev/null || \
+    echo -e "  ${RED}Warning: AGENT_SERVICE_SECRET is not set in ${SERVER_PATH}/.env on the server; /agent skips the proxy check (usage limits bypassable). Add it there and on the Next.js app.${NC}"
 echo ""
 
 # ── Step 2: Build image on server ───────────────────────────────────────────

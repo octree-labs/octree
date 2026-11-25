@@ -65,7 +65,7 @@ async function verifySupabaseToken(token: string): Promise<AgentUserClaims> {
 // Shared secret with the Next.js proxy, which enforces quotas and the paywall.
 // Unset keeps the old JWT-only behaviour so this can deploy before the env is
 // configured; set it on both sides and every non-health request must carry it.
-const AGENT_SERVICE_SECRET = process.env.AGENT_SERVICE_SECRET || undefined;
+const AGENT_SERVICE_SECRET = process.env.AGENT_SERVICE_SECRET?.trim() || undefined;
 if (!AGENT_SERVICE_SECRET) {
   console.warn(
     '[SECURITY WARNING] AGENT_SERVICE_SECRET is not set: /agent accepts any signed-in user token ' +

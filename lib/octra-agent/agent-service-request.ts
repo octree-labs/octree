@@ -11,7 +11,8 @@ export function agentServiceHeaders(accessToken: string): Record<string, string>
     accept: 'text/event-stream',
     authorization: `Bearer ${accessToken}`,
   };
-  const secret = process.env.AGENT_SERVICE_SECRET;
+  // Trim: a stray newline from `vercel env add` would make fetch throw.
+  const secret = process.env.AGENT_SERVICE_SECRET?.trim();
   if (secret) headers[AGENT_PROXY_SECRET_HEADER] = secret;
   return headers;
 }

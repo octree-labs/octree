@@ -200,13 +200,23 @@ Environment variables (optional):
 # Port (default: 3001)
 export PORT=3001
 
-# Auth: HS256 tokens signed with this secret, role authenticated|service_role
-# (the anon key is rejected). Required: without it the service refuses to
-# start, unless COMPILE_AUTH_DISABLED=true (local dev only).
-export SUPABASE_JWT_SECRET=...
+# Auth: bearer JWT with role authenticated|service_role (the anon key is
+# rejected), exp required (30 s leeway), nbf honoured. The verifier is chosen
+# by the token's alg header, never by trial: HS256 -> SUPABASE_JWT_SECRET;
+# ES256/RS256 -> the JWKS key whose kid matches. Any other alg (incl. "none")
+# and any alg/key mismatch is rejected. At least one of SUPABASE_JWT_SECRET /
+# SUPABASE_URL is required: without both the service refuses to start, unless
+# COMPILE_AUTH_DISABLED=true (local dev only).
+export SUPABASE_JWT_SECRET=...   # HS256 (legacy secret; keep it after moving to asymmetric keys)
+# Asymmetric signing keys: JWKS at <SUPABASE_URL>/auth/v1/.well-known/jwks.json,
+# cached 10 min, unknown kid refetches at most once per 30 s, 5 s HTTP timeout,
+# last good set kept when a fetch fails. https only (http for localhost).
+export SUPABASE_URL=https://<ref>.supabase.co
+# Optional: explicit JWKS URL instead of the derived one
+export SUPABASE_JWKS_URL=...
 # Optional: pin user tokens to one project (https://<ref>.supabase.co/auth/v1)
 export SUPABASE_JWT_ISSUER=...
-# Local dev escape hatch: run without a secret (auth off). Never in production.
+# Local dev escape hatch: run without any verifier (auth off). Never in production.
 export COMPILE_AUTH_DISABLED=true
 
 # Compilation timeout per request in seconds (default 600)

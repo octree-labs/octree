@@ -12,8 +12,19 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// Compile and SyncTeX requests are authenticated with a Supabase-issued HS256
-// JWT. Three kinds of token are signed with the project's JWT secret:
+// Compile and SyncTeX requests are authenticated with a Supabase-issued JWT.
+// Two signing schemes are accepted, chosen by the token's alg header:
+//
+//   - HS256, verified with SUPABASE_JWT_SECRET (legacy, and what the legacy
+//     anon/service-role keys and lib/compile/credential.ts tokens use)
+//   - ES256 / RS256, verified with the project's public JWKS key whose kid
+//     matches the token (Supabase asymmetric signing keys); enabled by
+//     SUPABASE_URL or SUPABASE_JWKS_URL
+//
+// An HS256 token is never checked against a JWKS key and an ES/RS token never
+// against the secret (no alg confusion); "none" and every other alg fail.
+//
+// Three kinds of token reach the service:
 //
 //   - a signed-in user's access token  (role "authenticated", iss https://<ref>.supabase.co/auth/v1)
 //   - the service-role key              (role "service_role", iss "supabase")
@@ -39,8 +50,11 @@ type AuthConfig struct {
 	// Secret is SUPABASE_JWT_SECRET. Empty is a configuration error unless
 	// AllowUnauthenticated is set: the middleware then fails closed.
 	Secret string
+	// JWKS, when set, verifies ES256/RS256 tokens by kid (SUPABASE_URL or
+	// SUPABASE_JWKS_URL). Either Secret or JWKS is enough to enable auth.
+	JWKS *JWKS
 	// AllowUnauthenticated (COMPILE_AUTH_DISABLED=true) turns the middleware
-	// into a no-op when Secret is empty. Local development only.
+	// into a no-op when neither Secret nor JWKS is set. Local development only.
 	AllowUnauthenticated bool
 	// Issuer, when set, must equal the iss claim of "authenticated" tokens
 	// (Supabase: https://<ref>.supabase.co/auth/v1). Service-role keys carry
@@ -51,12 +65,55 @@ type AuthConfig struct {
 	Now func() time.Time
 }
 
+// Configured reports whether any verifier (secret or JWKS) is set.
+func (cfg AuthConfig) Configured() bool {
+	return cfg.Secret != "" || cfg.JWKS != nil
+}
+
+// validMethods is the alg allow-list for this configuration.
+func (cfg AuthConfig) validMethods() []string {
+	var m []string
+	if cfg.Secret != "" {
+		m = append(m, "HS256")
+	}
+	if cfg.JWKS != nil {
+		m = append(m, "ES256", "RS256")
+	}
+	return m
+}
+
+// keyFor picks the verification key strictly by alg: the HMAC secret only for
+// HS256, a JWKS key of the matching type only for ES256/RS256.
+func (cfg AuthConfig) keyFor(t *jwt.Token) (interface{}, error) {
+	switch t.Method.Alg() {
+	case "HS256":
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok || cfg.Secret == "" {
+			return nil, jwt.ErrSignatureInvalid
+		}
+		return []byte(cfg.Secret), nil
+	case "ES256", "RS256":
+		if cfg.JWKS == nil {
+			return nil, jwt.ErrSignatureInvalid
+		}
+		switch t.Method.(type) {
+		case *jwt.SigningMethodECDSA, *jwt.SigningMethodRSA:
+		default:
+			return nil, jwt.ErrSignatureInvalid
+		}
+		kid, _ := t.Header["kid"].(string)
+		return cfg.JWKS.Key(kid, t.Method.Alg())
+	default:
+		return nil, jwt.ErrSignatureInvalid
+	}
+}
+
 // ValidateToken verifies the signature and the claims the service relies on:
-// HS256 only, exp present and in the future, role in allowedTokenRoles, and
-// (when configured) the issuer of user tokens.
+// HS256 (secret) or ES256/RS256 (JWKS by kid), exp present and in the future,
+// nbf honoured, role in allowedTokenRoles, and (when configured) the issuer
+// of user tokens.
 func ValidateToken(tokenString string, cfg AuthConfig) (jwt.MapClaims, error) {
-	if cfg.Secret == "" {
-		return nil, errors.New("jwt secret not configured")
+	if !cfg.Configured() {
+		return nil, errors.New("jwt verification not configured")
 	}
 	now := cfg.Now
 	if now == nil {
@@ -64,13 +121,8 @@ func ValidateToken(tokenString string, cfg AuthConfig) (jwt.MapClaims, error) {
 	}
 
 	claims := jwt.MapClaims{}
-	token, err := jwt.ParseWithClaims(tokenString, claims, func(t *jwt.Token) (interface{}, error) {
-		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, jwt.ErrSignatureInvalid
-		}
-		return []byte(cfg.Secret), nil
-	},
-		jwt.WithValidMethods([]string{"HS256"}),
+	token, err := jwt.ParseWithClaims(tokenString, claims, cfg.keyFor,
+		jwt.WithValidMethods(cfg.validMethods()),
 		jwt.WithExpirationRequired(),
 		jwt.WithLeeway(jwtClockSkew),
 		jwt.WithTimeFunc(now),
@@ -97,19 +149,19 @@ func ValidateToken(tokenString string, cfg AuthConfig) (jwt.MapClaims, error) {
 	return claims, nil
 }
 
-// JWTAuthMiddleware rejects requests without a valid bearer token. An empty
-// secret fails closed (503 on every protected route) unless
+// JWTAuthMiddleware rejects requests without a valid bearer token. No
+// verifier (neither secret nor JWKS) fails closed (503 on every protected route) unless
 // AllowUnauthenticated is set, the local dev configuration; main.go refuses
 // to start in that state anyway, this is the second line.
 func JWTAuthMiddleware(cfg AuthConfig) gin.HandlerFunc {
-	if cfg.Secret == "" {
+	if !cfg.Configured() {
 		if !cfg.AllowUnauthenticated {
-			log.Printf("ERROR: SUPABASE_JWT_SECRET is not set and COMPILE_AUTH_DISABLED is not true; protected routes will refuse every request")
+			log.Printf("ERROR: neither SUPABASE_JWT_SECRET nor SUPABASE_URL is set and COMPILE_AUTH_DISABLED is not true; protected routes will refuse every request")
 			return func(c *gin.Context) {
 				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "Service authentication is not configured"})
 			}
 		}
-		log.Printf("WARNING: COMPILE_AUTH_DISABLED=true and SUPABASE_JWT_SECRET is not set; protected routes accept unauthenticated requests (local development only)")
+		log.Printf("WARNING: COMPILE_AUTH_DISABLED=true and no SUPABASE_JWT_SECRET/SUPABASE_URL is set; protected routes accept unauthenticated requests (local development only)")
 		return func(c *gin.Context) { c.Next() }
 	}
 

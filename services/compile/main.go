@@ -151,19 +151,33 @@ func setupRouter(authConfig internal.AuthConfig) *gin.Engine {
 	return router
 }
 
-// authConfigFromEnv reads the token policy. SUPABASE_JWT_SECRET is the
-// project's JWT secret; SUPABASE_JWT_ISSUER (optional) pins user tokens to
-// one Supabase project, e.g. https://<ref>.supabase.co/auth/v1. Without a
-// secret the service refuses to start, unless COMPILE_AUTH_DISABLED=true
-// says the open configuration is intended (local development).
+// authConfigFromEnv reads the token policy. SUPABASE_JWT_SECRET verifies
+// HS256 tokens; SUPABASE_URL (or SUPABASE_JWKS_URL) enables ES256/RS256 tokens
+// verified against the project's JWKS. With neither the service refuses to
+// start, unless COMPILE_AUTH_DISABLED=true says the open configuration is
+// intended (local development).
 func authConfigFromEnv() internal.AuthConfig {
 	cfg := internal.AuthConfig{
 		Secret:               os.Getenv("SUPABASE_JWT_SECRET"),
 		Issuer:               os.Getenv("SUPABASE_JWT_ISSUER"),
 		AllowUnauthenticated: strings.EqualFold(os.Getenv("COMPILE_AUTH_DISABLED"), "true"),
 	}
-	if cfg.Secret == "" && !cfg.AllowUnauthenticated {
-		log.Fatalf("SUPABASE_JWT_SECRET is not set. Set it, or set COMPILE_AUTH_DISABLED=true to run without authentication (local development only).")
+	jwksURL, err := internal.JWKSURLFromEnv(os.Getenv("SUPABASE_URL"), os.Getenv("SUPABASE_JWKS_URL"))
+	if err != nil {
+		log.Fatalf("SUPABASE_URL / SUPABASE_JWKS_URL: %v", err)
+	}
+	if jwksURL != "" {
+		cfg.JWKS = internal.NewJWKS(jwksURL)
+		go func() {
+			if err := cfg.JWKS.Warm(); err != nil {
+				log.Printf("WARNING: initial JWKS fetch from %s failed (will retry on demand): %v", jwksURL, err)
+			} else {
+				log.Printf("JWKS loaded from %s; ES256/RS256 tokens accepted", jwksURL)
+			}
+		}()
+	}
+	if !cfg.Configured() && !cfg.AllowUnauthenticated {
+		log.Fatalf("Neither SUPABASE_JWT_SECRET nor SUPABASE_URL is set. Set one (or both), or set COMPILE_AUTH_DISABLED=true to run without authentication (local development only).")
 	}
 	return cfg
 }

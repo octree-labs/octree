@@ -6,6 +6,7 @@ import { PENDING_DRAFT_COOKIE, isDraftId } from '@/lib/import/pending-draft';
 import { getAllProjects } from '@/actions/get-projects';
 import { getUserUsageStatus } from '@/actions/get-user';
 import { getUserWalkthroughStatus } from '@/actions/get-walkthrough';
+import { onboardingPaywallApplies, shouldRedirectToOnboarding } from '@/lib/onboarding/paywall-gate';
 import { DashboardShell } from '@/components/dashboard/dashboard-shell';
 import { DashboardWithWalkthrough } from '@/components/dashboard/dashboard-with-walkthrough';
 import { PaywallDialog } from '@/components/subscription/paywall-dialog';
@@ -32,7 +33,8 @@ export default async function Dashboard() {
 
   const usage = await getUserUsageStatus(user.id);
 
-  if (!usage?.onboarding_completed) {
+  // Not onboarded yet (with the onboarding paywall on: and not Pro).
+  if (shouldRedirectToOnboarding(usage, 'dashboard', onboardingPaywallApplies(user.created_at))) {
     redirect('/onboarding');
   }
 

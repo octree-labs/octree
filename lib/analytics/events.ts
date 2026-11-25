@@ -89,12 +89,22 @@ export type AnalyticsEvent = (typeof AnalyticsEvents)[keyof typeof AnalyticsEven
 
 export type SignupProvider = 'email' | 'google' | (string & {});
 export type OnboardingPlan = 'free' | 'pro';
-export type PaywallFeature = 'ai-edit' | 'export' | 'generate' | 'ats';
+/** `onboarding`: the plan step of /onboarding under the onboarding paywall (data/constants.ts ONBOARDING_PAYWALL_REQUIRED). */
+export type PaywallFeature = 'ai-edit' | 'export' | 'generate' | 'ats' | 'onboarding';
 /**
  * `free_export_used`: the export paywall for a free user who already spent
  * the free first export (data/constants.ts FREE_FIRST_EXPORT_ENABLED).
  */
-export type PaywallReason = 'daily_limit' | 'pro_feature' | 'monthly_limit' | 'generate_quota' | 'free_export_used';
+export type PaywallReason =
+  | 'daily_limit'
+  | 'pro_feature'
+  | 'monthly_limit'
+  | 'generate_quota'
+  | 'free_export_used'
+  /** A new user's onboarding plan step, which has no free path. */
+  | 'onboarding_required';
+/** Where a paywall was shown: the in-product dialog, or the onboarding plan step. */
+export type PaywallPlacement = 'dialog' | 'onboarding';
 /** What the paywall can sell: the subscription, or one generation credit. */
 export type PaywallOffer = 'pro' | 'single';
 /** Recurring plans. `weekly` is retired for new purchases but still appears on legacy subscriptions. */
@@ -360,6 +370,8 @@ export interface AnalyticsEventProperties {
     offers?: PaywallOffer[];
     /** The first-purchase offer shown on the Pro offer (lib/first-purchase-offer.ts); absent when none. */
     offer?: CheckoutOfferId;
+    /** Absent on events from before the onboarding paywall: those are all `dialog`. */
+    placement?: PaywallPlacement;
   };
   [AnalyticsEvents.PAYWALL_DISMISSED]: { feature: PaywallFeature; reason?: PaywallReason };
   [AnalyticsEvents.EDIT_LIMIT_HIT]: { is_pro: boolean; source: 'chat' | 'accept' };
@@ -389,6 +401,8 @@ export interface AnalyticsEventProperties {
     offer?: CheckoutOfferId;
     /** Present when an offer was asked for: whether the discount made it onto the session. */
     offer_applied?: boolean;
+    /** The checkout came from the onboarding plan step while it had no free path. */
+    onboarding_paywall?: boolean;
   };
   /**
    * The /buy offer banner. `auto: true` when the page applied the

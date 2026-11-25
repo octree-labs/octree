@@ -12,6 +12,7 @@ import { getProjectById } from '@/actions/get-projects';
 import { getProjectExportUnlocked } from '@/actions/get-export-unlock';
 import { getCurrentUser } from '@/actions/get-user';
 import { getUserWalkthroughStatus } from '@/actions/get-walkthrough';
+import { enforceOnboardingPaywall } from '@/lib/onboarding/paywall-gate-server';
 import { PaywallDialog } from '@/components/subscription/paywall-dialog';
 import { DunningBanner } from '@/components/subscription/dunning-banner';
 import { EditorWalkthroughWrapper } from '@/components/editor/editor-walkthrough-wrapper';
@@ -29,7 +30,10 @@ export default async function ProjectLayout({
   const { projectId } = await params;
   const user = await getCurrentUser();
   const userName = user?.user_metadata?.name ?? user?.email ?? null;
-  const [project, exportUnlocked, walkthroughStatus] = await Promise.all([
+  const [, project, exportUnlocked, walkthroughStatus] = await Promise.all([
+    // Onboarding paywall: a new, non-Pro user goes to /onboarding and comes
+    // back to this project after checkout (a tools draft is already a project).
+    user ? enforceOnboardingPaywall(user, `/projects/${projectId}`) : Promise.resolve(),
     getProjectById(projectId),
     // The one-off export unlock for this project (owner-only by RLS).
     user ? getProjectExportUnlocked(projectId) : Promise.resolve(false),

@@ -35,7 +35,7 @@ import {
   START_STEP,
 } from './constants';
 import { OctreeLogo, OctreeWordmark } from '@/components/icons/octree-logo';
-import { FREE_DAILY_EDIT_LIMIT } from '@/data/constants';
+import { ONBOARDING_PAYWALL_REQUIRED, PRO_MONTHLY_EDIT_LIMIT } from '@/data/constants';
 import { PlanPicker, type PickerPlan } from '@/components/subscription/plan-picker';
 import { createCheckoutSession } from '@/lib/requests/subscription';
 import { getUserUsageStatus, upsertUserUsage } from '@/lib/requests/user';
@@ -43,12 +43,21 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { completeFreeOnboarding } from '@/lib/requests/onboarding';
 import { AuthMarketingSection } from '@/components/auth/auth-marketing-section';
 import { StartWithDocument } from '@/components/onboarding/start-with-document';
+import { hasFinishedOnboarding, onboardingPaywallApplies, safeNextPath } from '@/lib/onboarding/paywall-gate';
+import { PlanStepActions } from './components/plan-step-actions';
 
 // What Pro adds over the free plan, kept to three lines (see app/onboarding/components/feature-list.tsx for the full list).
 const PRO_HIGHLIGHTS = [
   'AI writes and edits your LaTeX from a prompt',
   'Catches errors and suggests one-click fixes',
   'Finds and inserts citations from your references',
+];
+
+// Under the onboarding paywall Pro is the only way in, so say what it costs
+// you not to have it: the limits and the export.
+const PAYWALL_HIGHLIGHTS = [
+  ...PRO_HIGHLIGHTS,
+  `${PRO_MONTHLY_EDIT_LIMIT} AI edits a month, plus PDF and ZIP export`,
 ];
 
 export default function OnboardingPage() {
@@ -59,7 +68,17 @@ export default function OnboardingPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [userEmail, setUserEmail] = useState<string>('');
   const [plan, setPlan] = useState<PickerPlan>('monthly');
+  // The page to continue to after checkout: the project a tools.useoctree.com
+  // draft was imported into, or /generate (lib/onboarding/paywall-gate-server.ts).
+  const [nextPath, setNextPath] = useState<string | undefined>();
+  // Whether this account is under the onboarding paywall (the switch, and
+  // not older than ONBOARDING_PAYWALL_SINCE); settled once the user loads.
+  const [paywallRequired, setPaywallRequired] = useState(ONBOARDING_PAYWALL_REQUIRED);
   const router = useRouter();
+  // With the paywall on the "Start with your document" step is never reached
+  // (it followed the free path); paid users land on the dashboard's empty
+  // state, which offers the same options.
+  const visibleSteps = paywallRequired ? PLAN_STEP + 1 : TOTAL_STEPS;
 
   useEffect(() => {
     const checkUserStatus = async () => {
@@ -68,14 +87,20 @@ export default function OnboardingPage() {
         data: { user },
       } = await supabase.auth.getUser();
 
+      const next = safeNextPath(new URLSearchParams(window.location.search).get('next'));
+      setNextPath(next);
+
+      const applies = onboardingPaywallApplies(user?.created_at);
+      setPaywallRequired(applies);
+
       if (user?.email) {
         setUserEmail(user.email);
 
-        // Already onboarded (free or Pro): straight to the dashboard
+        // Already onboarded (free or Pro): on to where they were going
         const usageData = await getUserUsageStatus(user.id);
 
-        if (usageData?.onboarding_completed) {
-          router.push('/');
+        if (hasFinishedOnboarding(usageData, applies)) {
+          router.push(next ?? '/');
         }
       }
     };
@@ -144,6 +169,8 @@ export default function OnboardingPage() {
           plan,
           withTrial: false,
           source: 'onboarding',
+          ...(paywallRequired ? { onboardingPaywall: true } : {}),
+          ...(nextPath ? { successPath: nextPath } : {}),
         });
         // The user has only clicked through to Stripe here; `Purchase` is sent
         // server-side from the Stripe webhook once the session is actually paid.
@@ -171,8 +198,9 @@ export default function OnboardingPage() {
     }
   };
 
-  // Continue on the free plan: marks onboarding complete (same flag the Stripe
-  // webhook sets for paying users), then shows the "Start with your document"
+  // Continue on the free plan (offered only with the onboarding paywall off):
+  // marks onboarding complete (same flag the Stripe webhook sets for paying
+  // users), then shows the "Start with your document"
   // step. The flag is written first, so a refresh on that step lands on the
   // dashboard (whose empty state offers the same options) instead of looping
   // back here. Pro features are gated inside the product instead.
@@ -277,7 +305,9 @@ export default function OnboardingPage() {
             <div className="space-y-1.5">
               <h2 className="text-2xl font-semibold leading-none tracking-tight">Write better papers, faster</h2>
               <p className="text-sm text-muted-foreground">
-                Stop wrestling with LaTeX. Let AI handle the formatting.
+                {paywallRequired
+                  ? 'Pick a plan to start writing with Octree Pro.'
+                  : 'Stop wrestling with LaTeX. Let AI handle the formatting.'}
               </p>
             </div>
             <div className="relative mt-4 space-y-4 rounded-lg border border-border bg-blue-50/50 p-4">
@@ -289,9 +319,9 @@ export default function OnboardingPage() {
                 disabled={isSubmitting}
               />
 
-              {/* Short on purpose: the free-plan button below must stay in view. */}
+              {/* Short on purpose: the buttons below must stay in view. */}
               <ul className="space-y-2">
-                {PRO_HIGHLIGHTS.map((text) => (
+                {(paywallRequired ? PAYWALL_HIGHLIGHTS : PRO_HIGHLIGHTS).map((text) => (
                   <li key={text} className="flex gap-2 text-sm text-muted-foreground">
                     <Check className="mt-0.5 size-4 shrink-0 text-primary" />
                     {text}
@@ -349,38 +379,24 @@ export default function OnboardingPage() {
             <div className="space-y-6">
               {renderStep()}
               {/* The start step's cards are their own actions; no footer button. */}
-              {currentStep !== START_STEP && (
-                <div className="space-y-3">
-                  <Button
-                    className="w-full"
-                    variant="gradient"
-                    onClick={handleNext}
-                    disabled={isSubmitting || !isStepValid()}
-                  >
-                    {isSubmitting
-                      ? currentStep === PLAN_STEP
-                        ? 'Loading...'
-                        : 'Saving...'
-                      : currentStep === PLAN_STEP
-                        ? 'Get Octree Pro →'
-                        : 'Continue'}
-                  </Button>
-                  {currentStep === PLAN_STEP && (
-                    <div className="space-y-2">
-                      <Button
-                        className="w-full"
-                        variant="outline"
-                        onClick={handleContinueFree}
-                        disabled={isSubmitting}
-                      >
-                        Continue with the free plan
-                      </Button>
-                      <p className="text-center text-xs text-muted-foreground">
-                        Free includes {FREE_DAILY_EDIT_LIMIT} AI edits a day. Upgrade anytime.
-                      </p>
-                    </div>
-                  )}
-                </div>
+              {currentStep === PLAN_STEP && (
+                <PlanStepActions
+                  paywallRequired={paywallRequired}
+                  isSubmitting={isSubmitting}
+                  onCheckout={handleNext}
+                  onContinueFree={handleContinueFree}
+                  onSignOut={handleLogout}
+                />
+              )}
+              {currentStep !== START_STEP && currentStep !== PLAN_STEP && (
+                <Button
+                  className="w-full"
+                  variant="gradient"
+                  onClick={handleNext}
+                  disabled={isSubmitting || !isStepValid()}
+                >
+                  {isSubmitting ? 'Saving...' : 'Continue'}
+                </Button>
               )}
             </div>
 
@@ -389,7 +405,7 @@ export default function OnboardingPage() {
               <div className="flex items-center gap-3">
                 <ProgressDots
                   currentStep={currentStep}
-                  totalSteps={TOTAL_STEPS}
+                  totalSteps={visibleSteps}
                 />
                 {currentStep > 0 && currentStep !== START_STEP && (
                   <Button

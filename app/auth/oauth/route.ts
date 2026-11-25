@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server';
 import { pendingDraftFromCookieHeader } from '@/lib/import/pending-draft';
 import { AnalyticsEvents } from '@/lib/analytics/events';
 import { captureServerEventAfterResponse } from '@/lib/posthog-server';
+import { onboardingPaywallApplies } from '@/lib/onboarding/paywall-gate';
 
 /** An OAuth account created within this window of the callback is a sign-up. */
 const NEW_ACCOUNT_WINDOW_MS = 5 * 60 * 1000;
@@ -64,8 +65,14 @@ export async function GET(request: Request) {
         .maybeSingle<UsageRecord>();
 
       // Only auto-complete onboarding if they haven't completed it yet AND
-      // they're coming from Tools (see isFromTools above).
-      if (!existingUsage?.onboarding_completed && isFromTools) {
+      // they're coming from Tools (see isFromTools above). Never under the
+      // onboarding paywall: `next` is caller-controlled, so any sign-up could
+      // add ?next=/projects/x and skip the plan step (data/constants.ts).
+      if (
+        !existingUsage?.onboarding_completed &&
+        isFromTools &&
+        !onboardingPaywallApplies(data.user.created_at)
+      ) {
         await supabase
           .from('user_usage')
           // @ts-ignore - Supabase type generation issue

@@ -185,3 +185,35 @@ export const COMPILE_ERROR_FIX_ENABLED = true;
  */
 export const API_FREE_DAILY_COMPILES = 30;
 export const API_PRO_DAILY_COMPILES = 1000;
+
+/**
+ * The onboarding paywall: a new user picks a Pro plan and goes through
+ * Stripe Checkout before reaching the dashboard, editor or /generate. There
+ * is no "Continue with the free plan" on the plan step while this is on.
+ *
+ * Why it is back on (2026-11): from March to September about 2% of all
+ * sign-ups became paying subscribers (Apr: 917 sign-ups -> 18 subs; Sep:
+ * 256 -> 5) and nearly every Stripe checkout started on /onboarding. #393
+ * (2026-10-18) added the free path and sign-up -> paid fell to ~0.6%
+ * (about 2 subscriptions a month).
+ *
+ * Only users whose onboarding is not completed are gated
+ * (lib/onboarding/paywall-gate.ts). Everyone with
+ * user_usage.onboarding_completed = true (all older users, and everyone who
+ * took the free path since 2026-10-18) is unaffected. The Stripe webhook
+ * sets onboarding_completed for a paid subscription, as before.
+ *
+ * Switch it off without a code change by setting
+ * NEXT_PUBLIC_ONBOARDING_PAYWALL=off (build-time: redeploy after changing
+ * it): the free path and today's routing come back exactly as they were.
+ */
+export const ONBOARDING_PAYWALL_REQUIRED = process.env.NEXT_PUBLIC_ONBOARDING_PAYWALL !== 'off';
+
+/**
+ * Accounts created before this instant are never under the onboarding
+ * paywall. Not every older account has onboarding_completed = true: a
+ * tools.useoctree.com import (app/import/route.ts) has landed sign-ups in
+ * the editor without setting it, and they have projects there. They keep
+ * today's behaviour (the free path, editor and /generate open).
+ */
+export const ONBOARDING_PAYWALL_SINCE = '2026-11-25T00:00:00Z';

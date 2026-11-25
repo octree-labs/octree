@@ -109,6 +109,47 @@ describe('POST /api/checkout-session analytics', () => {
     expect(params.metadata.offer).toBeUndefined();
   });
 
+  it('tags checkout_started from the onboarding paywall and continues /success to the next page', async () => {
+    await POST(
+      post({ plan: 'monthly', source: 'onboarding', onboardingPaywall: true, successPath: '/projects/abc' })
+    );
+
+    expect(mocks.captureEvent).toHaveBeenCalledWith(
+      'user-1',
+      'checkout_started',
+      expect.objectContaining({ source: 'onboarding', onboarding_paywall: true })
+    );
+    const params = mocks.sessionsCreate.mock.calls[0][0];
+    expect(params.success_url).toBe('https://app.example.com/success?session_id={CHECKOUT_SESSION_ID}&next=%2Fprojects%2Fabc');
+  });
+
+  it('refuses a second subscription from the onboarding step while one is active or settling', async () => {
+    const maybeSingle = vi.fn();
+    mocks.from.mockImplementation((table: string) =>
+      table === 'user_usage' ? { select: () => ({ eq: () => ({ maybeSingle }) }) } : undefined
+    );
+
+    maybeSingle.mockResolvedValueOnce({ data: { is_pro: true, subscription_status: 'active' } });
+    expect((await POST(post({ plan: 'monthly', source: 'onboarding', onboardingPaywall: true }))).status).toBe(409);
+
+    maybeSingle.mockResolvedValueOnce({ data: { is_pro: false, subscription_status: 'incomplete' } });
+    expect((await POST(post({ plan: 'monthly', source: 'onboarding' }))).status).toBe(409);
+    expect(mocks.sessionsCreate).not.toHaveBeenCalled();
+
+    maybeSingle.mockResolvedValueOnce({ data: { is_pro: false, subscription_status: 'canceled' } });
+    expect((await POST(post({ plan: 'monthly', source: 'onboarding' }))).status).toBe(200);
+    mocks.from.mockReset();
+  });
+
+  it('does not tag onboarding_paywall for other sources or without the flag', async () => {
+    await POST(post({ plan: 'monthly', source: 'toolbar', onboardingPaywall: true }));
+    await POST(post({ plan: 'monthly', source: 'onboarding' }));
+
+    for (const call of mocks.captureEvent.mock.calls) {
+      expect(call[2]).not.toHaveProperty('onboarding_paywall');
+    }
+  });
+
   it('reports one-off purchases as payment mode and keeps the /generate entry', async () => {
     await POST(post({ plan: 'generate_single', source: 'generate-preview', entry: 'onboarding' }));
 

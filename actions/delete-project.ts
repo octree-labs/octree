@@ -16,6 +16,29 @@ export type State = {
   success?: boolean;
 };
 
+/** Full paths of every object under `folder`, walking subfolders (list() is one level). */
+async function listObjectPaths(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  folder: string
+): Promise<string[]> {
+  const { data: items, error } = await supabase.storage
+    .from('octree')
+    .list(folder, { limit: 1000 });
+
+  if (error) {
+    console.error('Error listing storage files:', error);
+    return [];
+  }
+
+  const paths: string[] = [];
+  for (const item of items ?? []) {
+    const path = `${folder}/${item.name}`;
+    if (item.id) paths.push(path);
+    else paths.push(...(await listObjectPaths(supabase, path)));
+  }
+  return paths;
+}
+
 export async function deleteProject(projectId: string) {
   try {
     const supabase = await createClient();
@@ -52,19 +75,11 @@ export async function deleteProject(projectId: string) {
       );
     }
 
-    const projectFolderPath = `projects/${validatedProjectId}`;
-
-    const { data: storageFiles, error: listError } = await supabase.storage
-      .from('octree')
-      .list(projectFolderPath);
-
-    if (listError) {
-      console.error('Error listing storage files:', listError);
-    }
-
+    // Every object, including those in subfolders: once the projects row is
+    // gone the storage policies no longer let the user reach them.
     const filePaths = [
       previewPath(validatedProjectId),
-      ...(storageFiles ?? []).map((file) => `${projectFolderPath}/${file.name}`),
+      ...(await listObjectPaths(supabase, `projects/${validatedProjectId}`)),
     ];
 
     const { error: storageDeleteError } = await supabase.storage

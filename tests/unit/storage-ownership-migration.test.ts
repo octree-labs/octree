@@ -32,7 +32,7 @@ describe('storage ownership migration', () => {
   });
 
   it('drops every policy it creates first, so it can be re-run', () => {
-    expect(policies.length).toBe(6);
+    expect(policies.length).toBe(7);
     for (const { name } of policies) {
       expect(sql).toContain(`drop policy if exists "${name}" on storage.objects;`);
     }
@@ -48,22 +48,31 @@ describe('storage ownership migration', () => {
     ]);
     for (const { body } of octree) {
       expect(body).toMatch(/to authenticated/);
-      const checks = body.match(/exists \(\s*select 1 from public\.projects p/g) ?? [];
+      // Uncorrelated sub-select (one hashed SubPlan per statement), not a
+      // per-row `exists`.
+      const checks = body.match(/in \(\s*select p\.id::text from public\.projects p\s*where p\.user_id = \(select auth\.uid\(\)\)\s*\)/g) ?? [];
       // update checks both the existing row and the new name.
       expect(checks.length).toBe(body.includes('for update') ? 2 : 1);
-      expect(body).toContain('p.user_id = (select auth.uid())');
+      expect(body).not.toMatch(/exists \(/);
       expect(body).toContain("(storage.foldername(name))[2] = '_previews'");
+      // Previews only as projects/_previews/<id>.jpg.
+      expect(body).toContain('array_length(storage.foldername(name), 1) = 2');
+      expect(body).toContain("substring(storage.filename(name) from '^(.+)\\.jpg$')");
     }
   });
 
-  it('scopes chat-attachments insert and select to the caller folder', () => {
+  it('scopes chat-attachments insert, select and update to the caller folder', () => {
     const chat = policies.filter((p) => p.body.includes("bucket_id = 'chat-attachments'"));
-    expect(chat.length).toBe(2);
+    expect(chat.map((p) => p.body.match(/for (\w+)/)?.[1]).sort()).toEqual(['insert', 'select', 'update']);
     for (const { body } of chat) {
       expect(body).toMatch(/to authenticated/);
       expect(body).toContain('(storage.foldername(name))[1] = (select auth.uid())::text');
     }
     expect(sql).not.toMatch(/to public/);
+  });
+
+  it('fails when a policy on these buckets is left without an owner check', () => {
+    expect(sql).toMatch(/raise exception 'storage\.objects still has policies without an owner check/);
   });
 
   it('indexes projects.user_id for the ownership lookup', () => {

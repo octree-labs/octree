@@ -12,7 +12,8 @@
 -- `chat-attachments` had the same shape: any signed-in user could upload
 -- anywhere in the bucket and anyone (including anon) could list it. Objects
 -- there are written as `<user id>/<document id>/<file>` (hooks/use-generate.ts
--- uploadFilesToStorage), so insert and select are scoped to the user's folder.
+-- uploadFilesToStorage), so insert, select and update are scoped to the
+-- user's folder.
 --
 -- The temp-imports policies (`temp-imports/<user id>/**`) are already scoped
 -- to auth.uid() and are left as they are.
@@ -62,18 +63,27 @@
 --       where p.id::text = (storage.foldername(o.name))[2]
 --     );
 --
---   -- 5. Plan of the ownership lookup for one user (replace the uuids):
---   explain select 1 from public.projects p
---   where p.user_id = '00000000-0000-0000-0000-000000000000'
---     and p.id::text = '00000000-0000-0000-0000-000000000000';
+--   -- 5. Plan of the ownership lookup for one user (replace the uuid); the
+--   --    policy runs this once per statement:
+--   explain select p.id::text from public.projects p
+--   where p.user_id = '00000000-0000-0000-0000-000000000000';
 
--- The policy lookup filters projects by user_id (the `p.id::text = ...`
--- comparison cannot use the primary key index on id). projects RLS filters on
+-- The policy lookup filters projects by user_id. projects RLS filters on
 -- user_id too, and the table had no index on it.
 create index if not exists projects_user_id_idx on public.projects (user_id);
 
 -- octree/projects/** — project files and previews, owner only.
--- `(select auth.uid())` is evaluated once per statement instead of per row.
+--
+-- The ownership check is `<project id from path> in (select ... where
+-- user_id = (select auth.uid()))`: the sub-select is not correlated with the
+-- row, so Postgres runs it once per statement as a hashed SubPlan. A
+-- correlated `exists (...)` would re-run the projects lookup for every object
+-- the policy is evaluated on, and on list() (storage.search filters names with
+-- a non-leakproof operator, so RLS runs first) that is every object in the
+-- bucket.
+--
+-- Previews must be exactly projects/_previews/<project id>.jpg; any other
+-- name under _previews/ maps to null and is refused.
 
 drop policy if exists "Allow authenticated users to access files 1i4k60i_0" on storage.objects;
 drop policy if exists "Owners can read their project files" on storage.objects;
@@ -82,14 +92,14 @@ create policy "Owners can read their project files" on storage.objects
   using (
     bucket_id = 'octree'
     and (storage.foldername(name))[1] = 'projects'
-    and exists (
-      select 1 from public.projects p
+    and (case
+      when (storage.foldername(name))[2] = '_previews'
+        then case when array_length(storage.foldername(name), 1) = 2
+          then substring(storage.filename(name) from '^(.+)\.jpg$') end
+      else (storage.foldername(name))[2]
+    end) in (
+      select p.id::text from public.projects p
       where p.user_id = (select auth.uid())
-        and p.id::text = case
-          when (storage.foldername(name))[2] = '_previews'
-            then regexp_replace(storage.filename(name), '\.jpg$', '')
-          else (storage.foldername(name))[2]
-        end
     )
   );
 
@@ -100,14 +110,14 @@ create policy "Owners can upload their project files" on storage.objects
   with check (
     bucket_id = 'octree'
     and (storage.foldername(name))[1] = 'projects'
-    and exists (
-      select 1 from public.projects p
+    and (case
+      when (storage.foldername(name))[2] = '_previews'
+        then case when array_length(storage.foldername(name), 1) = 2
+          then substring(storage.filename(name) from '^(.+)\.jpg$') end
+      else (storage.foldername(name))[2]
+    end) in (
+      select p.id::text from public.projects p
       where p.user_id = (select auth.uid())
-        and p.id::text = case
-          when (storage.foldername(name))[2] = '_previews'
-            then regexp_replace(storage.filename(name), '\.jpg$', '')
-          else (storage.foldername(name))[2]
-        end
     )
   );
 
@@ -121,27 +131,27 @@ create policy "Owners can update their project files" on storage.objects
   using (
     bucket_id = 'octree'
     and (storage.foldername(name))[1] = 'projects'
-    and exists (
-      select 1 from public.projects p
+    and (case
+      when (storage.foldername(name))[2] = '_previews'
+        then case when array_length(storage.foldername(name), 1) = 2
+          then substring(storage.filename(name) from '^(.+)\.jpg$') end
+      else (storage.foldername(name))[2]
+    end) in (
+      select p.id::text from public.projects p
       where p.user_id = (select auth.uid())
-        and p.id::text = case
-          when (storage.foldername(name))[2] = '_previews'
-            then regexp_replace(storage.filename(name), '\.jpg$', '')
-          else (storage.foldername(name))[2]
-        end
     )
   )
   with check (
     bucket_id = 'octree'
     and (storage.foldername(name))[1] = 'projects'
-    and exists (
-      select 1 from public.projects p
+    and (case
+      when (storage.foldername(name))[2] = '_previews'
+        then case when array_length(storage.foldername(name), 1) = 2
+          then substring(storage.filename(name) from '^(.+)\.jpg$') end
+      else (storage.foldername(name))[2]
+    end) in (
+      select p.id::text from public.projects p
       where p.user_id = (select auth.uid())
-        and p.id::text = case
-          when (storage.foldername(name))[2] = '_previews'
-            then regexp_replace(storage.filename(name), '\.jpg$', '')
-          else (storage.foldername(name))[2]
-        end
     )
   );
 
@@ -152,14 +162,14 @@ create policy "Owners can delete their project files" on storage.objects
   using (
     bucket_id = 'octree'
     and (storage.foldername(name))[1] = 'projects'
-    and exists (
-      select 1 from public.projects p
+    and (case
+      when (storage.foldername(name))[2] = '_previews'
+        then case when array_length(storage.foldername(name), 1) = 2
+          then substring(storage.filename(name) from '^(.+)\.jpg$') end
+      else (storage.foldername(name))[2]
+    end) in (
+      select p.id::text from public.projects p
       where p.user_id = (select auth.uid())
-        and p.id::text = case
-          when (storage.foldername(name))[2] = '_previews'
-            then regexp_replace(storage.filename(name), '\.jpg$', '')
-          else (storage.foldername(name))[2]
-        end
     )
   );
 
@@ -183,3 +193,35 @@ create policy "Users can read their own chat-attachments" on storage.objects
     bucket_id = 'chat-attachments'
     and (storage.foldername(name))[1] = (select auth.uid())::text
   );
+
+-- uploadFilesToStorage uploads with `upsert: true`, so re-sending the same
+-- attachment (retry) overwrites its object, which needs an update policy.
+drop policy if exists "Users can update their own chat-attachments" on storage.objects;
+create policy "Users can update their own chat-attachments" on storage.objects
+  for update to authenticated
+  using (
+    bucket_id = 'chat-attachments'
+    and (storage.foldername(name))[1] = (select auth.uid())::text
+  )
+  with check (
+    bucket_id = 'chat-attachments'
+    and (storage.foldername(name))[1] = (select auth.uid())::text
+  );
+
+-- Policies are permissive and OR'ed, so one left-over any-user policy on
+-- these buckets (a name that differs from the ones dropped above) would keep
+-- the hole open. Refuse to finish if one exists.
+do $$
+declare
+  leftover text;
+begin
+  select string_agg(policyname, ', ') into leftover
+  from pg_policies
+  where schemaname = 'storage' and tablename = 'objects'
+    and (coalesce(qual, '') || coalesce(with_check, '')) ~ '''(octree|chat-attachments)''::text'
+    and (coalesce(qual, '') || coalesce(with_check, '')) not like '%auth.uid()%';
+  if leftover is not null then
+    raise exception 'storage.objects still has policies without an owner check: %', leftover;
+  end if;
+end
+$$;

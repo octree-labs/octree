@@ -48,7 +48,7 @@ export const openApiDocument = {
       `(luacode, \\directlua, ...), which are selected automatically. Shell escape is disabled. Text files only in v1. ` +
       `Every compile counts toward the daily compile quota. The MCP check_latex tool (errors only, no PDF) has its own ` +
       `daily allowance (${API_FREE_DAILY_CHECKS} free, ${API_PRO_DAILY_CHECKS} Pro). Sources are not stored or logged; ` +
-      `PDFs returned as pdf_url are kept privately for 24 hours behind a signed link that expires after one hour.`,
+      `PDFs are not stored unless you ask for a link: with "pdf_url": true (and on MCP compile_latex) the PDF is kept privately for 24 hours behind a signed link that expires after one hour.`,
   },
   servers: [{ url: 'https://app.useoctree.com' }],
   security: [{ bearerAuth: [] }],
@@ -60,7 +60,7 @@ export const openApiDocument = {
         description:
           'A LaTeX error is a successful call: HTTP 200 with ok=false and structured errors. 4xx/5xx mean the request, key, quota or service was the problem. ' +
           'Send response="pdf" (or Accept: application/pdf) to receive the raw PDF on success; failures are JSON either way. ' +
-          'A JSON success carries the PDF twice: inline as pdf_base64 and as pdf_url, a signed link valid for one hour (null if it could not be created). ' +
+          'A JSON success carries the PDF inline as pdf_base64; with "pdf_url": true it also carries pdf_url, a signed link valid for one hour (null if it could not be created). ' +
           'Errors carry a short fix hint when one is known; quota shows what is left today.',
         requestBody: {
           required: true,

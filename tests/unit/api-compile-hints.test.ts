@@ -25,6 +25,13 @@ describe('hintForLatexError', () => {
     expect(hintForLatexError({ message: 'Undefined control sequence.' })).toMatch(/check its spelling/);
   });
 
+  it('does not treat Object.prototype names as known commands or environments', () => {
+    for (const name of ['constructor', 'toString', 'valueOf', 'hasOwnProperty']) {
+      expect(hintForLatexError({ message: 'Undefined control sequence.', command: name })).toMatch(/is not defined/);
+      expect(hintForLatexError({ message: `LaTeX Error: Environment ${name} undefined.` })).toMatch(/is not defined/);
+    }
+  });
+
   it('covers missing environments, files and packages', () => {
     expect(hintForLatexError({ message: 'LaTeX Error: Environment align undefined.' })).toMatch(/\\usepackage\{amsmath\}/);
     expect(hintForLatexError({ message: 'LaTeX Error: Environment minted undefined.' })).toMatch(/shell escape/);

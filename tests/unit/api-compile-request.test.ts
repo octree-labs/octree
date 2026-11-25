@@ -106,4 +106,12 @@ describe('filePathProblem', () => {
     expect(filePathProblem('x'.repeat(513))).toMatch(/longer/);
     expect(filePathProblem(42)).toMatch(/non-empty string/);
   });
+
+  it('makes the stored pdf_url opt-in and validates the flag', () => {
+    expect(validateApiCompileRequest({ latex: DOC })).toMatchObject({ ok: true });
+    const plain = validateApiCompileRequest({ latex: DOC });
+    expect(plain.ok && 'pdfUrl' in plain.request).toBe(false);
+    expect(validateApiCompileRequest({ latex: DOC, pdf_url: true })).toMatchObject({ ok: true, request: { pdfUrl: true } });
+    expect(validateApiCompileRequest({ latex: DOC, pdf_url: 'yes' })).toMatchObject({ ok: false });
+  });
 });

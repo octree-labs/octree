@@ -84,7 +84,11 @@ export async function POST(request: Request) {
   }
 
   try {
+    // Clients send MCP-Protocol-Version after initialize; a missing header
+    // means 2025-03-26 per the spec. resource_link exists from 2025-06-18.
+    const protocolVersion = request.headers.get('mcp-protocol-version') ?? '2025-03-26';
     const deps: OctreeToolDeps = {
+      legacyContent: protocolVersion < '2025-06-18',
       compile: (req, options) => runApiCompile(principal, req, 'mcp', options),
       usage: async () => ({ ...(await getApiUsage(principal)) }),
     };

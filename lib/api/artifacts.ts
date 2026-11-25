@@ -21,6 +21,16 @@ export const API_ARTIFACT_URL_TTL_SECONDS = 60 * 60;
 export const API_ARTIFACT_RETENTION_MS = 24 * 60 * 60 * 1000;
 /** Cap on deletions per cleanup run, so one run stays well inside its time limit. */
 export const API_ARTIFACT_CLEANUP_MAX_DELETES = 5000;
+/** Wall-clock budget of one cleanup run (the cron route's maxDuration is 60s). */
+export const API_ARTIFACT_CLEANUP_BUDGET_MS = 45_000;
+/**
+ * Upload + sign must finish within this, or the caller gets null and falls
+ * back to the inline PDF: a compile may already have used most of the
+ * route's 120s maxDuration (API_COMPILE_TIMEOUT_MS is 100s), and a stalled
+ * storage call must not turn a successful, already counted compile into a
+ * killed request.
+ */
+export const API_ARTIFACT_STORE_TIMEOUT_MS = 10_000;
 
 const LIST_PAGE = 1000;
 const REMOVE_BATCH = 500;
@@ -41,14 +51,36 @@ export function apiArtifactPath(userId: string, now: Date = new Date(), id: stri
 }
 
 /**
- * Uploads one PDF and signs a link to it. Null on any storage failure (the
- * caller falls back to the inline PDF); never throws.
+ * Uploads one PDF and signs a link to it. Null on any storage failure or
+ * after API_ARTIFACT_STORE_TIMEOUT_MS (the caller falls back to the inline
+ * PDF); never throws.
  */
 export async function storeApiPdf(
   client: StorageClient,
   userId: string,
   pdf: Uint8Array,
-  now: Date = new Date()
+  now: Date = new Date(),
+  timeoutMs: number = API_ARTIFACT_STORE_TIMEOUT_MS
+): Promise<StoredPdf | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<null>((resolve) => {
+    timer = setTimeout(() => {
+      console.error(`[api-artifacts] store timed out after ${timeoutMs} ms`);
+      resolve(null);
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([uploadAndSign(client, userId, pdf, now), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function uploadAndSign(
+  client: StorageClient,
+  userId: string,
+  pdf: Uint8Array,
+  now: Date
 ): Promise<StoredPdf | null> {
   try {
     const path = apiArtifactPath(userId, now);
@@ -111,11 +143,21 @@ export interface ApiArtifactCleanupResult {
 export async function cleanupApiArtifacts(
   client: StorageClient,
   now: Date = new Date(),
-  dryRun = false
+  dryRun = false,
+  budgetMs: number = API_ARTIFACT_CLEANUP_BUDGET_MS
 ): Promise<ApiArtifactCleanupResult> {
+  const startedAt = Date.now();
   const cutoff = now.getTime() - API_ARTIFACT_RETENTION_MS;
   const result: ApiArtifactCleanupResult = { deleted: 0, days_scanned: 0, truncated: false };
   const days = (await listAll(client, '')).filter((e) => e.id === null && DAY_RE.test(e.name));
+
+  // Deletes as it goes (one user folder at a time) so a run that hits the
+  // deletion cap or the time budget has still removed what it found; the
+  // next run picks up the rest.
+  const stop = (): ApiArtifactCleanupResult => {
+    result.truncated = true;
+    return result;
+  };
 
   for (const day of days) {
     const dayStart = Date.parse(`${day.name}T00:00:00.000Z`);
@@ -123,10 +165,11 @@ export async function cleanupApiArtifacts(
     const wholeDayExpired = dayStart + DAY_MS <= cutoff;
     result.days_scanned += 1;
 
-    const expired: string[] = [];
     const users = (await listAll(client, day.name)).filter((e) => e.id === null);
     for (const user of users) {
+      if (Date.now() - startedAt > budgetMs) return stop();
       const files = await listAll(client, `${day.name}/${user.name}`);
+      const expired: string[] = [];
       for (const file of files) {
         if (file.id === null) continue;
         const created = file.created_at ? Date.parse(file.created_at) : NaN;
@@ -134,23 +177,17 @@ export async function cleanupApiArtifacts(
           expired.push(`${day.name}/${user.name}/${file.name}`);
         }
       }
-    }
 
-    for (let i = 0; i < expired.length; i += REMOVE_BATCH) {
-      const room = API_ARTIFACT_CLEANUP_MAX_DELETES - result.deleted;
-      if (room <= 0) {
-        result.truncated = true;
-        return result;
-      }
-      const batch = expired.slice(i, i + Math.min(REMOVE_BATCH, room));
-      if (!dryRun) {
-        const { error } = await client.storage.from(API_ARTIFACTS_BUCKET).remove(batch);
-        if (error) throw new Error(`remove failed: ${error.message}`);
-      }
-      result.deleted += batch.length;
-      if (batch.length < Math.min(REMOVE_BATCH, expired.length - i)) {
-        result.truncated = true;
-        return result;
+      for (let i = 0; i < expired.length; i += REMOVE_BATCH) {
+        const room = API_ARTIFACT_CLEANUP_MAX_DELETES - result.deleted;
+        if (room <= 0) return stop();
+        const batch = expired.slice(i, i + Math.min(REMOVE_BATCH, room));
+        if (!dryRun) {
+          const { error } = await client.storage.from(API_ARTIFACTS_BUCKET).remove(batch);
+          if (error) throw new Error(`remove failed: ${error.message}`);
+        }
+        result.deleted += batch.length;
+        if (batch.length < Math.min(REMOVE_BATCH, expired.length - i)) return stop();
       }
     }
   }

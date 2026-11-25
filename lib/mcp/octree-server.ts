@@ -56,6 +56,12 @@ export interface OctreeCompileOptions {
 export interface OctreeToolDeps {
   compile(request: ApiCompileRequest, options: OctreeCompileOptions): Promise<OctreeCompileResult | OctreeCompileError>;
   usage(): Promise<Record<string, unknown>>;
+  /**
+   * True when the client negotiated an MCP protocol older than 2025-06-18,
+   * which has no `resource_link` content block: such clients get the PDF
+   * embedded as before instead of a link.
+   */
+  legacyContent?: boolean;
 }
 
 const sourceShape = {
@@ -153,6 +159,18 @@ export type CompileToolArgs = {
   include_pdf_base64?: boolean;
 };
 
+/**
+ * The structured result serialized into the text block too, as the MCP spec
+ * recommends for backwards compatibility: clients without structuredContent
+ * support (and integrations that parsed the JSON this text used to carry)
+ * still get every field. `log_tail` is left out, since the text already
+ * ends with it.
+ */
+function withJson(text: string, structured: Record<string, unknown>): string {
+  const { log_tail: _logTail, ...rest } = structured;
+  return `${text}\n\n${JSON.stringify(rest, null, 2)}`;
+}
+
 function textResult(text: string, isError = false): CallToolResult {
   return { content: [{ type: 'text', text }], ...(isError ? { isError: true } : {}) };
 }
@@ -164,7 +182,11 @@ function errorText(error: OctreeCompileError): string {
   const lines = [message];
   if (body.error === 'quota_exceeded') {
     if (typeof body.resets_at === 'string') lines.push(`The quota resets at ${body.resets_at}.`);
-    if (typeof body.upgrade_url === 'string') lines.push(`More compiles a day with Pro: ${body.upgrade_url}`);
+    // The body carries upgrade_url on every plan; only a free account can upgrade.
+    if (body.plan !== 'pro' && typeof body.upgrade_url === 'string') {
+      const what = body.counter === 'checks' ? 'checks' : 'compiles';
+      lines.push(`More ${what} a day with Pro: ${body.upgrade_url}`);
+    }
   }
   lines.push('', JSON.stringify(body, null, 2));
   return lines.join('\n');
@@ -245,16 +267,15 @@ export async function compileLatexTool(args: CompileToolArgs, deps: OctreeToolDe
 
   const json = outcome.json;
   if (!json.ok) {
-    return {
-      content: [{ type: 'text', text: failureText(json) }],
-      structuredContent: { ...structuredFailure(json), pages: null, pdf_url: null, pdf_url_expires_at: null, pdf_bytes: null },
-    };
+    const structured = { ...structuredFailure(json), pages: null, pdf_url: null, pdf_url_expires_at: null, pdf_bytes: null };
+    return { content: [{ type: 'text', text: withJson(failureText(json), structured) }], structuredContent: structured };
   }
 
   const pdfUrl = json.pdf_url ?? null;
   // Without a link (storage failed) the PDF is attached inline anyway, so
   // the call is never a success without a PDF.
-  const inline = args.include_pdf_base64 === true || !pdfUrl;
+  const legacy = deps.legacyContent === true;
+  const inline = args.include_pdf_base64 === true || !pdfUrl || legacy;
   const bytes = pdfBytes(json);
   const meta = [json.pages ? plural(json.pages, 'page') : null, json.engine, `${json.duration_ms} ms`].filter(Boolean).join(', ');
   const lines = [`Compiled successfully (ok=true): ${meta}.`];
@@ -264,8 +285,21 @@ export async function compileLatexTool(args: CompileToolArgs, deps: OctreeToolDe
   const quota = quotaLine(json.quota);
   if (quota) lines.push(quota);
 
-  const content: ContentBlock[] = [{ type: 'text', text: lines.join('\n') }];
-  if (pdfUrl) {
+  const structured = {
+    ok: true,
+    engine: json.engine ?? null,
+    duration_ms: json.duration_ms,
+    errors: [],
+    warnings: structureWarnings(json.warnings),
+    suggestion: null,
+    quota: json.quota ?? null,
+    pages: json.pages ?? null,
+    pdf_url: pdfUrl,
+    pdf_url_expires_at: json.pdf_url_expires_at ?? null,
+    pdf_bytes: bytes,
+  };
+  const content: ContentBlock[] = [{ type: 'text', text: withJson(lines.join('\n'), structured) }];
+  if (pdfUrl && !legacy) {
     content.push({
       type: 'resource_link',
       uri: pdfUrl,
@@ -283,22 +317,7 @@ export async function compileLatexTool(args: CompileToolArgs, deps: OctreeToolDe
     });
   }
 
-  return {
-    content,
-    structuredContent: {
-      ok: true,
-      engine: json.engine ?? null,
-      duration_ms: json.duration_ms,
-      errors: [],
-      warnings: structureWarnings(json.warnings),
-      suggestion: null,
-      quota: json.quota ?? null,
-      pages: json.pages ?? null,
-      pdf_url: pdfUrl,
-      pdf_url_expires_at: json.pdf_url_expires_at ?? null,
-      pdf_bytes: bytes,
-    },
-  };
+  return { content, structuredContent: structured };
 }
 
 export async function checkLatexTool(args: CompileToolArgs, deps: OctreeToolDeps): Promise<CallToolResult> {
@@ -310,25 +329,24 @@ export async function checkLatexTool(args: CompileToolArgs, deps: OctreeToolDeps
 
   const json = outcome.json;
   if (!json.ok) {
-    return { content: [{ type: 'text', text: failureText(json) }], structuredContent: structuredFailure(json) };
+    const structured = structuredFailure(json);
+    return { content: [{ type: 'text', text: withJson(failureText(json), structured) }], structuredContent: structured };
   }
   const lines = [
     `No errors (ok=true): the document compiles${json.warnings.length ? ` with ${plural(json.warnings.length, 'warning')}` : ''} (${[json.engine, `${json.duration_ms} ms`].filter(Boolean).join(', ')}). Call compile_latex for the PDF.`,
   ];
   const quota = quotaLine(json.quota);
   if (quota) lines.push(quota);
-  return {
-    content: [{ type: 'text', text: lines.join('\n') }],
-    structuredContent: {
-      ok: true,
-      engine: json.engine ?? null,
-      duration_ms: json.duration_ms,
-      errors: [],
-      warnings: structureWarnings(json.warnings),
-      suggestion: null,
-      quota: json.quota ?? null,
-    },
+  const structured = {
+    ok: true,
+    engine: json.engine ?? null,
+    duration_ms: json.duration_ms,
+    errors: [],
+    warnings: structureWarnings(json.warnings),
+    suggestion: null,
+    quota: json.quota ?? null,
   };
+  return { content: [{ type: 'text', text: withJson(lines.join('\n'), structured) }], structuredContent: structured };
 }
 
 export async function getQuotaTool(deps: OctreeToolDeps): Promise<CallToolResult> {
@@ -337,7 +355,7 @@ export async function getQuotaTool(deps: OctreeToolDeps): Promise<CallToolResult
     `Plan: ${usage.plan}. Compiles: ${usage.used_today} of ${usage.daily_limit} used today; checks: ${usage.checks_used_today} of ${usage.checks_daily_limit}. Resets at ${usage.resets_at}.`,
   ];
   if (typeof usage.upgrade_url === 'string') lines.push(`Upgrade for more: ${usage.upgrade_url}`);
-  return { content: [{ type: 'text', text: lines.join('\n') }], structuredContent: usage };
+  return { content: [{ type: 'text', text: withJson(lines.join('\n'), usage) }], structuredContent: usage };
 }
 
 export function createOctreeMcpServer(deps: OctreeToolDeps): McpServer {

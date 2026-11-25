@@ -115,6 +115,12 @@ describe('compile_latex', () => {
     expect(result.content[2]).toMatchObject({ type: 'resource', resource: { mimeType: 'application/pdf', blob: PDF_B64 } });
   });
 
+  it('gives clients older than MCP 2025-06-18 the embedded PDF and no resource_link', async () => {
+    const result = await compileLatexTool({ latex: DOC }, { ...deps(), legacyContent: true });
+    expect(result.content.map((c) => c.type)).toEqual(['text', 'resource']);
+    expect(result.content[1]).toMatchObject({ type: 'resource', resource: { mimeType: 'application/pdf', blob: PDF_B64 } });
+  });
+
   it('falls back to the inline PDF when no link could be created', async () => {
     const result = await compileLatexTool({ latex: DOC }, deps({ compile: vi.fn(async () => success({ pdf_url: null, pdf_url_expires_at: null })) }));
     expect(result.content.map((c) => c.type)).toEqual(['text', 'resource']);
@@ -164,6 +170,28 @@ describe('compile_latex', () => {
     );
     expect(quota.isError).toBe(true);
     expect(text(quota)).toMatch(/limit of 30 reached[\s\S]*resets at 2026-11-26T00:00:00.000Z[\s\S]*pricing\?from=api[\s\S]*quota_exceeded/);
+
+    const pro = await compileLatexTool(
+      { latex: DOC },
+      deps({
+        compile: vi.fn(async () => ({
+          kind: 'error' as const,
+          status: 429,
+          body: { error: 'quota_exceeded', message: 'Daily API compile limit of 1000 reached.', plan: 'pro', upgrade_url: 'https://app.useoctree.com/pricing?from=api' },
+        })),
+      })
+    );
+    expect(text(pro)).not.toMatch(/with Pro:/);
+  });
+
+  it('also serializes the structured result into the text block', async () => {
+    const ok = await compileLatexTool({ latex: DOC }, deps());
+    expect(JSON.parse(text(ok).slice(text(ok).indexOf('\n{')))).toEqual(ok.structuredContent);
+    const failed = await compileLatexTool({ latex: DOC }, deps({ compile: vi.fn(async () => FAILURE) }));
+    const { log_tail: _omit, ...rest } = failed.structuredContent as Record<string, unknown>;
+    expect(JSON.parse(text(failed).slice(text(failed).indexOf('\n{')))).toEqual(rest);
+    const quota = await getQuotaTool(deps());
+    expect(JSON.parse(text(quota).slice(text(quota).indexOf('\n{')))).toEqual(USAGE);
   });
 });
 

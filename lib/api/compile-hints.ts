@@ -147,7 +147,8 @@ export function hintForLatexError({ message, command }: HintInput): string | und
 
   if (/undefined control sequence/i.test(text)) {
     if (command) {
-      const pkg = COMMAND_PACKAGES[command];
+      // Own keys only: `\constructor` or `\toString` must not hit Object.prototype.
+      const pkg = Object.hasOwn(COMMAND_PACKAGES, command) ? COMMAND_PACKAGES[command] : undefined;
       if (pkg) return packageHint(pkg, `\\${command}`);
       return `\\${command} is not defined: check its spelling, define it with \\newcommand, or load the package that provides it.`;
     }
@@ -160,7 +161,7 @@ export function hintForLatexError({ message, command }: HintInput): string | und
     if (name === 'minted') {
       return 'minted needs shell escape, which is disabled on Octree: use the listings package (lstlisting) instead.';
     }
-    const pkg = ENVIRONMENT_PACKAGES[name];
+    const pkg = Object.hasOwn(ENVIRONMENT_PACKAGES, name) ? ENVIRONMENT_PACKAGES[name] : undefined;
     if (pkg) return packageHint(pkg, `The ${name} environment`);
     if (name === 'theorem' || name === 'lemma' || name === 'definition' || name === 'corollary') {
       return `Declare the ${name} environment with \\newtheorem{${name}}{...} (amsthm) in the preamble.`;

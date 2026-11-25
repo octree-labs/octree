@@ -62,10 +62,12 @@ export async function POST(request: Request) {
     const validation = validateApiCompileRequest(body, acceptPdf);
     if (!validation.ok) return apiJson(validation.error.body, validation.error.status);
 
-    // A JSON answer also carries a signed `pdf_url`; a raw PDF answer has
-    // the bytes already, so nothing is stored for it.
+    // A JSON answer carries the PDF inline (pdf_base64). A signed `pdf_url`
+    // (which stores the PDF privately for 24 hours) is opt-in with
+    // `"pdf_url": true`; a raw PDF answer never stores anything.
     const wantsPdf = validation.request.response === 'pdf';
-    const outcome = await runApiCompile(principal, validation.request, 'rest', { storePdf: !wantsPdf });
+    const storePdf = !wantsPdf && validation.request.pdfUrl === true;
+    const outcome = await runApiCompile(principal, validation.request, 'rest', { storePdf });
     if (outcome.kind === 'error') return apiJson(outcome.body, outcome.status, outcome.headers);
 
     if (wantsPdf && outcome.json.ok && outcome.pdf) {

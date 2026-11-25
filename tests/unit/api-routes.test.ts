@@ -58,9 +58,16 @@ describe('POST /api/v1/compile', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('access-control-allow-origin')).toBe('*');
     expect(await response.json()).toMatchObject({ ok: false });
+    // A plain JSON call stores nothing; the signed pdf_url is opt-in.
     expect(mocks.runApiCompile).toHaveBeenCalledWith(PRINCIPAL, expect.objectContaining({ main: 'main.tex' }), 'rest', {
-      storePdf: true,
+      storePdf: false,
     });
+  });
+
+  it('stores the PDF behind a signed link only with "pdf_url": true', async () => {
+    mocks.runApiCompile.mockResolvedValue({ kind: 'result', json: { ok: false, errors: [], log_tail: '', duration_ms: 3 } });
+    await compileRoute.POST(post('https://x/api/v1/compile', { latex: DOC, pdf_url: true }));
+    expect(mocks.runApiCompile).toHaveBeenLastCalledWith(PRINCIPAL, expect.anything(), 'rest', { storePdf: true });
   });
 
   it('returns the raw PDF for response:"pdf" or Accept: application/pdf', async () => {

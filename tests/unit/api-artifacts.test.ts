@@ -65,6 +65,12 @@ describe('storeApiPdf', () => {
     bucket.createSignedUrl.mockRejectedValueOnce(new Error('network'));
     expect(await storeApiPdf(client, 'u1', Buffer.from('%PDF'))).toBeNull();
   });
+
+  it('gives up with null when storage stalls', async () => {
+    const { client, bucket } = fakeStorage({});
+    bucket.upload.mockImplementationOnce(() => new Promise(() => {}) as never);
+    expect(await storeApiPdf(client, 'u1', Buffer.from('%PDF'), new Date(), 20)).toBeNull();
+  });
 });
 
 describe('cleanupApiArtifacts', () => {

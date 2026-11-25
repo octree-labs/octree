@@ -31,6 +31,12 @@ export interface ApiCompileRequest {
   files: ApiFileEntry[];
   main: string;
   response: ApiResponseFormat;
+  /**
+   * `"pdf_url": true` asks for a signed link to the PDF in a JSON answer.
+   * Opt-in on REST so a plain JSON call stores nothing (the PDF is inline
+   * as pdf_base64); set only when true.
+   */
+  pdfUrl?: true;
   /** UTF-8 bytes of every file's content as sent. */
   sourceBytes: number;
 }
@@ -76,6 +82,8 @@ export function validateApiCompileRequest(body: unknown, acceptPdf = false): Api
     if (body.response !== 'json' && body.response !== 'pdf') return invalid('"response" must be "json" or "pdf".');
     response = body.response;
   }
+  if (body.pdf_url !== undefined && typeof body.pdf_url !== 'boolean') return invalid('"pdf_url" must be true or false.');
+  const pdfUrl = body.pdf_url === true;
 
   const hasLatex = body.latex !== undefined;
   const hasFiles = body.files !== undefined;
@@ -152,5 +160,5 @@ export function validateApiCompileRequest(body: unknown, acceptPdf = false): Api
     };
   }
 
-  return { ok: true, request: { files, main, response, sourceBytes } };
+  return { ok: true, request: { files, main, response, sourceBytes, ...(pdfUrl ? { pdfUrl: true as const } : {}) } };
 }

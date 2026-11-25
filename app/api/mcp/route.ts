@@ -8,7 +8,9 @@ import { captureServerExceptionAfterResponse } from '@/lib/posthog-server';
 /**
  * POST /api/mcp: the Octree remote MCP server (Streamable HTTP).
  *
- *   claude mcp add --transport http octree https://app.useoctree.com/api/mcp \
+ *   claude mcp add --transport http octree https://app.useoctree.com/api/mcp
+ *     (signs in with OAuth: 401 -> /.well-known/oauth-protected-resource ->
+ *      Supabase Auth -> app/oauth/consent), or with an API key:
  *     --header "Authorization: Bearer oct_live_..."
  *
  * Stateless: every POST builds a fresh server and transport (no session id,

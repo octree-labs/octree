@@ -184,7 +184,7 @@ export function AddFileDialog({
         const uploadedFile = storageFiles?.find(
           (f) => f.name === firstUploadedName
         );
-        if (uploadedFile) {
+        if (uploadedFile?.id) {
           FileActions.setSelectedFile({
             id: uploadedFile.id,
             name: firstUploadedFullPath,
@@ -274,7 +274,7 @@ export function AddFileDialog({
       onFileAdded?.();
       await revalidate();
 
-      if (createdFile) {
+      if (createdFile?.id) {
         FileActions.setSelectedFile({
           id: createdFile.id,
           name: createdFile.name,

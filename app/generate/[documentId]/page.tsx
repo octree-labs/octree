@@ -1,6 +1,7 @@
 import { redirect, notFound } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { GenerateSessionContent } from '@/components/generate/GenerateSessionContent';
+import type { GeneratedDocument } from '@/stores/generate';
 
 interface PageProps {
   params: Promise<{ documentId: string }>;
@@ -26,5 +27,7 @@ export default async function GenerateSessionPage({ params }: PageProps) {
     notFound();
   }
 
-  return <GenerateSessionContent initialDocument={document} />;
+  // The jsonb columns (attachments, message_history, ...) are typed as Json by
+  // the generated types; the store's shape is what the app writes.
+  return <GenerateSessionContent initialDocument={document as unknown as GeneratedDocument} />;
 }

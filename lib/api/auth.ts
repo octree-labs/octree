@@ -8,12 +8,24 @@ import { clientIp, createRateLimiter } from '@/lib/import/rate-limit';
 import { bearerToken, hashApiKey, isApiKeyFormat } from '@/lib/api/keys';
 import { apiJson } from '@/lib/api/http';
 import type { ApiPlan } from '@/lib/api/quota';
+import { bearerChallenge, mcpResourceUrl, oauthIssuer, requestOrigin } from '@/lib/api/oauth-metadata';
+import { looksLikeJwt, verifyOAuthAccessToken } from '@/lib/api/oauth';
 
 /**
- * Bearer API-key authentication for the public API and the MCP server.
+ * Bearer authentication for the public API and the MCP server. Two kinds of
+ * bearer token resolve to the same `ApiPrincipal` (so plan and quota logic
+ * is shared):
  *
- *   Authorization: Bearer oct_live_...
+ *   Authorization: Bearer oct_live_...      an API key (settings page)
+ *   Authorization: Bearer eyJ...            a Supabase OAuth 2.1 access token
+ *                                            (MCP clients that signed in through
+ *                                            app/oauth/consent; lib/api/oauth.ts)
  *
+ * Every 401 carries `WWW-Authenticate: Bearer realm="octree",
+ * resource_metadata=".../.well-known/oauth-protected-resource"` so MCP
+ * clients can discover the OAuth flow (lib/api/oauth-metadata.ts).
+ *
+ * API keys:
  * The key is hashed and looked up with the service-role client (the hash
  * column is not readable by users). Keys are never logged. Failed attempts
  * are limited per IP (10 a minute, per process, like the import preview);
@@ -21,10 +33,16 @@ import type { ApiPlan } from '@/lib/api/quota';
  * clears. `last_used_at` is written at most every 5 minutes per key.
  */
 
+export type ApiAuthMethod = 'api_key' | 'oauth';
+
 export interface ApiPrincipal {
   userId: string;
-  keyId: string;
+  /** The API key's id; null for OAuth. */
+  keyId: string | null;
   plan: ApiPlan;
+  authMethod: ApiAuthMethod;
+  /** The OAuth client the token was issued to; null for API keys. */
+  clientId: string | null;
 }
 
 export type ApiAuthResult = { ok: true; principal: ApiPrincipal } | { ok: false; response: Response };
@@ -51,10 +69,14 @@ const blocked = (globalForApiAuth.__octreeApiAuthBlocked__ ??= new Map());
 const principals = (globalForApiAuth.__octreeApiPrincipals__ ??= new Map());
 const lastUsedWrites = (globalForApiAuth.__octreeApiLastUsed__ ??= new Map());
 
-/** 401 + WWW-Authenticate (RFC 6750: no error code when no credentials were sent). */
-export function unauthorizedResponse(message: string, invalidToken = true): Response {
+/**
+ * 401 + WWW-Authenticate (RFC 6750: no error code when no credentials were
+ * sent), pointing at the protected resource metadata (RFC 9728) so MCP
+ * clients can start the OAuth flow.
+ */
+export function unauthorizedResponse(message: string, invalidToken = true, origin = 'https://app.useoctree.com'): Response {
   return apiJson({ error: 'unauthorized', message }, 401, {
-    'WWW-Authenticate': invalidToken ? 'Bearer realm="octree", error="invalid_token"' : 'Bearer realm="octree"',
+    'WWW-Authenticate': bearerChallenge(origin, invalidToken ? { error: 'invalid_token' } : {}),
   });
 }
 
@@ -76,7 +98,7 @@ function blockedFor(ip: string, now: number): number {
   return Math.ceil((until - now) / 1000);
 }
 
-function recordFailure(ip: string, message: string): Response {
+function recordFailure(ip: string, message: string, origin: string): Response {
   const now = Date.now();
   const decision = failures.check(ip, now);
   if (!decision.allowed) {
@@ -84,7 +106,7 @@ function recordFailure(ip: string, message: string): Response {
     if (blocked.size > 10_000) blocked.delete(blocked.keys().next().value as string);
     return rateLimitedResponse(decision.retryAfterSeconds);
   }
-  return unauthorizedResponse(message);
+  return unauthorizedResponse(message, true, origin);
 }
 
 /** Free or Pro, by the app's one entitlement rule (lib/subscription/entitlement.ts). */
@@ -136,9 +158,7 @@ export async function authenticateApiRequest(request: Request): Promise<ApiAuthR
 
 async function authenticate(request: Request): Promise<ApiAuthResult> {
   const now = Date.now();
-  const ip = clientIp(request.headers);
-  const wait = blockedFor(ip, now);
-  if (wait > 0) return { ok: false, response: rateLimitedResponse(wait) };
+  const origin = requestOrigin(request);
 
   const token = bearerToken(request.headers.get('authorization'));
   if (!token) {
@@ -146,17 +166,34 @@ async function authenticate(request: Request): Promise<ApiAuthResult> {
     // answer 401 + WWW-Authenticate, but do not count it as a failure.
     return {
       ok: false,
-      response: unauthorizedResponse('Missing API key. Send "Authorization: Bearer oct_live_...".', false),
+      response: unauthorizedResponse(
+        'Missing credentials. Send "Authorization: Bearer oct_live_..." (an API key) or sign in through OAuth.',
+        false,
+        origin
+      ),
     };
   }
+
+  // OAuth tokens are verified by signature, not looked up, so there is
+  // nothing to guess and no per-IP failure limit (MCP hosts such as
+  // claude.ai send every user's calls from a few shared IPs).
+  if (!token.startsWith('oct_') && looksLikeJwt(token)) return authenticateOAuth(token, origin, now);
+
+  const ip = clientIp(request.headers);
+  const wait = blockedFor(ip, now);
+  if (wait > 0) return { ok: false, response: rateLimitedResponse(wait) };
+
   if (!isApiKeyFormat(token)) {
-    return { ok: false, response: recordFailure(ip, 'Malformed API key. Keys look like oct_live_ followed by 32 characters.') };
+    return {
+      ok: false,
+      response: recordFailure(ip, 'Malformed API key. Keys look like oct_live_ followed by 32 characters.', origin),
+    };
   }
 
   const hash = hashApiKey(token);
   const cached = principals.get(hash);
   const admin = createAdminClient();
-  if (cached && cached.expiresAt > now) {
+  if (cached && cached.expiresAt > now && cached.principal.keyId) {
     touchLastUsed(admin, cached.principal.keyId, now);
     return { ok: true, principal: cached.principal };
   }
@@ -172,13 +209,41 @@ async function authenticate(request: Request): Promise<ApiAuthResult> {
   }
   if (!key || key.revoked_at) {
     principals.delete(hash);
-    return { ok: false, response: recordFailure(ip, 'Invalid or revoked API key.') };
+    return { ok: false, response: recordFailure(ip, 'Invalid or revoked API key.', origin) };
   }
 
   const plan = await resolvePlan(admin, key.user_id);
-  const principal: ApiPrincipal = { userId: key.user_id, keyId: key.id, plan };
+  const principal: ApiPrincipal = { userId: key.user_id, keyId: key.id, plan, authMethod: 'api_key', clientId: null };
   principals.set(hash, { principal, expiresAt: now + PRINCIPAL_CACHE_MS });
   if (principals.size > PRINCIPAL_CACHE_MAX) principals.delete(principals.keys().next().value as string);
   touchLastUsed(admin, key.id, now);
+  return { ok: true, principal };
+}
+
+/**
+ * A Supabase OAuth access token (lib/api/oauth.ts). Resolved principals are
+ * cached like keys, but never past the token's own expiry.
+ */
+async function authenticateOAuth(token: string, origin: string, now: number): Promise<ApiAuthResult> {
+  const hash = hashApiKey(token);
+  const cached = principals.get(hash);
+  if (cached && cached.expiresAt > now) return { ok: true, principal: cached.principal };
+
+  const issuer = oauthIssuer();
+  if (!issuer) {
+    console.error('[api-auth] NEXT_PUBLIC_SUPABASE_URL is not set; cannot verify OAuth tokens');
+    return lookupUnavailable();
+  }
+  const verification = await verifyOAuthAccessToken(token, { issuer, resource: mcpResourceUrl(origin), now });
+  if (!verification.ok) {
+    principals.delete(hash);
+    return { ok: false, response: unauthorizedResponse(verification.message, true, origin) };
+  }
+
+  const { userId, clientId, expiresAt } = verification.claims;
+  const plan = await resolvePlan(createAdminClient(), userId);
+  const principal: ApiPrincipal = { userId, keyId: null, plan, authMethod: 'oauth', clientId };
+  principals.set(hash, { principal, expiresAt: Math.min(now + PRINCIPAL_CACHE_MS, expiresAt) });
+  if (principals.size > PRINCIPAL_CACHE_MAX) principals.delete(principals.keys().next().value as string);
   return { ok: true, principal };
 }

@@ -31,7 +31,7 @@ import type { ApiCompileRequest } from '@/lib/api/compile-request';
 
 const DOC = '\\documentclass{article}\\begin{document}Hi\\end{document}';
 const REQUEST: ApiCompileRequest = { files: [{ path: 'main.tex', content: DOC }], main: 'main.tex', response: 'json', sourceBytes: DOC.length };
-const FREE = { userId: 'user-1', keyId: 'key-1', plan: 'free' as const };
+const FREE = { userId: 'user-1', keyId: 'key-1', plan: 'free' as const, authMethod: 'api_key' as const, clientId: null };
 const PDF = Buffer.from('%PDF-1.5 fake');
 
 const ENV = { ...process.env };
@@ -92,6 +92,7 @@ describe('runApiCompile', () => {
       duration_ms: expect.any(Number),
       source_bytes: DOC.length,
       plan: 'free',
+      auth_method: 'api_key',
     });
   });
 
@@ -210,5 +211,18 @@ describe('runApiCompile', () => {
     expect(await runApiCompile(FREE, REQUEST, 'rest')).toMatchObject({ status: 504, body: { error: 'compile_timeout' } });
     mocks.compileLatex.mockResolvedValueOnce({ success: false, error: { status: 503, error: 'Server busy', details: '' } });
     expect(await runApiCompile(FREE, REQUEST, 'rest')).toMatchObject({ status: 503, body: { error: 'compile_unavailable' } });
+  });
+});
+
+describe('runApiCompile analytics for OAuth callers', () => {
+  it('records auth_method and client_id', async () => {
+    process.env.COMPILE_SERVICE_URL = 'https://compile.example.test/';
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'eyJservice.role.key';
+    mocks.capture.mockClear();
+    mocks.rpc.mockResolvedValue({ data: 1, error: null });
+    mocks.compileLatex.mockResolvedValue({ success: true, pdfBuffer: PDF, base64PDF: PDF.toString('base64') });
+    const oauth = { userId: 'user-1', keyId: null, plan: 'pro' as const, authMethod: 'oauth' as const, clientId: 'client-abc' };
+    await runApiCompile(oauth, REQUEST, 'mcp');
+    expect(mocks.capture.mock.calls[0][2]).toMatchObject({ auth_method: 'oauth', client_id: 'client-abc', plan: 'pro' });
   });
 });

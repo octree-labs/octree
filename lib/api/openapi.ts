@@ -120,7 +120,13 @@ export const openApiDocument = {
   },
   components: {
     securitySchemes: {
-      bearerAuth: { type: 'http', scheme: 'bearer', description: 'An Octree API key: oct_live_ followed by 32 characters.' },
+      bearerAuth: {
+        type: 'http',
+        scheme: 'bearer',
+        description:
+          'An Octree API key (oct_live_ followed by 32 characters), or an OAuth 2.1 access token issued by Octree\'s ' +
+          'authorization server to an MCP client (discovery: https://app.useoctree.com/.well-known/oauth-protected-resource).',
+      },
     },
     schemas: {
       FileEntry: {

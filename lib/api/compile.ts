@@ -78,6 +78,8 @@ function track(
     duration_ms: durationMs,
     source_bytes: request.sourceBytes,
     plan: principal.plan,
+    auth_method: principal.authMethod,
+    ...(principal.clientId ? { client_id: principal.clientId } : {}),
     ...(pdfUrl !== undefined ? { pdf_url: pdfUrl } : {}),
   });
 }

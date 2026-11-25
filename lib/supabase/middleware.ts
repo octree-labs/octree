@@ -39,8 +39,11 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // Skip auth redirect for API routes - they will handle auth internally
-  const isApiRoute = request.nextUrl.pathname.startsWith('/api/');
+  // Skip auth redirect for API routes - they will handle auth internally.
+  // /.well-known/* (OAuth protected resource metadata) is public by spec:
+  // MCP clients read it before they have any credentials.
+  const isApiRoute =
+    request.nextUrl.pathname.startsWith('/api/') || request.nextUrl.pathname.startsWith('/.well-known/');
   
   if (
     !user &&

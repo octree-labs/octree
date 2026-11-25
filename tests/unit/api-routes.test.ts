@@ -18,7 +18,7 @@ import * as mcpRoute from '@/app/api/mcp/route';
 import * as meRoute from '@/app/api/v1/me/route';
 import { GET as openApi } from '@/app/api/v1/openapi.json/route';
 
-const PRINCIPAL = { userId: 'user-1', keyId: 'key-1', plan: 'free' };
+const PRINCIPAL = { userId: 'user-1', keyId: 'key-1', plan: 'free', authMethod: 'api_key', clientId: null };
 const DOC = '\\documentclass{article}\\begin{document}Hi\\end{document}';
 const PDF = Buffer.from('%PDF-1.5 fake');
 

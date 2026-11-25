@@ -584,6 +584,10 @@ export interface AnalyticsEventProperties {
     mode?: 'compile' | 'check';
     /** Whether a signed PDF link was handed out (successful compiles that asked for one). */
     pdf_url?: boolean;
+    /** How the caller authenticated: an oct_live_ API key or a Supabase OAuth token. */
+    auth_method?: 'api_key' | 'oauth';
+    /** OAuth only: the client the token was issued to (Supabase OAuth client id). */
+    client_id?: string;
   };
   /** A compile was refused by the daily API quota (lib/api/quota.ts). */
   [AnalyticsEvents.API_QUOTA_EXCEEDED]: {

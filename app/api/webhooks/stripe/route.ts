@@ -267,6 +267,9 @@ export async function POST(request: Request) {
             subscription_status: effectiveStatus,
             cancel_at_period_end: subscription.cancel_at_period_end,
             is_pro: isActive,
+            // Stripe can deliver events late or out of order. The user_usage trigger
+            // (20261119000000) ignores an update whose event.created is older than the stored one.
+            stripe_event_created: event.created,
             updated_at: new Date().toISOString(),
           };
           // Omitted (not nulled) when unknown, so a payload without the

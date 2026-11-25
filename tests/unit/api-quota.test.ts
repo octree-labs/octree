@@ -55,3 +55,26 @@ describe('API quota', () => {
     expect(usedToday(45, 'pro')).toBe(45);
   });
 });
+
+describe('check_latex counter', () => {
+  it('has its own, higher limits and says where to upgrade', async () => {
+    const { decideQuota, dailyLimitFor, usedToday } = await import('@/lib/api/quota');
+    expect(dailyLimitFor('free', 'checks')).toBe(200);
+    expect(dailyLimitFor('pro', 'checks')).toBe(3000);
+    expect(decideQuota(200, 'free', new Date(), 'checks')).toEqual({ allowed: true, used: 200, limit: 200 });
+    const refused = decideQuota(201, 'free', new Date('2026-11-25T10:00:00Z'), 'checks');
+    expect(refused).toMatchObject({
+      allowed: false,
+      body: {
+        counter: 'checks',
+        plan: 'free',
+        limit: 200,
+        used: 200,
+        resets_at: '2026-11-26T00:00:00.000Z',
+        upgrade_url: 'https://app.useoctree.com/pricing?from=api',
+      },
+    });
+    expect(refused.allowed === false && refused.body.message).toMatch(/check_latex limit of 200.*pricing\?from=api/);
+    expect(usedToday(250, 'free', 'checks')).toBe(200);
+  });
+});

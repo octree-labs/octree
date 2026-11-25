@@ -168,6 +168,11 @@ func CompileHandler(c *gin.Context) {
 		c.Header("X-Compile-Request-Id", result.RequestID)
 		c.Header("X-Compile-Duration-Ms", fmt.Sprintf("%d", result.DurationMs))
 		c.Header("X-Compile-Queue-Ms", fmt.Sprintf("%d", result.QueueMs))
+		// The engine latexmk ran (pdflatex, xelatex or lualatex), so the
+		// public API can report it; absent when no engine ran.
+		if result.Engine != "" {
+			c.Header("X-Compile-Engine", result.Engine)
+		}
 
 		// Send response based on result
 		if result.Success {

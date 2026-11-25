@@ -35,20 +35,27 @@ const BANG_LOG = [
 describe('parseLatexErrors', () => {
   it('reads -file-line-error lines with file, line and kind, deduplicated', () => {
     expect(parseLatexErrors(FILE_LINE_LOG)).toEqual([
-      { file: 'main.tex', line: 12, message: 'Undefined control sequence.', kind: 'undefined_control_sequence' },
+      {
+        file: 'main.tex',
+        line: 12,
+        message: 'Undefined control sequence.',
+        kind: 'undefined_control_sequence',
+        hint: expect.stringContaining('\\foo is not defined'),
+      },
       {
         file: 'sections/intro.tex',
         line: 3,
         message: "LaTeX Error: File `missingpkg.sty' not found.",
         kind: 'missing_package',
+        hint: expect.stringContaining('missingpkg.sty is not part of TeX Live'),
       },
     ]);
   });
 
   it('reads `! ` lines and takes the line number from the l.<n> context', () => {
     expect(parseLatexErrors(BANG_LOG)).toEqual([
-      { file: null, line: 7, message: 'Missing $ inserted.', kind: 'missing_dollar' },
-      { file: null, line: 9, message: "Too many }'s.", kind: 'missing_brace' },
+      { file: null, line: 7, message: 'Missing $ inserted.', kind: 'missing_dollar', hint: expect.stringMatching(/math mode/) },
+      { file: null, line: 9, message: "Too many }'s.", kind: 'missing_brace', hint: expect.stringMatching(/Braces are unbalanced/) },
     ]);
   });
 
@@ -117,6 +124,7 @@ describe('result bodies', () => {
         line: null,
         message: 'Package minted needs shell escape, which is not supported',
         kind: 'latex_error',
+        hint: expect.stringMatching(/Shell escape is disabled/),
       },
     ]);
   });
@@ -126,10 +134,13 @@ describe('result bodies', () => {
       ok: true,
       pdf_base64: 'JVBERi0=',
       pages: 3,
+      engine: null,
       duration_ms: 800,
       warnings: [],
       log_tail: '',
     });
+    expect(buildCompileSuccess('JVBERi0=', 800, 3, 'xelatex').engine).toBe('xelatex');
+    expect(buildCompileSuccess('JVBERi0=', 800, 3, 'tex --evil').engine).toBeNull();
     expect(buildCompileSuccess('JVBERi0=', 800)).not.toHaveProperty('pages');
   });
 });

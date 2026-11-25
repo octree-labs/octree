@@ -1,4 +1,9 @@
-import { API_FREE_DAILY_COMPILES, API_PRO_DAILY_COMPILES } from '@/data/constants';
+import {
+  API_FREE_DAILY_CHECKS,
+  API_FREE_DAILY_COMPILES,
+  API_PRO_DAILY_CHECKS,
+  API_PRO_DAILY_COMPILES,
+} from '@/data/constants';
 import { API_MAX_FILES, API_MAX_SOURCE_BYTES } from '@/lib/api/compile-request';
 import { API_UPGRADE_URL } from '@/lib/api/quota';
 
@@ -34,15 +39,16 @@ export const openApiDocument = {
   openapi: '3.1.0',
   info: {
     title: 'Octree Compile API',
-    version: '1.0.0',
+    version: '1.1.0',
     description:
       `Compile LaTeX to PDF with one call. Authenticate with an API key from https://app.useoctree.com/settings#api-keys ` +
       `(Authorization: Bearer oct_live_...). Free accounts get ${API_FREE_DAILY_COMPILES} compiles a day, Pro ` +
       `${API_PRO_DAILY_COMPILES} (UTC days). The same key works with the MCP server at https://app.useoctree.com/api/mcp. ` +
       `The engine is pdfLaTeX unless the document needs XeLaTeX (fontspec, polyglossia, unicode-math, ...) or LuaLaTeX ` +
       `(luacode, \\directlua, ...), which are selected automatically. Shell escape is disabled. Text files only in v1. ` +
-      `Every compile counts toward the daily quota, including the MCP check_latex tool, which runs the compiler too. ` +
-      `Sources and PDFs are not stored or logged.`,
+      `Every compile counts toward the daily compile quota. The MCP check_latex tool (errors only, no PDF) has its own ` +
+      `daily allowance (${API_FREE_DAILY_CHECKS} free, ${API_PRO_DAILY_CHECKS} Pro). Sources are not stored or logged; ` +
+      `PDFs returned as pdf_url are kept privately for 24 hours behind a signed link that expires after one hour.`,
   },
   servers: [{ url: 'https://app.useoctree.com' }],
   security: [{ bearerAuth: [] }],
@@ -53,7 +59,9 @@ export const openApiDocument = {
         summary: 'Compile LaTeX to PDF',
         description:
           'A LaTeX error is a successful call: HTTP 200 with ok=false and structured errors. 4xx/5xx mean the request, key, quota or service was the problem. ' +
-          'Send response="pdf" (or Accept: application/pdf) to receive the raw PDF on success; failures are JSON either way.',
+          'Send response="pdf" (or Accept: application/pdf) to receive the raw PDF on success; failures are JSON either way. ' +
+          'A JSON success carries the PDF twice: inline as pdf_base64 and as pdf_url, a signed link valid for one hour (null if it could not be created). ' +
+          'Errors carry a short fix hint when one is known; quota shows what is left today.',
         requestBody: {
           required: true,
           content: { 'application/json': { schema: { $ref: '#/components/schemas/CompileRequest' } } },
@@ -153,6 +161,27 @@ export const openApiDocument = {
             type: 'string',
             enum: ['missing_package', 'undefined_control_sequence', 'missing_dollar', 'missing_brace', 'latex_error'],
           },
+          hint: {
+            type: 'string',
+            description: 'A one-sentence suggested fix for common errors, e.g. the \\usepackage that defines an undefined command.',
+          },
+        },
+      },
+      Engine: {
+        type: ['string', 'null'],
+        enum: ['pdflatex', 'xelatex', 'lualatex', null],
+        description: 'The TeX engine that ran, when the compile service reports it.',
+      },
+      Quota: {
+        type: 'object',
+        required: ['counter', 'limit', 'used', 'remaining', 'resets_at'],
+        description: "Today's counter after this call.",
+        properties: {
+          counter: { type: 'string', enum: ['compiles', 'checks'] },
+          limit: { type: 'integer' },
+          used: { type: 'integer' },
+          remaining: { type: 'integer' },
+          resets_at: { type: 'string', format: 'date-time' },
         },
       },
       CompileSuccess: {
@@ -161,10 +190,18 @@ export const openApiDocument = {
         properties: {
           ok: { const: true },
           pdf_base64: { type: 'string', contentEncoding: 'base64', contentMediaType: 'application/pdf' },
+          pdf_url: {
+            type: ['string', 'null'],
+            format: 'uri',
+            description: 'Signed link to the PDF, valid until pdf_url_expires_at (one hour). Null if it could not be created.',
+          },
+          pdf_url_expires_at: { type: ['string', 'null'], format: 'date-time' },
           pages: { type: 'integer' },
+          engine: { $ref: '#/components/schemas/Engine' },
           duration_ms: { type: 'integer' },
           warnings: { type: 'array', items: { type: 'string' } },
           log_tail: { type: 'string' },
+          quota: { $ref: '#/components/schemas/Quota' },
         },
       },
       CompileFailure: {
@@ -173,9 +210,12 @@ export const openApiDocument = {
         properties: {
           ok: { const: false },
           errors: { type: 'array', items: { $ref: '#/components/schemas/CompileError' } },
+          warnings: { type: 'array', items: { type: 'string' } },
           log_tail: { type: 'string' },
           suggestion: { type: 'string' },
+          engine: { $ref: '#/components/schemas/Engine' },
           duration_ms: { type: 'integer' },
+          quota: { $ref: '#/components/schemas/Quota' },
         },
       },
       QuotaExceeded: {
@@ -184,6 +224,8 @@ export const openApiDocument = {
         properties: {
           error: { const: 'quota_exceeded' },
           message: { type: 'string' },
+          counter: { type: 'string', enum: ['compiles', 'checks'] },
+          plan: { type: 'string', enum: ['free', 'pro'] },
           limit: { type: 'integer' },
           used: { type: 'integer' },
           resets_at: { type: 'string', format: 'date-time' },
@@ -198,7 +240,11 @@ export const openApiDocument = {
           plan: { type: 'string', enum: ['free', 'pro'] },
           daily_limit: { type: 'integer' },
           used_today: { type: 'integer' },
+          remaining_today: { type: 'integer' },
+          checks_daily_limit: { type: 'integer', description: 'MCP check_latex calls a day' },
+          checks_used_today: { type: 'integer' },
           resets_at: { type: 'string', format: 'date-time' },
+          upgrade_url: { type: 'string', description: 'Free plan only: where to upgrade.' },
         },
       },
       Error: errorSchema,

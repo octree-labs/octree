@@ -58,7 +58,9 @@ describe('POST /api/v1/compile', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('access-control-allow-origin')).toBe('*');
     expect(await response.json()).toMatchObject({ ok: false });
-    expect(mocks.runApiCompile).toHaveBeenCalledWith(PRINCIPAL, expect.objectContaining({ main: 'main.tex' }), 'rest');
+    expect(mocks.runApiCompile).toHaveBeenCalledWith(PRINCIPAL, expect.objectContaining({ main: 'main.tex' }), 'rest', {
+      storePdf: true,
+    });
   });
 
   it('returns the raw PDF for response:"pdf" or Accept: application/pdf', async () => {
@@ -74,6 +76,8 @@ describe('POST /api/v1/compile', () => {
       const response = await compileRoute.POST(request);
       expect(response.status).toBe(200);
       expect(response.headers.get('content-type')).toBe('application/pdf');
+      // Raw bytes already: no stored copy or signed link for a PDF answer.
+      expect(mocks.runApiCompile).toHaveBeenLastCalledWith(PRINCIPAL, expect.anything(), 'rest', { storePdf: false });
       expect(Buffer.from(await response.arrayBuffer()).equals(PDF)).toBe(true);
     }
   });
@@ -126,7 +130,8 @@ describe('/api/mcp', () => {
     expect(response.headers.get('access-control-allow-origin')).toBe('*');
     const json = await response.json();
     expect(json.result.content[0].text).toMatch(/ok=false/);
-    expect(mocks.runApiCompile).toHaveBeenCalledWith(PRINCIPAL, expect.anything(), 'mcp', { skipPageCount: true });
+    expect(mocks.runApiCompile).toHaveBeenCalledWith(PRINCIPAL, expect.anything(), 'mcp', { mode: 'check' });
+    expect(json.result.structuredContent).toMatchObject({ ok: false, errors: [] });
   });
 
   it('refuses a JSON-RPC batch with more than one tools/call before compiling', async () => {

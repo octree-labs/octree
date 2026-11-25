@@ -1,6 +1,7 @@
 import type { CompileErrorKind } from '@/lib/analytics/events';
 import { classifyCompileError } from '@/lib/analytics/compile';
 import type { CompilerResponse } from '@/app/api/compile-pdf/types';
+import { hintForLatexError, undefinedCommandFromContext } from '@/lib/api/compile-hints';
 
 /**
  * Shapes a compile service answer (app/api/compile-pdf/compiler.ts
@@ -16,23 +17,57 @@ export interface ApiCompileError {
   line: number | null;
   message: string;
   kind: ApiErrorKind;
+  /** A one-sentence fix (lib/api/compile-hints.ts), when one is known for this error. */
+  hint?: string;
+}
+
+/** A warning with its line when the log names one (`... on input line 20.`). */
+export interface ApiCompileWarning {
+  file: string | null;
+  line: number | null;
+  message: string;
+}
+
+/** The TeX engine latexmk ran, as reported by the compile service (X-Compile-Engine). */
+export type ApiEngine = 'pdflatex' | 'xelatex' | 'lualatex';
+
+export function parseEngine(value: string | null | undefined): ApiEngine | null {
+  return value === 'pdflatex' || value === 'xelatex' || value === 'lualatex' ? value : null;
+}
+
+/** Today's counter after this call (POST /api/v1/compile, MCP structuredContent.quota). */
+export interface ApiQuotaSnapshot {
+  /** Which daily counter the call used: `compiles`, or `checks` for MCP check_latex. */
+  counter: 'compiles' | 'checks';
+  limit: number;
+  used: number;
+  remaining: number;
+  resets_at: string;
 }
 
 export interface ApiCompileSuccess {
   ok: true;
   pdf_base64: string;
+  /** A signed link to the PDF (valid until `pdf_url_expires_at`), or null when it could not be stored. */
+  pdf_url?: string | null;
+  pdf_url_expires_at?: string | null;
   pages?: number;
+  engine?: ApiEngine | null;
   duration_ms: number;
   warnings: string[];
   log_tail: string;
+  quota?: ApiQuotaSnapshot;
 }
 
 export interface ApiCompileFailure {
   ok: false;
   errors: ApiCompileError[];
+  warnings?: string[];
   log_tail: string;
   suggestion?: string;
+  engine?: ApiEngine | null;
   duration_ms: number;
+  quota?: ApiQuotaSnapshot;
 }
 
 export type ApiCompileJson = ApiCompileSuccess | ApiCompileFailure;
@@ -66,6 +101,30 @@ function kindOf(message: string): ApiErrorKind {
 }
 
 /**
+ * What TeX printed after the error line at `index`: the first context line
+ * (which ends with the offending token) and the `l.<n>` line number.
+ */
+function contextAfter(lines: string[], index: number): { context?: string; lineNo: number | null } {
+  let context: string | undefined;
+  for (let j = index + 1; j < Math.min(lines.length, index + 12); j++) {
+    const text = lines[j];
+    if (text.startsWith('! ') || FILE_LINE_RE.test(text)) break;
+    const ctx = /^l\.(\d+)/.exec(text);
+    if (context === undefined && text.trim() !== '' && (ctx || /^(<[^>]+>|\\\S+ ->)/.test(text))) {
+      context = text;
+    }
+    if (ctx) return { context, lineNo: Number(ctx[1]) };
+  }
+  return { context, lineNo: null };
+}
+
+function withHint(error: ApiCompileError, context: string | undefined): ApiCompileError {
+  const command = error.kind === 'undefined_control_sequence' ? undefinedCommandFromContext(context) : null;
+  const hint = hintForLatexError({ message: error.message, command });
+  return hint ? { ...error, hint } : error;
+}
+
+/**
  * The TeX errors in a log, in order: `<file>:<line>: <message>` lines and
  * `! <message>` lines (whose line number comes from the following `l.<n>`
  * context line). Duplicates collapse; at most MAX_REPORTED_ERRORS.
@@ -88,21 +147,14 @@ export function parseLatexErrors(rawLog: string | undefined): ApiCompileError[] 
     const fileLine = FILE_LINE_RE.exec(line);
     if (fileLine) {
       const message = fileLine[3].trim();
-      push({ file: stripDotSlash(fileLine[1]), line: Number(fileLine[2]), message, kind: kindOf(message) });
+      const { context } = contextAfter(lines, i);
+      push(withHint({ file: stripDotSlash(fileLine[1]), line: Number(fileLine[2]), message, kind: kindOf(message) }, context));
       continue;
     }
     if (line.startsWith('! ')) {
       const message = line.slice(2).trim();
-      let lineNo: number | null = null;
-      for (let j = i + 1; j < Math.min(lines.length, i + 12); j++) {
-        const ctx = /^l\.(\d+)/.exec(lines[j]);
-        if (ctx) {
-          lineNo = Number(ctx[1]);
-          break;
-        }
-        if (lines[j].startsWith('! ') || FILE_LINE_RE.test(lines[j])) break;
-      }
-      push({ file: null, line: lineNo, message, kind: kindOf(message) });
+      const { context, lineNo } = contextAfter(lines, i);
+      push(withHint({ file: null, line: lineNo, message, kind: kindOf(message) }, context));
     }
   }
   return errors;
@@ -118,6 +170,14 @@ export function parseLatexWarnings(rawLog: string | undefined): string[] {
     if (out.length >= MAX_REPORTED_WARNINGS) break;
   }
   return out;
+}
+
+/** parseLatexWarnings with the input line each warning names, for structured output. */
+export function structureWarnings(warnings: string[]): ApiCompileWarning[] {
+  return warnings.map((message) => {
+    const line = /on input line (\d+)/i.exec(message);
+    return { file: null, line: line ? Number(line[1]) : null, message };
+  });
 }
 
 /** The last LOG_TAIL_CHARS characters of a log, temp paths stripped. */
@@ -160,13 +220,15 @@ export function buildCompileFailure(error: NonNullable<CompilerResponse['error']
   let errors = parseLatexErrors(log);
   if (errors.length === 0) {
     const message = (error.details || error.error || 'LaTeX compilation failed').trim();
-    errors = [{ file: null, line: null, message, kind: kindOf(message) }];
+    errors = [withHint({ file: null, line: null, message, kind: kindOf(message) }, undefined)];
   }
   const suggestion = SUGGESTIONS[errors[0].kind] ?? error.suggestion;
   const failure: ApiCompileFailure = {
     ok: false,
     errors,
+    warnings: parseLatexWarnings(log),
     log_tail: logTail(log),
+    engine: parseEngine(error.engine),
     duration_ms: durationMs,
   };
   if (suggestion) failure.suggestion = suggestion;
@@ -177,10 +239,16 @@ export function buildCompileFailure(error: NonNullable<CompilerResponse['error']
  * The `ok: true` body. The compile service returns only the PDF on success
  * (no log), so `warnings` is empty and `log_tail` is '' for now.
  */
-export function buildCompileSuccess(pdfBase64: string, durationMs: number, pages?: number | null): ApiCompileSuccess {
+export function buildCompileSuccess(
+  pdfBase64: string,
+  durationMs: number,
+  pages?: number | null,
+  engine?: string | null
+): ApiCompileSuccess {
   const success: ApiCompileSuccess = {
     ok: true,
     pdf_base64: pdfBase64,
+    engine: parseEngine(engine),
     duration_ms: durationMs,
     warnings: [],
     log_tail: '',

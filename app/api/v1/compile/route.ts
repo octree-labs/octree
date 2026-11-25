@@ -62,12 +62,17 @@ export async function POST(request: Request) {
     const validation = validateApiCompileRequest(body, acceptPdf);
     if (!validation.ok) return apiJson(validation.error.body, validation.error.status);
 
-    const outcome = await runApiCompile(principal, validation.request, 'rest');
+    // A JSON answer also carries a signed `pdf_url`; a raw PDF answer has
+    // the bytes already, so nothing is stored for it.
+    const wantsPdf = validation.request.response === 'pdf';
+    const outcome = await runApiCompile(principal, validation.request, 'rest', { storePdf: !wantsPdf });
     if (outcome.kind === 'error') return apiJson(outcome.body, outcome.status, outcome.headers);
 
-    if (validation.request.response === 'pdf' && outcome.json.ok && outcome.pdf) {
+    if (wantsPdf && outcome.json.ok && outcome.pdf) {
       const headers: Record<string, string> = { 'X-Octree-Duration-Ms': String(outcome.json.duration_ms) };
       if (outcome.json.pages) headers['X-Octree-Pages'] = String(outcome.json.pages);
+      if (outcome.json.engine) headers['X-Octree-Engine'] = outcome.json.engine;
+      if (outcome.json.quota) headers['X-Octree-Quota-Remaining'] = String(outcome.json.quota.remaining);
       return apiPdf(outcome.pdf, headers);
     }
     return apiJson(outcome.json, 200);

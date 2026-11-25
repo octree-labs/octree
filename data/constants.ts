@@ -187,6 +187,14 @@ export const API_FREE_DAILY_COMPILES = 30;
 export const API_PRO_DAILY_COMPILES = 1000;
 
 /**
+ * The MCP `check_latex` tool has its own daily counter (`api_usage_daily.checks`)
+ * so validating edits does not use up the compile quota. It still runs the
+ * compiler, so it is capped too, at a higher limit.
+ */
+export const API_FREE_DAILY_CHECKS = 200;
+export const API_PRO_DAILY_CHECKS = 3000;
+
+/**
  * The onboarding paywall: a new user picks a Pro plan and goes through
  * Stripe Checkout before reaching the dashboard, editor or /generate. There
  * is no "Continue with the free plan" on the plan step while this is on.

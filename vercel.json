@@ -12,6 +12,10 @@
     {
       "path": "/api/cron/lifecycle",
       "schedule": "30 14 * * *"
+    },
+    {
+      "path": "/api/cron/api-artifacts",
+      "schedule": "17 * * * *"
     }
   ],
   "experimentalServices": {

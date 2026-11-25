@@ -1,5 +1,5 @@
 import { apiJson, apiPreflight } from '@/lib/api/http';
-import { requestOrigin } from '@/lib/api/oauth-metadata';
+import { requestOrigin } from '@/lib/api/origin';
 import { AnalyticsEvents } from '@/lib/analytics/events';
 import { DEVICE_SCOPES, type DeviceScope, parseClientName } from '@/lib/device/codes';
 import { issueDeviceAuthorization } from '@/lib/device/flow';

@@ -1,5 +1,5 @@
 import { apiJson, apiPreflight } from '@/lib/api/http';
-import { requestOrigin } from '@/lib/api/oauth-metadata';
+import { requestOrigin } from '@/lib/api/origin';
 import { AnalyticsEvents } from '@/lib/analytics/events';
 import { DEVICE_CODE_GRANT_TYPE, DEVICE_POLL_INTERVAL, hashDeviceCode, isDeviceCodeFormat } from '@/lib/device/codes';
 import { deviceFlowSecret } from '@/lib/device/crypto';

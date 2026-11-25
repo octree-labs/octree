@@ -10,7 +10,7 @@ import {
   verificationUriComplete,
 } from '@/lib/device/codes';
 import { decryptDeviceKey, encryptDeviceKey } from '@/lib/device/crypto';
-import { MCP_PATH } from '@/lib/api/oauth-metadata';
+import { MCP_PATH } from '@/lib/api/origin';
 import type { CreateKeyForUserResult } from '@/lib/api/create-key';
 
 /**

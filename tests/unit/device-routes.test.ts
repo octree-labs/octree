@@ -174,9 +174,7 @@ describe('401 onboarding hints', () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.response.status).toBe(401);
-    expect(result.response.headers.get('www-authenticate')).toMatch(
-      /^Bearer realm="octree", resource_metadata="https:\/\/app\.useoctree\.com\/\.well-known\/oauth-protected-resource"/
-    );
+    expect(result.response.headers.get('www-authenticate')).toBe('Bearer realm="octree"');
     const body = await result.response.json();
     expect(body).toMatchObject({
       error: 'unauthorized',

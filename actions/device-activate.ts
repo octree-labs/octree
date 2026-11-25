@@ -11,7 +11,11 @@ import { activatePath, loginPathForActivate, normalizeUserCode } from '@/lib/dev
 import { deviceFlowSecret } from '@/lib/device/crypto';
 import { approveDeviceAuthorization, denyDeviceAuthorization, type DecisionResult } from '@/lib/device/flow';
 import { createDeviceStore } from '@/lib/device/store';
-import { parseDecision } from '@/lib/oauth/consent';
+
+type ActivationDecision = 'approve' | 'deny';
+function parseDecision(value: unknown): ActivationDecision | null {
+  return value === 'approve' || value === 'deny' ? value : null;
+}
 
 /**
  * Approve or deny a device authorization from /activate. Approving creates

@@ -54,6 +54,10 @@ func (s *jwksServer) set(keys ...map[string]string) {
 	s.keys = keys
 }
 
+// testOctKey is the symmetric JWKS entry in the fixture, deliberately not
+// the HS256 secret, so a token HMAC'd with it proves oct keys are ignored.
+const testOctKey = "jwks-oct-key-not-the-secret"
+
 func b64u(b []byte) string { return base64.RawURLEncoding.EncodeToString(b) }
 
 func ecJWK(kid string, pub *ecdsa.PublicKey) map[string]string {
@@ -121,7 +125,7 @@ func newAsymFixture(t *testing.T, withSecret bool) *asymFixture {
 	}
 	srv := newJWKSServer(t)
 	srv.set(ecJWK("ec-1", &ecKey.PublicKey), rsaJWK("rsa-1", &rsaKey.PublicKey),
-		map[string]string{"kid": "legacy", "kty": "oct", "k": b64u([]byte(testJWTSecret))})
+		map[string]string{"kid": "legacy", "kty": "oct", "k": b64u([]byte(testOctKey))})
 	clock := &fakeClock{t: testNow}
 	jwks := &JWKS{URL: srv.URL, Now: clock.Now, TTL: 10 * time.Minute, MinRefetchInterval: 30 * time.Second}
 	cfg := AuthConfig{JWKS: jwks, Now: clock.Now}
@@ -324,11 +328,12 @@ func TestAsymRejectsAlgConfusion(t *testing.T) {
 
 	cases := map[string]string{
 		// Classic: HS256 header + kid of the RSA key, HMAC'd with the public key.
-		"HS256 keyed with RSA PEM":     hmacToken(t, map[string]any{"alg": "HS256", "typ": "JWT", "kid": "rsa-1"}, asymUserClaims(), pemBytes),
-		"HS256 keyed with RSA DER":     hmacToken(t, map[string]any{"alg": "HS256", "typ": "JWT", "kid": "rsa-1"}, asymUserClaims(), der),
-		"HS256 keyed with EC PEM":      hmacToken(t, map[string]any{"alg": "HS256", "typ": "JWT", "kid": "ec-1"}, asymUserClaims(), ecPem),
-		"HS256 keyed with JWK JSON":    hmacToken(t, map[string]any{"alg": "HS256", "typ": "JWT", "kid": "rsa-1"}, asymUserClaims(), jwkJSON),
-		"HS256 keyed with oct JWK kid": hmacToken(t, map[string]any{"alg": "HS256", "typ": "JWT", "kid": "legacy"}, asymUserClaims(), []byte("not-the-secret")),
+		"HS256 keyed with RSA PEM":  hmacToken(t, map[string]any{"alg": "HS256", "typ": "JWT", "kid": "rsa-1"}, asymUserClaims(), pemBytes),
+		"HS256 keyed with RSA DER":  hmacToken(t, map[string]any{"alg": "HS256", "typ": "JWT", "kid": "rsa-1"}, asymUserClaims(), der),
+		"HS256 keyed with EC PEM":   hmacToken(t, map[string]any{"alg": "HS256", "typ": "JWT", "kid": "ec-1"}, asymUserClaims(), ecPem),
+		"HS256 keyed with JWK JSON": hmacToken(t, map[string]any{"alg": "HS256", "typ": "JWT", "kid": "rsa-1"}, asymUserClaims(), jwkJSON),
+		// The oct entry's k is distinct from the secret: it must never be used.
+		"HS256 keyed with oct JWK k": hmacToken(t, map[string]any{"alg": "HS256", "typ": "JWT", "kid": "legacy"}, asymUserClaims(), []byte(testOctKey)),
 		// RS256 header but HMAC'd with the shared secret.
 		"RS256 header HMAC'd with secret": hmacToken(t, map[string]any{"alg": "RS256", "typ": "JWT", "kid": "rsa-1"}, asymUserClaims(), []byte(testJWTSecret)),
 		"ES256 header HMAC'd with secret": hmacToken(t, map[string]any{"alg": "ES256", "typ": "JWT", "kid": "ec-1"}, asymUserClaims(), []byte(testJWTSecret)),
@@ -416,5 +421,74 @@ func TestJWTAuthMiddlewareJWKSOnly(t *testing.T) {
 	}
 	if w := doAuthRequest(r, "Bearer "+userToken(t, testNow.Add(time.Hour))); w.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401 for HS256 token without a secret, got %d", w.Code)
+	}
+}
+
+func TestAsymJWKSDownWithNoCacheIsUnavailable(t *testing.T) {
+	f := newAsymFixture(t, true)
+	f.srv.down.Store(true)
+	_, err := ValidateToken(mintAsym(t, jwt.SigningMethodES256, "ec-1", f.ecKey, asymUserClaims()), f.cfg)
+	if !errors.Is(err, ErrJWKSUnavailable) {
+		t.Fatalf("expected ErrJWKSUnavailable, got %v", err)
+	}
+	r := newAuthTestRouter(f.cfg)
+	if w := doAuthRequest(r, "Bearer "+mintAsym(t, jwt.SigningMethodES256, "ec-1", f.ecKey, asymUserClaims())); w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 while the JWKS is unreachable, got %d", w.Code)
+	}
+}
+
+func TestAsymEmptySetRevokesCachedKeys(t *testing.T) {
+	f := newAsymFixture(t, true)
+	tok := mintAsym(t, jwt.SigningMethodES256, "ec-1", f.ecKey, asymUserClaims())
+	if _, err := ValidateToken(tok, f.cfg); err != nil {
+		t.Fatal(err)
+	}
+	// Every asymmetric key is removed upstream (e.g. after revocation).
+	f.srv.set([]map[string]string{}...) // {"keys":[]}
+	f.clock.Advance(11 * time.Minute)
+	if _, err := ValidateToken(tok, f.cfg); !errors.Is(err, ErrJWKSKeyNotFound) {
+		t.Fatalf("expected revoked key to stop verifying, got %v", err)
+	}
+}
+
+func TestAsymCachedKeysExpireAfterMaxStale(t *testing.T) {
+	f := newAsymFixture(t, true)
+	f.cfg.JWKS.MaxStale = time.Hour
+	tok := func() string { return mintAsym(t, jwt.SigningMethodES256, "ec-1", f.ecKey, asymUserClaims()) }
+	if _, err := ValidateToken(tok(), f.cfg); err != nil {
+		t.Fatal(err)
+	}
+	f.srv.down.Store(true)
+	f.clock.Advance(30 * time.Minute)
+	if _, err := ValidateToken(tok(), f.cfg); err != nil {
+		t.Fatalf("expected cached key within MaxStale, got %v", err)
+	}
+	f.clock.Advance(31 * time.Minute)
+	claims := asymUserClaims()
+	claims["exp"] = f.clock.Now().Add(time.Hour).Unix()
+	if _, err := ValidateToken(mintAsym(t, jwt.SigningMethodES256, "ec-1", f.ecKey, claims), f.cfg); !errors.Is(err, ErrJWKSUnavailable) {
+		t.Fatalf("expected ErrJWKSUnavailable past MaxStale, got %v", err)
+	}
+}
+
+func TestJWKSLookupDoesNotWaitOnRefresh(t *testing.T) {
+	f := newAsymFixture(t, true)
+	tok := mintAsym(t, jwt.SigningMethodES256, "ec-1", f.ecKey, asymUserClaims())
+	if _, err := ValidateToken(tok, f.cfg); err != nil {
+		t.Fatal(err)
+	}
+	f.clock.Advance(11 * time.Minute)
+	// Simulate a refresh in flight: a stale but known kid is still served.
+	f.cfg.JWKS.fetchMu.Lock()
+	defer f.cfg.JWKS.fetchMu.Unlock()
+	done := make(chan error, 1)
+	go func() { _, err := ValidateToken(tok, f.cfg); done <- err }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("expected cached key during an in-flight refresh, got %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("lookup blocked on an in-flight JWKS refresh")
 	}
 }

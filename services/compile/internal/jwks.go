@@ -35,6 +35,11 @@ const (
 	// (or an expired set), so a flood of garbage tokens costs one request to
 	// Supabase per interval, not one per token.
 	DefaultJWKSMinRefetchInterval = 30 * time.Second
+	// DefaultJWKSMaxStale bounds how long a key set is trusted without a
+	// successful refresh (JWKS unreachable): past it, kids stop resolving and
+	// tokens get ErrJWKSUnavailable, so a key revoked upstream cannot verify
+	// indefinitely.
+	DefaultJWKSMaxStale = 24 * time.Hour
 	// DefaultJWKSHTTPTimeout caps one fetch.
 	DefaultJWKSHTTPTimeout = 5 * time.Second
 
@@ -42,7 +47,12 @@ const (
 	jwksPath         = "/auth/v1/.well-known/jwks.json"
 )
 
-var ErrJWKSKeyNotFound = errors.New("no signing key for token kid")
+var (
+	ErrJWKSKeyNotFound = errors.New("no signing key for token kid")
+	// ErrJWKSUnavailable means the kid could not be resolved because the
+	// last JWKS fetch failed: a service problem (503), not a bad token.
+	ErrJWKSUnavailable = errors.New("JWKS unavailable")
+)
 
 // JWKSURLFromEnv returns the JWKS URL: SUPABASE_JWKS_URL if set, else
 // <SUPABASE_URL>/auth/v1/.well-known/jwks.json, else "". The URL must be
@@ -91,19 +101,27 @@ type jwksKey struct {
 }
 
 // JWKS is a concurrency-safe, in-memory cache of a remote JSON Web Key Set.
+//
+// Lookups never wait on the network while the cache can answer them: a stale
+// but known kid is served from cache while at most one goroutine refreshes,
+// and only a kid the cache cannot answer waits for the (single) fetch.
 type JWKS struct {
 	URL string
-	// TTL, MinRefetchInterval and Client default to the Default* values.
+	// TTL, MinRefetchInterval, MaxStale and Client default to the Default* values.
 	TTL                time.Duration
 	MinRefetchInterval time.Duration
+	MaxStale           time.Duration
 	Client             *http.Client
 	// Now overrides the clock in tests.
 	Now func() time.Time
 
-	mu          sync.Mutex
+	fetchMu sync.Mutex // serializes fetches; never held by mu's holders
+
+	mu          sync.Mutex // guards the fields below; never held during I/O
 	keys        map[string]jwksKey
 	fetchedAt   time.Time // last successful fetch
 	lastAttempt time.Time // last fetch attempt, successful or not
+	lastErr     error     // error of the last attempt, nil after a success
 }
 
 // NewJWKS returns a cache for url with the default TTL, refetch limit and timeout.
@@ -132,49 +150,80 @@ func (j *JWKS) minRefetch() time.Duration {
 	return DefaultJWKSMinRefetchInterval
 }
 
+func (j *JWKS) maxStale() time.Duration {
+	if j.MaxStale > 0 {
+		return j.MaxStale
+	}
+	return DefaultJWKSMaxStale
+}
+
 func (j *JWKS) client() *http.Client {
 	if j.Client != nil {
 		return j.Client
 	}
-	return &http.Client{Timeout: DefaultJWKSHTTPTimeout}
+	return &http.Client{
+		Timeout: DefaultJWKSHTTPTimeout,
+		// Never follow redirects: the https-only check on the URL must hold
+		// for the host that actually serves the keys.
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
 }
 
 // Warm fetches the key set once; errors are returned for logging only.
 func (j *JWKS) Warm() error {
+	j.fetchMu.Lock()
+	defer j.fetchMu.Unlock()
+	return j.fetch()
+}
+
+// lookup reads the cache: the key for kid (if any, and if not older than
+// MaxStale), whether the set is due a refresh, and whether a fetch is allowed.
+func (j *JWKS) lookup(kid string) (k jwksKey, ok, stale, canFetch bool, lastErr error) {
+	now := j.now()
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	return j.refreshLocked()
+	age := now.Sub(j.fetchedAt)
+	if j.keys != nil && age < j.maxStale() {
+		k, ok = j.keys[kid]
+	}
+	stale = j.keys == nil || age >= j.ttl()
+	canFetch = j.lastAttempt.IsZero() || now.Sub(j.lastAttempt) >= j.minRefetch()
+	return k, ok, stale, canFetch, j.lastErr
 }
 
 // Key returns the public key for kid, which must be usable with alg
 // (ES256 → ECDSA P-256, RS256 → RSA). A stale set is refreshed, and an
 // unknown kid triggers a refresh, both at most once per MinRefetchInterval;
-// a failed refresh keeps serving the last good set.
+// a failed refresh keeps serving the last good set for up to MaxStale. When
+// the kid cannot be resolved because the JWKS is unreachable, the error wraps
+// ErrJWKSUnavailable.
 func (j *JWKS) Key(kid, alg string) (crypto.PublicKey, error) {
 	if kid == "" {
 		return nil, errors.New("token has no kid")
 	}
-	j.mu.Lock()
-	defer j.mu.Unlock()
 
-	now := j.now()
-	canFetch := j.lastAttempt.IsZero() || now.Sub(j.lastAttempt) >= j.minRefetch()
-	stale := j.keys == nil || now.Sub(j.fetchedAt) >= j.ttl()
-	if stale && canFetch {
-		if err := j.refreshLocked(); err != nil {
-			log.Printf("WARNING: JWKS refresh failed (keeping %d cached keys): %v", len(j.keys), err)
+	k, ok, stale, canFetch, lastErr := j.lookup(kid)
+	if canFetch && (stale || !ok) {
+		if ok {
+			// Known kid, stale set: refresh only if nobody else is, and
+			// serve the cached key otherwise.
+			if j.fetchMu.TryLock() {
+				j.fetchIfDue()
+				j.fetchMu.Unlock()
+				k, ok, _, _, lastErr = j.lookup(kid)
+			}
+		} else {
+			// Nothing to serve: wait for the one fetch in flight, or do it.
+			j.fetchMu.Lock()
+			j.fetchIfDue()
+			j.fetchMu.Unlock()
+			k, ok, _, _, lastErr = j.lookup(kid)
 		}
-		canFetch = false
-	}
-
-	k, ok := j.keys[kid]
-	if !ok && canFetch {
-		if err := j.refreshLocked(); err != nil {
-			log.Printf("WARNING: JWKS refresh for unknown kid failed (keeping %d cached keys): %v", len(j.keys), err)
-		}
-		k, ok = j.keys[kid]
 	}
 	if !ok {
+		if lastErr != nil {
+			return nil, fmt.Errorf("%w: %v", ErrJWKSUnavailable, lastErr)
+		}
 		return nil, ErrJWKSKeyNotFound
 	}
 	if k.alg != alg {
@@ -183,34 +232,76 @@ func (j *JWKS) Key(kid, alg string) (crypto.PublicKey, error) {
 	return k.key, nil
 }
 
-// refreshLocked fetches the set; on failure the cached keys are left as is.
-func (j *JWKS) refreshLocked() error {
-	j.lastAttempt = j.now()
+// fetchIfDue fetches unless another goroutine attempted one within
+// MinRefetchInterval (it held fetchMu before us). Caller holds fetchMu.
+func (j *JWKS) fetchIfDue() {
+	now := j.now()
+	j.mu.Lock()
+	due := j.lastAttempt.IsZero() || now.Sub(j.lastAttempt) >= j.minRefetch()
+	n := len(j.keys)
+	j.mu.Unlock()
+	if !due {
+		return
+	}
+	if err := j.fetch(); err != nil {
+		log.Printf("WARNING: JWKS refresh failed (keeping %d cached keys): %v", n, err)
+	}
+}
 
+// fetch downloads and installs the set. Caller holds fetchMu, not mu. On a
+// transport or decode failure the cached keys are left as is; a well-formed
+// response replaces them, even when it has no usable keys (keys removed
+// upstream must stop verifying).
+func (j *JWKS) fetch() error {
+	attempt := j.now()
+	j.mu.Lock()
+	j.lastAttempt = attempt
+	j.mu.Unlock()
+
+	keys, err := j.download()
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if keys != nil {
+		j.keys = keys
+		j.fetchedAt = attempt
+	}
+	j.lastErr = err
+	if keys != nil && len(keys) == 0 {
+		j.lastErr = nil
+		return errors.New("JWKS contains no usable ES256/RS256 keys")
+	}
+	return err
+}
+
+// download fetches and parses the set; a nil map means the fetch failed.
+func (j *JWKS) download() (map[string]jwksKey, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultJWKSHTTPTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, j.URL, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
 	resp, err := j.client().Do(req)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("JWKS fetch: HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf("JWKS fetch: HTTP %d", resp.StatusCode)
 	}
 	var set struct {
-		Keys []jwk `json:"keys"`
+		Keys *[]jwk `json:"keys"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, jwksMaxBodyBytes)).Decode(&set); err != nil {
-		return fmt.Errorf("JWKS decode: %w", err)
+		return nil, fmt.Errorf("JWKS decode: %w", err)
+	}
+	if set.Keys == nil {
+		return nil, errors.New("JWKS decode: no keys member")
 	}
 
-	keys := make(map[string]jwksKey, len(set.Keys))
-	for _, k := range set.Keys {
+	keys := make(map[string]jwksKey, len(*set.Keys))
+	for _, k := range *set.Keys {
 		parsed, err := parseJWK(k)
 		if err != nil {
 			if k.Kid != "" && k.Kty != "oct" {
@@ -220,12 +311,7 @@ func (j *JWKS) refreshLocked() error {
 		}
 		keys[k.Kid] = parsed
 	}
-	if len(keys) == 0 {
-		return errors.New("JWKS contains no usable ES256/RS256 keys")
-	}
-	j.keys = keys
-	j.fetchedAt = j.lastAttempt
-	return nil
+	return keys, nil
 }
 
 func parseJWK(k jwk) (jwksKey, error) {

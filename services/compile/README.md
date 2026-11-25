@@ -210,7 +210,8 @@ export PORT=3001
 export SUPABASE_JWT_SECRET=...   # HS256 (legacy secret; keep it after moving to asymmetric keys)
 # Asymmetric signing keys: JWKS at <SUPABASE_URL>/auth/v1/.well-known/jwks.json,
 # cached 10 min, unknown kid refetches at most once per 30 s, 5 s HTTP timeout,
-# last good set kept when a fetch fails. https only (http for localhost).
+# last good set kept for up to 24 h when a fetch fails (503 while a kid cannot
+# be resolved for that reason). https only (http for localhost), no redirects.
 export SUPABASE_URL=https://<ref>.supabase.co
 # Optional: explicit JWKS URL instead of the derived one
 export SUPABASE_JWKS_URL=...

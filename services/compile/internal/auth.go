@@ -184,6 +184,10 @@ func JWTAuthMiddleware(cfg AuthConfig) gin.HandlerFunc {
 			switch {
 			case errors.Is(err, ErrTokenRole), errors.Is(err, ErrTokenIssuer):
 				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Token not permitted to use this service"})
+			case errors.Is(err, ErrJWKSUnavailable):
+				// The signing keys could not be fetched: our outage, not a
+				// bad token, so do not tell the client to re-authenticate.
+				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "Token verification temporarily unavailable"})
 			default:
 				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
 			}

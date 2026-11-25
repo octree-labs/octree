@@ -13,15 +13,16 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Project } from '@/types/project';
+import { DashboardProject } from '@/types/project';
 import { cn } from '@/lib/utils';
-import { previewUrl } from '@/lib/utils/project-preview-path';
 
 dayjs.extend(relativeTime);
 
-function ProjectThumbnail({ projectId }: { projectId: string }) {
+// `src` is a signed URL made when the dashboard was rendered (the bucket is
+// private), or null when the project has no thumbnail yet.
+function ProjectThumbnail({ src }: { src: string | null }) {
   const [status, setStatus] = useState<'loading' | 'loaded' | 'missing'>(
-    'loading'
+    src ? 'loading' : 'missing'
   );
   const imgRef = useRef<HTMLImageElement>(null);
 
@@ -38,11 +39,11 @@ function ProjectThumbnail({ projectId }: { projectId: string }) {
       {status === 'missing' && (
         <FileText className="absolute inset-0 m-auto size-8 text-muted-foreground" />
       )}
-      {status !== 'missing' && (
+      {src && status !== 'missing' && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           ref={imgRef}
-          src={previewUrl(projectId)}
+          src={src}
           alt=""
           loading="lazy"
           decoding="async"
@@ -69,7 +70,7 @@ export function ProjectCard({
   onDelete,
   onRename,
   onDuplicate,
-}: { project: Project } & ProjectCardActions) {
+}: { project: DashboardProject } & ProjectCardActions) {
   const router = useRouter();
 
   return (
@@ -77,7 +78,12 @@ export function ProjectCard({
       className="cursor-pointer overflow-hidden rounded-xl border bg-card transition-shadow hover:shadow-md"
       onClick={() => router.push(`/projects/${project.id}`)}
     >
-      <ProjectThumbnail projectId={project.id} />
+      {/* Remount only when a thumbnail appears or disappears; a refreshed
+          URL for the same image keeps the current one on screen. */}
+      <ProjectThumbnail
+        key={project.preview_url ? 'preview' : 'none'}
+        src={project.preview_url}
+      />
       <div className="flex items-center justify-between gap-1 border-t py-4 pl-4 pr-2">
         <div className="min-w-0">
           <p className="truncate font-medium" title={project.title}>

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { ProjectGrid } from './project-grid';
-import { Project, SelectedProject } from '@/types/project';
+import { DashboardProject, SelectedProject } from '@/types/project';
 import { useProjectRefresh } from '@/app/context/project';
 import { RenameProjectDialog } from './rename-project-dialog';
 import { DeleteProjectDialog } from './delete-project-dialog';
@@ -13,13 +13,13 @@ export function ProjectsTable({
   data,
   searchQuery,
 }: {
-  data: Project[];
+  data: DashboardProject[];
   searchQuery: string;
 }) {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [selectedProject, setSelectedProject] =
     useState<SelectedProject | null>(null);
-  const [rows, setRows] = useState<Project[]>(data);
+  const [rows, setRows] = useState<DashboardProject[]>(data);
   const [isRenameDialogOpen, setIsRenameDialogOpen] = useState(false);
   const { refreshProjects } = useProjectRefresh();
   const { duplicateProjectWithRefresh } = useDuplicateProject();

@@ -31,7 +31,6 @@ const mocks = vi.hoisted(() => {
 
   const upload = vi.fn().mockResolvedValue({ error: null });
   const remove = vi.fn().mockResolvedValue({ error: null });
-  const getPublicUrl = vi.fn(() => ({ data: { publicUrl: 'https://cdn/main.tex' } }));
 
   // `drafts` is service-role only (20261109140000_drafts_no_public_select):
   // the session client throws on it so a regression to the public key fails.
@@ -63,7 +62,6 @@ const mocks = vi.hoisted(() => {
     fileInsert,
     upload,
     remove,
-    getPublicUrl,
     from,
     adminFrom,
     trackRedditConversion,
@@ -75,7 +73,7 @@ vi.mock('@/lib/supabase/server', () => ({
     auth: { getUser: mocks.getUser },
     from: mocks.from,
     storage: {
-      from: () => ({ upload: mocks.upload, remove: mocks.remove, getPublicUrl: mocks.getPublicUrl }),
+      from: () => ({ upload: mocks.upload, remove: mocks.remove }),
     },
   }),
 }));

@@ -13,6 +13,7 @@ import type { Json } from '@/database.types';
 import { readStream } from '@/lib/utils/sse';
 import { AnalyticsEvents, type GenerateErrorKind } from '@/lib/analytics/events';
 import { track } from '@/lib/analytics/track';
+import { signAttachmentPreviews, normalizeMessageAttachments } from '@/lib/generate/attachment-previews';
 import {
   checkGenerateRequestSize,
   checkGenerateTextLength,
@@ -154,7 +155,8 @@ export function useGenerate(options: UseGenerateOptions = {}) {
         id: att.id,
         name: att.name,
         type: att.type,
-        preview: att.url,
+        preview: att.url ?? null,
+        path: att.path,
       }));
 
       restoredMessages = [
@@ -181,11 +183,21 @@ export function useGenerate(options: UseGenerateOptions = {}) {
       lastAttemptRef.current = null;
     }
 
+    // Stored previews are storage paths (or, on older rows, public URLs);
+    // show the messages at once and swap in signed URLs when they arrive.
+    const initialMessages = normalizeMessageAttachments<MessageAttachment, Message>(restoredMessages);
+
     setCurrentDocument(doc);
-    setMessages(restoredMessages);
+    setMessages(initialMessages);
     setError(null);
     setPrompt('');
-  }, []);
+
+    void signAttachmentPreviews<MessageAttachment, Message>(supabase, initialMessages).then((signed) => {
+      if (signed === initialMessages) return;
+      // Only if nothing replaced the restored conversation in the meantime.
+      setMessages((prev) => (prev === initialMessages ? signed : prev));
+    });
+  }, [supabase]);
 
   const updateLastMessage = useCallback((updater: (msg: Message) => void) => {
     setMessages((prev) => {
@@ -319,11 +331,13 @@ export function useGenerate(options: UseGenerateOptions = {}) {
         userId
       );
 
+      // Persisted with the storage path only; restoreSession signs it for display.
       const persistentMessageAttachments: MessageAttachment[] = uploadedAttachments.map((ua) => ({
         id: ua.id,
         name: ua.name,
         type: ua.type,
-        preview: ua.url,
+        preview: null,
+        path: ua.path,
       }));
 
       persistentUserMessage = {
@@ -639,7 +653,13 @@ export function useGenerate(options: UseGenerateOptions = {}) {
              };
              setCurrentDocument((prev) => prev ? { ...prev, ...updates } : prev);
              GenerateActions.updateDocument(documentId, updates);
-             setMessages(historyForDb);
+             // Keep the local (blob:) previews of messages already on screen.
+             setMessages((prev) =>
+               historyForDb.map((m) => {
+                 const shown = prev.find((p) => p.id === m.id);
+                 return shown?.attachments ? { ...m, attachments: shown.attachments } : m;
+               })
+             );
           }
       }
 
@@ -747,14 +767,12 @@ async function uploadFilesToStorage(
       return null;
     }
 
-    const { data } = supabase.storage
-      .from('chat-attachments')
-      .getPublicUrl(path);
+    // The bucket is private: store the path, sign it when displaying.
     return {
       id: f.id,
       name: f.file.name,
       type: f.type,
-      url: data.publicUrl,
+      path,
     };
   });
 

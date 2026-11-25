@@ -16,7 +16,7 @@ import { StartWithDocument } from '@/components/onboarding/start-with-document';
 import { ResumeRedesignDialog } from '@/components/resume/resume-redesign-dialog';
 import { markDashboardWalkthroughSeen } from '@/lib/requests/walkthrough';
 import { cn } from '@/lib/utils';
-import type { Project } from '@/types/project';
+import type { DashboardProject } from '@/types/project';
 
 function ActionCard({
   href,
@@ -72,7 +72,7 @@ function ActionCard({
 }
 
 interface DashboardWithWalkthroughProps {
-  data: Project[];
+  data: DashboardProject[];
   userId: string;
   shouldShowWalkthrough: boolean;
   generateWalkthroughCompleted?: boolean;

@@ -60,7 +60,6 @@ export async function writeProjectFiles(
     name: u.file.path,
     type: u.mimeType,
     size: u.file.content.length,
-    url: supabase.storage.from('octree').getPublicUrl(u.storagePath).data.publicUrl,
   }));
 
   // One row stays a plain object (the long-standing single-file insert).

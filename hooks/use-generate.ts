@@ -13,6 +13,7 @@ import type { Json } from '@/database.types';
 import { readStream } from '@/lib/utils/sse';
 import { AnalyticsEvents, type GenerateErrorKind } from '@/lib/analytics/events';
 import { track } from '@/lib/analytics/track';
+import { signAttachmentPreviews, normalizeMessageAttachments } from '@/lib/generate/attachment-previews';
 import {
   checkGenerateRequestSize,
   checkGenerateTextLength,
@@ -53,6 +54,9 @@ export function useGenerate(options: UseGenerateOptions = {}) {
   const abortControllerRef = useRef<AbortController | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lastAttemptRef = useRef<{ prompt: string; files: AttachedFile[] } | null>(null);
+  // Bumped by every restore and reset, so a late signing result for a
+  // conversation no longer shown is dropped.
+  const restoreIdRef = useRef(0);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -129,6 +133,7 @@ export function useGenerate(options: UseGenerateOptions = {}) {
   }, []);
 
   const resetState = useCallback(() => {
+    restoreIdRef.current += 1;
     GenerateActions.reset();
     setCurrentDocument(null);
     setMessages([]);
@@ -154,7 +159,8 @@ export function useGenerate(options: UseGenerateOptions = {}) {
         id: att.id,
         name: att.name,
         type: att.type,
-        preview: att.url,
+        preview: att.url ?? null,
+        path: att.path,
       }));
 
       restoredMessages = [
@@ -181,11 +187,43 @@ export function useGenerate(options: UseGenerateOptions = {}) {
       lastAttemptRef.current = null;
     }
 
+    // Stored previews are storage paths (or, on older rows, public URLs);
+    // show the messages at once and swap in signed URLs when they arrive.
+    const initialMessages = normalizeMessageAttachments<MessageAttachment, Message>(restoredMessages);
+
     setCurrentDocument(doc);
-    setMessages(restoredMessages);
+    setMessages(initialMessages);
     setError(null);
     setPrompt('');
-  }, []);
+
+    const restoreId = ++restoreIdRef.current;
+    void signAttachmentPreviews<MessageAttachment, Message>(supabase, initialMessages).then((signed) => {
+      if (signed === initialMessages) return;
+      // Only for the conversation still shown (no other restore or reset since).
+      if (restoreIdRef.current !== restoreId) return;
+      const previews = new Map<string, string>();
+      for (const m of signed) {
+        for (const a of m.attachments ?? []) {
+          if (a.path && a.preview) previews.set(a.path, a.preview);
+        }
+      }
+      if (previews.size === 0) return;
+      // Merged into the current messages: the user may already have sent a
+      // follow-up, which must not be dropped (or drop these previews).
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.attachments?.some((a) => !a.preview && a.path && previews.has(a.path))
+            ? {
+                ...m,
+                attachments: m.attachments.map((a) =>
+                  !a.preview && a.path && previews.has(a.path) ? { ...a, preview: previews.get(a.path)! } : a
+                ),
+              }
+            : m
+        )
+      );
+    });
+  }, [supabase]);
 
   const updateLastMessage = useCallback((updater: (msg: Message) => void) => {
     setMessages((prev) => {
@@ -319,11 +357,13 @@ export function useGenerate(options: UseGenerateOptions = {}) {
         userId
       );
 
+      // Persisted with the storage path only; restoreSession signs it for display.
       const persistentMessageAttachments: MessageAttachment[] = uploadedAttachments.map((ua) => ({
         id: ua.id,
         name: ua.name,
         type: ua.type,
-        preview: ua.url,
+        preview: null,
+        path: ua.path,
       }));
 
       persistentUserMessage = {
@@ -639,7 +679,13 @@ export function useGenerate(options: UseGenerateOptions = {}) {
              };
              setCurrentDocument((prev) => prev ? { ...prev, ...updates } : prev);
              GenerateActions.updateDocument(documentId, updates);
-             setMessages(historyForDb);
+             // Keep the local (blob:) previews of messages already on screen.
+             setMessages((prev) =>
+               historyForDb.map((m) => {
+                 const shown = prev.find((p) => p.id === m.id);
+                 return shown?.attachments ? { ...m, attachments: shown.attachments } : m;
+               })
+             );
           }
       }
 
@@ -747,14 +793,12 @@ async function uploadFilesToStorage(
       return null;
     }
 
-    const { data } = supabase.storage
-      .from('chat-attachments')
-      .getPublicUrl(path);
+    // The bucket is private: store the path, sign it when displaying.
     return {
       id: f.id,
       name: f.file.name,
       type: f.type,
-      url: data.publicUrl,
+      path,
     };
   });
 

@@ -19,6 +19,8 @@ export interface MessageAttachment {
     name: string;
     type: 'image' | 'document';
     preview: string | null;
+    /** Object path in `chat-attachments` once uploaded. */
+    path?: string;
 }
 
 export interface Message {

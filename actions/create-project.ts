@@ -70,16 +70,11 @@ export async function createProject(title: string) {
       throw new Error('Failed to upload file to storage');
     }
 
-    const { data: urlData } = supabase.storage
-      .from('octree')
-      .getPublicUrl(filePath);
-
     const fileToInsert: TablesInsert<'files'> = {
       project_id: data.id,
       name: 'main.tex',
       type: 'text/x-tex',
       size: defaultContent.length,
-      url: urlData.publicUrl,
     };
 
     const { error: fileError } = await (supabase.from('files') as any).insert(

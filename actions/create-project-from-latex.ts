@@ -78,16 +78,11 @@ export async function createProjectFromLatex(
       return { projectId: null, error: 'Failed to save document' };
     }
 
-    const { data: urlData } = supabase.storage
-      .from('octree')
-      .getPublicUrl(filePath);
-
     const fileRecord: TablesInsert<'files'> = {
       project_id: project.id,
       name: 'main.tex',
       type: 'text/x-tex',
       size: new Blob([latexContent]).size,
-      url: urlData.publicUrl,
     };
 
     const { error: fileError } = await (

@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Project } from '@/types/project';
+import { DashboardProject } from '@/types/project';
 import { ProjectCard, ProjectCardActions } from './project-card';
 
 const PAGE_SIZE = 12;
@@ -11,7 +11,7 @@ const PAGE_SIZE = 12;
 export function ProjectGrid({
   data,
   ...actions
-}: { data: Project[] } & ProjectCardActions) {
+}: { data: DashboardProject[] } & ProjectCardActions) {
   const [selectedPage, setSelectedPage] = useState(0);
   const pageCount = Math.max(1, Math.ceil(data.length / PAGE_SIZE));
   const page = Math.min(selectedPage, pageCount - 1);

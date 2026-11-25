@@ -40,8 +40,12 @@ export default async function Dashboard() {
 
   const userName = user?.user_metadata?.name ?? user?.email ?? null;
 
-  const data = await getAllProjects();
-  const walkthroughStatus = await getUserWalkthroughStatus(user.id);
+  // Independent reads; getAllProjects also signs every thumbnail URL, so
+  // running them one after the other would add a storage round trip.
+  const [data, walkthroughStatus] = await Promise.all([
+    getAllProjects(),
+    getUserWalkthroughStatus(user.id),
+  ]);
   const shouldShowWalkthrough = !walkthroughStatus?.dashboard_seen;
   const generateWalkthroughCompleted = !!walkthroughStatus?.generate_seen;
 

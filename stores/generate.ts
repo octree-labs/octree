@@ -9,7 +9,10 @@ export interface StoredAttachment {
   id: string;
   name: string;
   type: 'image' | 'document';
-  url: string;
+  /** Object path in the private `chat-attachments` bucket. */
+  path?: string;
+  /** Public URL, on rows written before the bucket went private. */
+  url?: string;
 }
 
 export interface StoredMessage {
@@ -20,7 +23,9 @@ export interface StoredMessage {
     id: string;
     name: string;
     type: 'image' | 'document';
+    /** Null on new rows; a public URL on rows from before the bucket went private. */
     preview: string | null;
+    path?: string;
   }>;
 }
 

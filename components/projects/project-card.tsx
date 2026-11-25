@@ -13,22 +13,64 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Project } from '@/types/project';
+import { DashboardProject } from '@/types/project';
 import { cn } from '@/lib/utils';
-import { previewUrl } from '@/lib/utils/project-preview-path';
+import { getProjectPreviewUrl } from '@/lib/requests/project';
 
 dayjs.extend(relativeTime);
 
-function ProjectThumbnail({ projectId }: { projectId: string }) {
-  const [status, setStatus] = useState<'loading' | 'loaded' | 'missing'>(
-    'loading'
-  );
+// `src` is a signed URL made when the dashboard was rendered (the bucket is
+// private), or null when the project has no thumbnail yet.
+function ProjectThumbnail({
+  projectId,
+  src,
+}: {
+  projectId: string;
+  src: string | null;
+}) {
+  // The URL the <img> uses. A refresh (revalidatePath after rename, delete,
+  // duplicate) hands in a new signed URL for the same image; the one already
+  // shown is kept so the browser does not download it again, unless it failed.
+  const [shownSrc, setShownSrc] = useState(src);
+  const [loadedSrc, setLoadedSrc] = useState<string | null>(null);
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const resignedRef = useRef(false);
   const imgRef = useRef<HTMLImageElement>(null);
+
+  // A newer URL from a refresh replaces one that failed (e.g. expired).
+  if (src && shownSrc === failedSrc && src !== shownSrc) {
+    setShownSrc(src);
+  }
+
+  const status: 'loading' | 'loaded' | 'missing' =
+    !shownSrc || shownSrc === failedSrc
+      ? 'missing'
+      : shownSrc === loadedSrc
+        ? 'loaded'
+        : 'loading';
+
+  const handleError = () => {
+    const failed = shownSrc;
+    setFailedSrc(failed);
+    // Signed URLs expire (SIGNED_URL_TTL_SECONDS): an image first requested
+    // late (another page of the grid, a search, a lazy card scrolled into
+    // view) gets one fresh URL before falling back to the placeholder.
+    if (resignedRef.current) return;
+    resignedRef.current = true;
+    getProjectPreviewUrl(projectId)
+      .then((url) => {
+        if (url) setShownSrc((cur) => (cur === failed ? url : cur));
+      })
+      .catch(() => {});
+  };
 
   useEffect(() => {
     const img = imgRef.current;
-    if (img?.complete) setStatus(img.naturalWidth ? 'loaded' : 'missing');
-  }, []);
+    if (!img?.complete || !shownSrc) return;
+    if (img.naturalWidth) setLoadedSrc(shownSrc);
+    else handleError();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shownSrc]);
 
   return (
     <div className="relative aspect-video w-full bg-muted/40">
@@ -38,11 +80,11 @@ function ProjectThumbnail({ projectId }: { projectId: string }) {
       {status === 'missing' && (
         <FileText className="absolute inset-0 m-auto size-8 text-muted-foreground" />
       )}
-      {status !== 'missing' && (
+      {shownSrc && status !== 'missing' && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           ref={imgRef}
-          src={previewUrl(projectId)}
+          src={shownSrc}
           alt=""
           loading="lazy"
           decoding="async"
@@ -50,8 +92,8 @@ function ProjectThumbnail({ projectId }: { projectId: string }) {
             'absolute inset-0 h-full w-full object-cover object-top transition-opacity duration-300',
             status === 'loaded' ? 'opacity-100' : 'opacity-0'
           )}
-          onLoad={() => setStatus('loaded')}
-          onError={() => setStatus('missing')}
+          onLoad={() => setLoadedSrc(shownSrc)}
+          onError={handleError}
         />
       )}
     </div>
@@ -69,7 +111,7 @@ export function ProjectCard({
   onDelete,
   onRename,
   onDuplicate,
-}: { project: Project } & ProjectCardActions) {
+}: { project: DashboardProject } & ProjectCardActions) {
   const router = useRouter();
 
   return (
@@ -77,7 +119,13 @@ export function ProjectCard({
       className="cursor-pointer overflow-hidden rounded-xl border bg-card transition-shadow hover:shadow-md"
       onClick={() => router.push(`/projects/${project.id}`)}
     >
-      <ProjectThumbnail projectId={project.id} />
+      {/* Remount only when a thumbnail appears or disappears; a refreshed
+          URL for the same image keeps the current one on screen. */}
+      <ProjectThumbnail
+        key={project.preview_url ? 'preview' : 'none'}
+        projectId={project.id}
+        src={project.preview_url}
+      />
       <div className="flex items-center justify-between gap-1 border-t py-4 pl-4 pr-2">
         <div className="min-w-0">
           <p className="truncate font-medium" title={project.title}>

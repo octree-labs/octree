@@ -23,3 +23,16 @@ describe('loopback redirect handling', () => {
     expect(redirectUriMatches('http://127.0.0.1:1/callback', 'https://localhost:2/callback')).toBe(false);
   });
 });
+
+import { effectiveRedirectUri } from '@/lib/oauth/redirect-uri';
+describe('effectiveRedirectUri', () => {
+  it('puts back the registered loopback host, keeping the presented port', () => {
+    expect(effectiveRedirectUri('http://127.0.0.1:1/callback', 'http://localhost:53682/callback')).toBe('http://127.0.0.1:53682/callback');
+    expect(effectiveRedirectUri('http://localhost/callback', 'http://127.0.0.1:9/callback')).toBe('http://localhost:9/callback');
+  });
+  it('leaves non-loopback and same-host URIs alone', () => {
+    expect(effectiveRedirectUri('https://claude.ai/cb', 'https://claude.ai/cb')).toBe('https://claude.ai/cb');
+    expect(effectiveRedirectUri('cursor://x/cb', 'cursor://x/cb')).toBe('cursor://x/cb');
+    expect(effectiveRedirectUri('http://127.0.0.1:1/cb', 'http://127.0.0.1:5/cb')).toBe('http://127.0.0.1:5/cb');
+  });
+});

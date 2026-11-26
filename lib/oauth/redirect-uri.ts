@@ -136,3 +136,20 @@ export function redirectDisplay(uri: string): { label: string; loopback: boolean
   }
   return { label: `${url.protocol}//${url.host}`.replace(/\/\/$/, ''), loopback: false, app: true };
 }
+
+/**
+ * The redirect URI to actually use for a request whose presented URI matched
+ * `registered`. For loopback redirects this puts back the host the client
+ * registered (keeping the presented port): Next.js rewrites loopback hosts
+ * anywhere in a request URL (127.0.0.1 -> localhost) when the authorize link
+ * passes through a sign-in redirect, and the client later sends its original
+ * redirect_uri to the token endpoint, which is compared exactly.
+ */
+export function effectiveRedirectUri(registered: string, presented: string): string {
+  const a = parse(registered);
+  const b = parse(presented);
+  if (!a || !b || a.protocol !== 'http:' || b.protocol !== 'http:') return presented;
+  if (!isLoopbackHost(a.hostname) || !isLoopbackHost(b.hostname) || a.hostname === b.hostname) return presented;
+  b.hostname = a.hostname;
+  return b.toString();
+}

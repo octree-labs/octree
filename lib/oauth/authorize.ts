@@ -1,6 +1,6 @@
 import { CLIENT_ID_MAX_LENGTH, type ClientInfo } from '@/lib/oauth/clients';
 import { grantedScope, isAcceptedResource, oauthIssuer, mcpResourceUrl, type GrantScope } from '@/lib/oauth/metadata';
-import { findMatchingRedirectUri, isLoopbackRedirect } from '@/lib/oauth/redirect-uri';
+import { findMatchingRedirectUri, isLoopbackRedirect, effectiveRedirectUri } from '@/lib/oauth/redirect-uri';
 import { isCodeChallenge } from '@/lib/oauth/tokens';
 
 /**
@@ -105,9 +105,9 @@ export async function validateAuthorizeRequest(
   if (!resolved.ok) return page('Unknown app', resolved.reason);
   const { client } = resolved;
 
-  const presented = params.redirect_uri;
-  if (!presented) return page('Missing redirect_uri', 'The app did not say where to send you back. Start again from the app.');
-  const registered = findMatchingRedirectUri(client.redirect_uris, presented);
+  const presentedRaw = params.redirect_uri;
+  if (!presentedRaw) return page('Missing redirect_uri', 'The app did not say where to send you back. Start again from the app.');
+  const registered = findMatchingRedirectUri(client.redirect_uris, presentedRaw);
   if (!registered) {
     return page(
       'Redirect address not registered',
@@ -115,6 +115,7 @@ export async function validateAuthorizeRequest(
     );
   }
 
+  const presented = effectiveRedirectUri(registered, presentedRaw);
   const state = params.state ?? null;
   const fail = (error: string, description: string): AuthorizeValidation => ({
     ok: false,

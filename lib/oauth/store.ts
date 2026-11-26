@@ -106,6 +106,10 @@ export function createOAuthStore(admin: AdminClient = createAdminClient()): OAut
       if (error) fail('refresh claim', error.message);
       return (data as RefreshRow | null) ?? null;
     },
+    async releaseRefreshToken(id, at) {
+      const { error } = await admin.from('oauth_refresh_tokens').update({ used_at: null }).eq('id', id).eq('used_at', at);
+      if (error) fail('refresh release', error.message);
+    },
     async insertAccessKey(row) {
       const { data, error } = await admin
         .from('api_keys')
@@ -189,6 +193,15 @@ export async function dcrClientExists(clientId: string, admin: AdminClient = cre
 // ---------------------------------------------------------------------------
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+/**
+ * Expired or revoked OAuth access keys are kept for the refresh-token lifetime
+ * (60 days) plus a day, so a client presenting a stale access token is
+ * recognised as "expired" rather than "unknown key" (which counts toward the
+ * per-IP failed-auth block and could lock out a shared egress IP).
+ */
+const OAUTH_KEY_RETENTION_MS = 61 * DAY_MS;
+/** Registered clients that never completed a connection; apps cache client_ids. */
+const UNUSED_CLIENT_RETENTION_MS = 30 * DAY_MS;
 
 export interface OAuthCleanupResult {
   codes_deleted: number;
@@ -204,10 +217,10 @@ export interface OAuthCleanupResult {
  *   - codes a day past expiry
  *   - refresh tokens past expiry, or used more than 7 days ago (reuse of
  *     one that old is answered invalid_grant without revoking the grant)
- *   - OAuth access keys a day past expiry (and revoked ones a day old)
+ *   - OAuth access keys 61 days past expiry/revocation (stale tokens stay recognisable)
  *   - grants unused for the refresh-token lifetime are revoked ('expired');
  *     revoked grants are deleted after 30 days
- *   - DCR clients never used a day after registering, or unused for 180
+ *   - DCR clients never used 30 days after registering, or unused for 180
  *     days with no active grant
  * `dry` counts without changing anything.
  */
@@ -243,7 +256,7 @@ export async function cleanupOAuth(admin: AdminClient, now: Date, dry = false): 
           .from('api_keys')
           .select('id', { count: 'exact', head: true })
           .eq('kind', 'oauth')
-          .or(`expires_at.lt.${at(t - DAY_MS)},revoked_at.lt.${at(t - DAY_MS)}`),
+          .or(`expires_at.lt.${at(t - OAUTH_KEY_RETENTION_MS)},revoked_at.lt.${at(t - OAUTH_KEY_RETENTION_MS)}`),
         'key count'
       ),
       grants_expired: await count(
@@ -259,7 +272,7 @@ export async function cleanupOAuth(admin: AdminClient, now: Date, dry = false): 
           .from('oauth_clients')
           .select('id', { count: 'exact', head: true })
           .is('last_used_at', null)
-          .lt('created_at', at(t - DAY_MS)),
+          .lt('created_at', at(t - UNUSED_CLIENT_RETENTION_MS)),
         'client count'
       ),
     };
@@ -281,7 +294,7 @@ export async function cleanupOAuth(admin: AdminClient, now: Date, dry = false): 
       .from('api_keys')
       .delete({ count: 'exact' })
       .eq('kind', 'oauth')
-      .or(`expires_at.lt.${at(t - DAY_MS)},revoked_at.lt.${at(t - DAY_MS)}`),
+      .or(`expires_at.lt.${at(t - OAUTH_KEY_RETENTION_MS)},revoked_at.lt.${at(t - OAUTH_KEY_RETENTION_MS)}`),
     'key delete'
   );
   const expired = await count(
@@ -297,7 +310,7 @@ export async function cleanupOAuth(admin: AdminClient, now: Date, dry = false): 
     'grant delete'
   );
   let clients = await count(
-    admin.from('oauth_clients').delete({ count: 'exact' }).is('last_used_at', null).lt('created_at', at(t - DAY_MS)),
+    admin.from('oauth_clients').delete({ count: 'exact' }).is('last_used_at', null).lt('created_at', at(t - UNUSED_CLIENT_RETENTION_MS)),
     'client delete'
   );
 

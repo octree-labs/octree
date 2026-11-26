@@ -90,6 +90,10 @@ export function createMemoryOAuthStore() {
       row.used_at = at;
       return { ...row };
     },
+    async releaseRefreshToken(id, at) {
+      const row = refresh.get(id);
+      if (row && row.used_at === at) row.used_at = null;
+    },
     async insertAccessKey(row) {
       const id = randomUUID();
       keys.set(id, {

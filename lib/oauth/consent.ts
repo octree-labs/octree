@@ -67,7 +67,9 @@ export function verifyConsentToken(
 /** Whether a POST comes from this origin's own page. */
 export function isSameOriginPost(headers: Headers, origin: string): boolean {
   const sent = headers.get('origin');
-  if (sent) return sent === origin;
+  // `Origin: null` (a no-referrer policy, privacy settings) says nothing about
+  // the sender: fall back to Sec-Fetch-Site, as when the header is absent.
+  if (sent && sent !== 'null') return sent === origin;
   return headers.get('sec-fetch-site') === 'same-origin';
 }
 

@@ -28,7 +28,10 @@ const nextConfig: NextConfig = {
     ];
     return [
       { source: '/activate', headers: noFraming },
-      { source: '/oauth/authorize', headers: [...noFraming, { key: 'Referrer-Policy', value: 'no-referrer' }] },
+      // `same-origin`, not `no-referrer`: under no-referrer browsers send
+      // `Origin: null` on the consent form's POST, which the decision route's
+      // same-origin check (lib/oauth/consent.ts) would refuse.
+      { source: '/oauth/authorize', headers: [...noFraming, { key: 'Referrer-Policy', value: 'same-origin' }] },
     ];
   },
 };

@@ -64,7 +64,7 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function ErrorCard({ title, description }: { title: string; description: string }) {
+function ErrorCard({ title, description, returnHref }: { title: string; description: string; returnHref?: string }) {
   return (
     <Shell>
       <Card>
@@ -73,7 +73,15 @@ function ErrorCard({ title, description }: { title: string; description: string 
           <CardTitle className="text-xl">{title}</CardTitle>
           <CardDescription>{description}</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-2">
+          {returnHref ? (
+            <Button asChild className="w-full">
+              {/* A plain anchor: the address may be another site or an app scheme (cursor://). */}
+              <a href={returnHref} rel="noreferrer">
+                Return to the app
+              </a>
+            </Button>
+          ) : null}
           <Button asChild variant="outline" className="w-full">
             <Link href="/">Go to Octree</Link>
           </Button>
@@ -253,7 +261,18 @@ export default async function AuthorizePage({ searchParams }: PageProps) {
     return <ErrorCard title="Something went wrong" description="Octree could not load this request. Try again from the app." />;
   }
   if (!validation.ok) {
-    if (validation.kind === 'redirect') redirect(validation.location);
+    // Registration is open (DCR/CIMD), so the redirect address is untrusted:
+    // show the error on Octree's page with a link back instead of sending the
+    // visitor there automatically (RFC 9700 4.11.2, no open redirect).
+    if (validation.kind === 'redirect') {
+      return (
+        <ErrorCard
+          title="This connection request is invalid"
+          description="The app sent a request Octree cannot accept. Go back to the app and try connecting again."
+          returnHref={validation.location}
+        />
+      );
+    }
     return <ErrorCard title={validation.title} description={validation.description} />;
   }
 

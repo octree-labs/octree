@@ -100,6 +100,7 @@ function isPublicV6(ip: string): boolean {
   // IPv4-mapped / -compatible / NAT64: judge the embedded IPv4 address.
   const embedded = `${g[6] >> 8}.${g[6] & 0xff}.${g[7] >> 8}.${g[7] & 0xff}`;
   if (g.slice(0, 5).every((x) => x === 0) && (g[5] === 0xffff || g[5] === 0)) return isPublicV4(embedded);
+  if (first === 0x64 && g[1] === 0xff9b && g[2] === 1) return false; // 64:ff9b:1::/48 local-use NAT64
   if (first === 0x64 && g[1] === 0xff9b) return isPublicV4(embedded);
   if ((first & 0xfe00) === 0xfc00) return false; // fc00::/7 unique local
   if ((first & 0xffc0) === 0xfe80) return false; // fe80::/10 link local
@@ -246,7 +247,10 @@ export async function resolveCimdClient(
   try {
     fetched = await (options.fetcher ?? fetchMetadataDocument)(clientId);
   } catch (error) {
-    const reason = `Could not fetch the client metadata document (${error instanceof Error ? error.message : 'error'}).`;
+    // The detail (DNS answer, refused address, connect error) stays in the log:
+    // shown to the user it would map which internal names resolve.
+    console.error('[oauth/cimd] fetch failed:', error instanceof Error ? error.message : 'error');
+    const reason = 'Could not fetch the client metadata document.';
     return remember(clientId, { ok: false, reason }, NEGATIVE_CACHE_MS, now);
   }
   if (fetched.status !== 200) {

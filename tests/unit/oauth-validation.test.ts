@@ -375,6 +375,8 @@ describe('consent form protection', () => {
     expect(isSameOriginPost(new Headers({ 'sec-fetch-site': 'same-origin' }), ORIGIN)).toBe(true);
     expect(isSameOriginPost(new Headers({ 'sec-fetch-site': 'cross-site' }), ORIGIN)).toBe(false);
     expect(isSameOriginPost(new Headers(), ORIGIN)).toBe(false);
+    expect(isSameOriginPost(new Headers({ origin: 'null', 'sec-fetch-site': 'same-origin' }), ORIGIN)).toBe(true);
+    expect(isSameOriginPost(new Headers({ origin: 'null', 'sec-fetch-site': 'cross-site' }), ORIGIN)).toBe(false);
   });
 
   it('derives the origin from the host header, not the Tools proxy forwarded host', () => {

@@ -104,6 +104,8 @@ export interface OAuthStore {
   findRefreshToken(hash: string): Promise<RefreshRow | null>;
   /** Sets used_at only while it is null; the row or null. */
   claimRefreshToken(id: string, at: string): Promise<RefreshRow | null>;
+  /** Undoes a claim made at `at` (used_at back to null) when no tokens could be issued. */
+  releaseRefreshToken(id: string, at: string): Promise<void>;
   /** Inserts an API key of kind 'oauth' for the grant (service role). */
   insertAccessKey(row: {
     user_id: string;
@@ -310,7 +312,15 @@ export async function refreshAccessToken(store: OAuthStore, input: RefreshInput)
     await store.revokeGrant(grant.id, nowIso, 'refresh_reuse');
     return err('invalid_grant', 'The refresh token was already used; the authorization has been revoked. Connect again.');
   }
-  const body = await issueTokens(store, grant, input);
+  let body: TokenSuccess;
+  try {
+    body = await issueTokens(store, grant, input);
+  } catch (error) {
+    // Nothing was delivered: give the token back so the client's retry (the
+    // route answers 503 + Retry-After) is not mistaken for reuse.
+    await store.releaseRefreshToken(row.id, nowIso).catch(() => undefined);
+    throw error;
+  }
   await store.touchGrantRefreshed(grant.id, nowIso);
   return { ok: true, grant, refreshed: true, body };
 }

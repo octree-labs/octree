@@ -194,10 +194,12 @@ describe('/oauth/authorize page', () => {
     expect(html).toContain('any program on your computer');
   });
 
-  it('shows client errors on the page and redirects protocol errors to the client', async () => {
+  it('shows client errors on the page, and protocol errors on the page with a link back (no auto-redirect)', async () => {
     expect(await page({ ...PARAMS, redirect_uri: 'https://evil.example/cb' })).toContain('Redirect address not registered');
-    const redirected = await page({ ...PARAMS, code_challenge_method: 'plain' });
-    expect(redirected).toMatch(/^REDIRECT:cursor:\/\/anysphere\.cursor-retrieval\/oauth\/callback\?error=invalid_request/);
+    const html = await page({ ...PARAMS, code_challenge_method: 'plain' });
+    expect(html).not.toMatch(/^REDIRECT:/);
+    expect(html).toContain('This connection request is invalid');
+    expect(html).toMatch(/href="cursor:\/\/anysphere\.cursor-retrieval\/oauth\/callback\?error=invalid_request/);
   });
 });
 

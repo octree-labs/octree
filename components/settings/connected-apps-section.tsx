@@ -21,7 +21,7 @@ export function ConnectedAppsSection({ initialGrants, maxGrants }: { initialGran
   const [isPending, startTransition] = useTransition();
 
   const handleRevoke = (grant: OAuthGrantSummary) => {
-    if (!window.confirm(`Disconnect "${grantLabel(grant)}"? It loses access right away and has to be connected again.`)) return;
+    if (!window.confirm(`Disconnect "${grantLabel(grant)}"? It loses access within a minute and has to be connected again.`)) return;
     startTransition(async () => {
       const result = await revokeOAuthGrant(grant.id);
       if (!result.ok) {

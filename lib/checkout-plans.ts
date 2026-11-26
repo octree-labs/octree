@@ -9,6 +9,9 @@ import {
 import { PRICE_LOOKUP_KEYS, type PriceLookupKey } from '@/lib/stripe-prices';
 import { isCheckoutOfferId, offerAppliesToPlan, type CheckoutOfferId } from '@/lib/checkout-offers';
 import type { PriceTier } from '@/lib/regional-pricing';
+import { PRO_PASS_DAYS } from '@/data/constants';
+import { guaranteeLine } from '@/lib/offer-v2/offer';
+import type { OfferVariant } from '@/lib/offer-v2/variant';
 
 /**
  * What /api/checkout-session sells, and how a request body maps onto it.
@@ -26,6 +29,10 @@ import type { PriceTier } from '@/lib/regional-pricing';
  *   writes project_export_unlocks through grant_export_unlock and the buyer
  *   lands back on the project with `?export=unlocked`). Requires a
  *   `projectId` the signed-in user owns (the route checks it).
+ * - `deadline_pass`: a one-off $4.99 Deadline Pass, PRO_PASS_DAYS days of
+ *   Pro (`mode: 'payment'`, `metadata.pro_pass_days`; the webhook and
+ *   /success extend user_usage.pro_until through grant_pro_pass, and the
+ *   buyer lands on /success, which continues to `successPath`).
  * - `weekly`: retired for new purchases. Existing weekly subscribers keep
  *   their subscription (the webhook does not look at the price), but the
  *   route refuses to start a new one.
@@ -43,14 +50,23 @@ export type GenerationPlan = (typeof GENERATION_PLANS)[number];
 export const EXPORT_PLANS = ['export_single'] as const;
 export type ExportPlan = (typeof EXPORT_PLANS)[number];
 
-export type PurchasePlan = SubscriptionPlan | CreditPlan | GenerationPlan | ExportPlan;
+export const PASS_PLANS = ['deadline_pass'] as const;
+export type PassPlan = (typeof PASS_PLANS)[number];
+
+export type PurchasePlan = SubscriptionPlan | CreditPlan | GenerationPlan | ExportPlan | PassPlan;
 
 export const PURCHASE_PLANS: readonly PurchasePlan[] = [
   ...SUBSCRIPTION_PLANS,
   ...CREDIT_PLANS,
   ...GENERATION_PLANS,
   ...EXPORT_PLANS,
+  ...PASS_PLANS,
 ];
+
+/** Days of Pro each pass grants (`metadata.pro_pass_days`). */
+export const PRO_PASS_DAYS_BY_PLAN: Record<PassPlan, number> = {
+  deadline_pass: PRO_PASS_DAYS,
+};
 
 export const GENERATIONS_PER_PURCHASE: Record<GenerationPlan, number> = {
   generate_single: 1,
@@ -77,6 +93,15 @@ export function isGenerationPlan(plan: PurchasePlan): plan is GenerationPlan {
 
 export function isExportPlan(plan: PurchasePlan): plan is ExportPlan {
   return (EXPORT_PLANS as readonly string[]).includes(plan);
+}
+
+export function isPassPlan(plan: PurchasePlan): plan is PassPlan {
+  return (PASS_PLANS as readonly string[]).includes(plan);
+}
+
+/** Plans that make the buyer Pro (a subscription, or a pass): /success continues to `successPath`. */
+export function grantsPro(plan: PurchasePlan): boolean {
+  return isSubscriptionPlan(plan) || isPassPlan(plan);
 }
 
 /** Project ids are Supabase uuids; anything else is refused before a query. */
@@ -146,7 +171,7 @@ export type ResolvedCheckoutPlan =
       projectId?: string;
       /** Where Stripe's back link returns the buyer (`resolveReturnPath`). */
       returnPath?: string;
-      /** Where /success sends the buyer on to (`resolveReturnPath`); subscription plans only. */
+      /** Where /success sends the buyer on to (`resolveReturnPath`); subscription and pass plans only. */
       successPath?: string;
     } & CheckoutAttribution)
   | { ok: false; error: string };
@@ -284,6 +309,20 @@ export interface CheckoutSessionInput {
    */
   priceTier?: PriceTier;
   country?: string | null;
+  /**
+   * Subscription plans: `subscription_data.trial_end` (unix seconds), set
+   * by the route when the buyer has a Deadline Pass running for more than
+   * 48 hours (lib/subscription/pass-trial.ts), so billing starts when the
+   * pass ends. Takes precedence over `withTrial`.
+   */
+  trialEnd?: number;
+  /**
+   * The `onboarding-offer-v2` variant (lib/offer-v2/variant-server.ts),
+   * written to the metadata so `subscription_started` can be split by it.
+   * `offer_v2` also shows the money-back guarantee on the Checkout page
+   * (`custom_text.submit.message`) for Pro plans (subscription or pass).
+   */
+  offerVariant?: OfferVariant;
 }
 
 /**
@@ -353,6 +392,7 @@ export function buildCheckoutSessionParams(
     metadata.price_tier = input.priceTier;
     if (input.country) metadata.country = input.country;
   }
+  if (input.offerVariant) metadata.offer_variant = input.offerVariant;
   const discounted = !!input.offer && !!input.promotionCodeId;
   if (discounted) metadata.offer = input.offer!;
   const exportProjectId = isExportPlan(plan) ? input.projectId : undefined;
@@ -371,7 +411,7 @@ export function buildCheckoutSessionParams(
       ? `${projectUrl}?export=unlocked`
       : isGenerationPlan(plan)
         ? `${origin}/generate?purchased=1`
-        : successUrl(origin, isSubscriptionPlan(plan) ? input.successPath : undefined),
+        : successUrl(origin, grantsPro(plan) ? input.successPath : undefined),
     cancel_url: checkoutCanceledUrl(origin, plan, input.source, cancelReturnPath(plan, input.returnPath, exportProjectId)),
     automatic_tax: { enabled: true },
     allow_promotion_codes: true,
@@ -383,6 +423,12 @@ export function buildCheckoutSessionParams(
     expires_at: nowSeconds + CHECKOUT_SESSION_TTL_SECONDS,
     after_expiration: { recovery: { enabled: true, allow_promotion_codes: true } },
   };
+
+  // The guarantee is about Pro (a subscription or a Deadline Pass); never on
+  // the export unlock, a generation credit or a credit pack.
+  if (input.offerVariant === 'offer_v2' && grantsPro(plan)) {
+    params.custom_text = { submit: { message: guaranteeLine() } };
+  }
 
   if (discounted) {
     // Stripe refuses `discounts` together with `allow_promotion_codes`
@@ -405,15 +451,24 @@ export function buildCheckoutSessionParams(
 
   if (isSubscriptionPlan(plan)) {
     params.subscription_data = { metadata };
-    if (withTrial) params.subscription_data.trial_period_days = 3;
+    if (input.trialEnd) params.subscription_data.trial_end = input.trialEnd;
+    else if (withTrial) params.subscription_data.trial_period_days = 3;
   } else {
+    if (isPassPlan(plan)) {
+      // The pass is already the cheap way in: no promotion codes (a 100%
+      // code would make it free), on the session or its recovery link.
+      params.allow_promotion_codes = false;
+      params.after_expiration = { recovery: { enabled: true, allow_promotion_codes: false } };
+    }
     // Each one-off carries only its own key, so the webhook grants exactly
     // one product per session (export_single: export_project_id, above).
     params.metadata = isGenerationPlan(plan)
       ? { ...params.metadata, generation_credits: String(GENERATIONS_PER_PURCHASE[plan]) }
       : isExportPlan(plan)
         ? { ...params.metadata }
-        : { ...params.metadata, credits: String(CREDITS_PER_PACK[plan]) };
+        : isPassPlan(plan)
+          ? { ...params.metadata, pro_pass_days: String(PRO_PASS_DAYS_BY_PLAN[plan]) }
+          : { ...params.metadata, credits: String(CREDITS_PER_PACK[plan]) };
     params.payment_intent_data = { metadata };
     // So the next purchase reuses the same customer record.
     if (!customerId) params.customer_creation = 'always';

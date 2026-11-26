@@ -5,9 +5,21 @@ import { CheckCircle, ArrowRight } from 'lucide-react';
 
 import { stripe } from '../../lib/stripe';
 import { resolveReturnPath } from '@/lib/checkout-plans';
-import { isOctreeCheckoutSession } from '@/lib/stripe-webhook';
+import {
+  checkoutAttributionFromMetadata,
+  grantProPass,
+  isOctreeCheckoutSession,
+  isProPassSession,
+  offerVariantFromMetadata,
+  proPassDaysFromSession,
+} from '@/lib/stripe-webhook';
+import { guaranteeLine } from '@/lib/offer-v2/offer';
 import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
+import { AnalyticsEvents } from '@/lib/analytics/events';
+import { captureServerEventAfterResponse } from '@/lib/posthog-server';
 import { Button } from '@/components/ui/button';
+import { PassEndDate } from '@/components/subscription/pass-end-date';
 import {
   Card,
   CardContent,
@@ -38,6 +50,17 @@ export default async function Success({ searchParams }: SuccessPageProps) {
 
   if (session.status === 'complete') {
     await markOnboardedAfterPayment(session);
+    // Decided from the session's metadata alone, so a pass (paid or still
+    // settling) never falls through to the credit-pack copy.
+    const isPass = isProPassSession(session);
+    const passEnd = isPass ? await grantPassAfterPayment(session) : null;
+    // "Active" only while the pass end is still ahead (not refunded, not lapsed).
+    const passActive = !!passEnd && Date.parse(passEnd) > Date.now();
+    // The guarantee was promised on the offer_v2 paywall and at Checkout:
+    // repeat it here for a Pro purchase (subscription or pass) made under it.
+    const showGuarantee =
+      offerVariantFromMetadata(session.metadata).offer_variant === 'offer_v2' &&
+      (isPass || session.mode === 'subscription');
 
     return (
       <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-neutral-50 to-neutral-100 p-4">
@@ -56,7 +79,21 @@ export default async function Success({ searchParams }: SuccessPageProps) {
           <CardContent className="space-y-6">
             <div className="rounded-lg bg-neutral-50 p-4 text-center border">
               <p className="text-left text-sm text-neutral-600">
-                {session.mode === 'payment' ? (
+                {isPass && passActive && passEnd ? (
+                  <>
+                    Your <b>Deadline Pass</b> is active: you have <b>Pro</b> until{' '}
+                    <b>
+                      <PassEndDate iso={passEnd} />
+                    </b>
+                    . Nothing renews; it simply ends.
+                  </>
+                ) : isPass ? (
+                  <>
+                    Thanks for buying the <b>Deadline Pass</b>. It is being activated and can take a
+                    minute: refresh this page, or check Settings → Billing. If it does not show up,
+                    contact support.
+                  </>
+                ) : session.mode === 'payment' ? (
                   <>
                     <b>{session.metadata?.credits ?? '100'} AI edits</b> have been added to your
                     account. They never expire and are used once your plan&apos;s edits run out.
@@ -69,6 +106,10 @@ export default async function Success({ searchParams }: SuccessPageProps) {
                 )}
               </p>
             </div>
+
+            {showGuarantee && (
+              <p className="text-center text-xs text-neutral-600">{guaranteeLine()}</p>
+            )}
 
             <div className="flex gap-2">
               <Button asChild className="flex-1" variant="gradient">
@@ -95,6 +136,45 @@ export default async function Success({ searchParams }: SuccessPageProps) {
         </Card>
       </div>
     );
+  }
+}
+
+/**
+ * A paid Deadline Pass: grant it here as well as in the webhook, so the
+ * buyer is Pro (and past the onboarding paywall) the moment they land, even
+ * if the webhook is late. grant_pro_pass is idempotent per session id, so
+ * whichever runs second grants nothing. Only for the signed-in buyer's own
+ * Octree session. Returns the pass end (ISO) to show, or null. Never throws.
+ */
+async function grantPassAfterPayment(session: Stripe.Checkout.Session): Promise<string | null> {
+  try {
+    if (proPassDaysFromSession(session) === 0 || !isOctreeCheckoutSession(session)) return null;
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user || session.metadata?.user_id !== user.id) return null;
+    const admin = createAdminClient();
+    const result = await grantProPass(admin, session);
+    if (result.granted) {
+      captureServerEventAfterResponse(user.id, AnalyticsEvents.PRO_PASS_PURCHASED, {
+        plan: 'deadline_pass',
+        days: result.days,
+        pro_until: result.proUntil,
+        session_id: session.id,
+        amount: typeof session.amount_total === 'number' ? session.amount_total / 100 : null,
+        currency: session.currency ? session.currency.toUpperCase() : null,
+        granted_by: 'success_page',
+        ...checkoutAttributionFromMetadata(session.metadata),
+        ...offerVariantFromMetadata(session.metadata),
+      });
+      return result.proUntil;
+    }
+    const { data } = await admin.from('user_usage').select('pro_until').eq('user_id', user.id).maybeSingle();
+    return (data as { pro_until: string | null } | null)?.pro_until ?? null;
+  } catch (error) {
+    console.error('[success] could not grant the Deadline Pass:', error);
+    return null;
   }
 }
 

@@ -13,6 +13,8 @@ import { SettingsCardSkeleton } from '@/components/settings/settings-card-skelet
 import { createCheckoutSession, resumeSubscription } from '@/lib/requests/subscription';
 import { describePlanPeriod } from '@/lib/stripe-subscription';
 import { cn } from '@/lib/utils';
+import { MIN_PASS_TRIAL_MS } from '@/lib/subscription/pass-trial';
+import { formatPassEnd } from '@/lib/subscription/pass-format';
 import { toast } from 'sonner';
 
 interface SubscriptionData {
@@ -57,8 +59,19 @@ interface SubscriptionData {
     monthlyLimitReached: boolean;
     monthlyResetDate: string | null;
     hasUnlimitedEdits: boolean;
+    /** user_usage.pro_until: the end of a Deadline Pass (ISO), if one was ever bought. */
+    proUntil?: string | null;
   };
 }
+
+/** The end of a Deadline Pass that is still running, else null. */
+function activePassEnd(proUntil: string | null | undefined, now: Date = new Date()): Date | null {
+  if (!proUntil) return null;
+  const end = new Date(proUntil);
+  return Number.isFinite(end.getTime()) && end.getTime() > now.getTime() ? end : null;
+}
+
+
 
 export function SubscriptionStatus() {
   const { creditPack } = useRegionalPricing();
@@ -197,6 +210,7 @@ export function SubscriptionStatus() {
   }
 
   const { hasSubscription, subscription, usage } = subscriptionData;
+  const passEnd = activePassEnd(usage.proUntil);
 
   if (usage.hasUnlimitedEdits && !hasSubscription) {
     return (
@@ -317,10 +331,66 @@ export function SubscriptionStatus() {
           )}
         </SettingsRow>
 
+        {passEnd && (
+          <SettingsRow label="Deadline Pass" description="Bought separately; not affected by the subscription.">
+            Pro until {formatPassEnd(passEnd)}
+          </SettingsRow>
+        )}
+
         {!hasUnlimitedAccess && creditsRow(editCredits)}
 
         <CancelDialog open={showCancelDialog} onOpenChange={handleCancelDialogChange} />
       </SettingsCard>
+    );
+  }
+
+  // A Deadline Pass running without a subscription: Pro until it ends, then
+  // the upgrade options to keep it.
+  if (passEnd) {
+    return (
+      <div className="space-y-6">
+        <SettingsCard
+          title="Pro"
+          badge={<Badge variant="default">Deadline Pass</Badge>}
+          description={`Pro until ${formatPassEnd(passEnd)}. No subscription, nothing renews.`}
+        >
+          <SettingsRow
+            label="AI edits"
+            description={
+              usage.monthlyResetDate
+                ? `Resets on ${new Date(usage.monthlyResetDate).toLocaleDateString()}`
+                : undefined
+            }
+          >
+            <UsageMeter used={usage.monthlyEditCount} limit={PRO_MONTHLY_EDIT_LIMIT} />
+          </SettingsRow>
+          {creditsRow(usage.editCredits ?? 0)}
+        </SettingsCard>
+
+        <SettingsCard
+          title="Keep Pro after your pass"
+          description={
+            // Mirrors the checkout route (lib/subscription/pass-trial.ts):
+            // Stripe needs a trial end at least 48 hours out.
+            passEnd.getTime() - Date.now() > MIN_PASS_TRIAL_MS
+              ? `Subscribe now and billing starts when your pass ends, on ${formatPassEnd(passEnd)}. Cancel anytime before then and you pay nothing.`
+              : 'Subscribe to stay on Pro when the pass ends. Billing starts today. Cancel anytime.'
+          }
+        >
+          <form onSubmit={handleCheckout} className="space-y-4 px-6 py-5">
+            <PlanPicker
+              plan={plan}
+              onPlanChange={setPlan}
+              source="settings"
+              hideCredits
+              disabled={isCheckoutLoading}
+            />
+            <Button type="submit" variant="gradient" size="sm" disabled={isCheckoutLoading}>
+              {isCheckoutLoading ? 'Loading...' : 'Subscribe'}
+            </Button>
+          </form>
+        </SettingsCard>
+      </div>
     );
   }
 

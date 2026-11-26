@@ -3,11 +3,19 @@
 import { useEffect, useRef } from 'react';
 
 import { Button } from '@/components/ui/button';
-import { FREE_DAILY_EDIT_LIMIT } from '@/data/constants';
+import { FREE_DAILY_EDIT_LIMIT, MONEY_BACK_GUARANTEE_DAYS } from '@/data/constants';
+import type { OfferVariant } from '@/lib/offer-v2/variant';
 import { track } from '@/lib/analytics/track';
 import { AnalyticsEvents } from '@/lib/analytics/events';
 
 interface PlanStepActionsProps {
+  /**
+   * `onboarding-offer-v2` variant (GET /api/offer); null while loading.
+   * `paywall_shown` waits for it so every event carries `offer_variant`.
+   */
+  offerVariant?: OfferVariant | null;
+  /** The primary button's label (offer_v2: the selected plan's price); default "Get Octree Pro →". */
+  ctaLabel?: string;
   /** data/constants.ts ONBOARDING_PAYWALL_REQUIRED: no free path when true. */
   paywallRequired: boolean;
   isSubmitting: boolean;
@@ -27,6 +35,8 @@ interface PlanStepActionsProps {
  * are not onboarded and not Pro (app/onboarding/layout.tsx).
  */
 export function PlanStepActions({
+  offerVariant = 'control',
+  ctaLabel,
   paywallRequired,
   isSubmitting,
   onCheckout,
@@ -36,24 +46,34 @@ export function PlanStepActions({
   const tracked = useRef(false);
 
   useEffect(() => {
-    if (!paywallRequired || tracked.current) return;
+    if (!paywallRequired || tracked.current || !offerVariant) return;
     tracked.current = true;
     track(AnalyticsEvents.PAYWALL_SHOWN, {
       feature: 'onboarding',
       reason: 'onboarding_required',
       offers: ['pro'],
       placement: 'onboarding',
+      offer_variant: offerVariant,
     });
-  }, [paywallRequired]);
+  }, [paywallRequired, offerVariant]);
+
+  const isOfferV2 = offerVariant === 'offer_v2';
 
   return (
     <div className="space-y-3">
-      <Button className="w-full" variant="gradient" onClick={onCheckout} disabled={isSubmitting}>
-        {isSubmitting ? 'Loading...' : 'Get Octree Pro →'}
+      <Button
+        className="w-full"
+        variant="gradient"
+        onClick={onCheckout}
+        disabled={isSubmitting || !offerVariant}
+      >
+        {isSubmitting ? 'Loading...' : ctaLabel ?? 'Get Octree Pro →'}
       </Button>
       {paywallRequired ? (
         <p className="text-center text-xs text-muted-foreground">
-          Secure checkout with Stripe. Cancel anytime.{' '}
+          {isOfferV2
+            ? `Secure checkout with Stripe. ${MONEY_BACK_GUARANTEE_DAYS}-day money-back guarantee.`
+            : 'Secure checkout with Stripe. Cancel anytime.'}{' '}
           <button
             type="button"
             onClick={onSignOut}

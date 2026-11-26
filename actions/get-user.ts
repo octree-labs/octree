@@ -9,6 +9,8 @@ type UsageRecord = {
 type UsageStatus = {
   is_pro: boolean | null;
   onboarding_completed: boolean | null;
+  /** The end of a Deadline Pass; the onboarding gate counts a running one as Pro. */
+  pro_until: string | null;
 };
 
 export async function getCurrentUser() {
@@ -39,7 +41,7 @@ export async function getUserUsageStatus(
   const supabase = await createClient();
   const { data } = await supabase
     .from('user_usage')
-    .select('is_pro, onboarding_completed')
+    .select('is_pro, onboarding_completed, pro_until')
     .eq('user_id', userId)
     .maybeSingle<UsageStatus>();
 

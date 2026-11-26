@@ -133,7 +133,7 @@ export interface AbandonedCheckout {
 }
 
 export type ExpiredSessionLike = Pick<Stripe.Checkout.Session, 'id' | 'mode'> &
-  Partial<Pick<Stripe.Checkout.Session, 'metadata' | 'amount_total' | 'currency' | 'customer' | 'after_expiration'>>;
+  Partial<Pick<Stripe.Checkout.Session, 'metadata' | 'amount_total' | 'currency' | 'customer' | 'after_expiration' | 'created'>>;
 
 /** Null when the session carries no `metadata.user_id` (not one of ours). */
 export function describeAbandonedCheckout(session: ExpiredSessionLike): AbandonedCheckout | null {

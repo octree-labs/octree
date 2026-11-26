@@ -678,6 +678,51 @@ export type Database = {
         }
         Relationships: []
       }
+      pro_pass_purchases: {
+        Row: {
+          amount_cents: number | null
+          checkout_session_id: string
+          created_at: string
+          currency: string | null
+          days: number
+          id: number
+          payment_intent_id: string | null
+          pro_until_after: string
+          pro_until_before: string | null
+          refund_reason: string | null
+          refunded_at: string | null
+          user_id: string
+        }
+        Insert: {
+          amount_cents?: number | null
+          checkout_session_id: string
+          created_at?: string
+          currency?: string | null
+          days: number
+          id?: number
+          payment_intent_id?: string | null
+          pro_until_after: string
+          pro_until_before?: string | null
+          refund_reason?: string | null
+          refunded_at?: string | null
+          user_id: string
+        }
+        Update: {
+          amount_cents?: number | null
+          checkout_session_id?: string
+          created_at?: string
+          currency?: string | null
+          days?: number
+          id?: number
+          payment_intent_id?: string | null
+          pro_until_after?: string
+          pro_until_before?: string | null
+          refund_reason?: string | null
+          refunded_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       project_export_unlocks: {
         Row: {
           amount_cents: number
@@ -820,7 +865,9 @@ export type Database = {
           is_pro: boolean
           monthly_edit_count: number
           monthly_reset_date: string
+          offer_variant: string | null
           onboarding_completed: boolean | null
+          pro_until: string | null
           referral_source: string | null
           role: string | null
           stripe_customer_id: string | null
@@ -844,7 +891,9 @@ export type Database = {
           is_pro?: boolean
           monthly_edit_count?: number
           monthly_reset_date?: string
+          offer_variant?: string | null
           onboarding_completed?: boolean | null
+          pro_until?: string | null
           referral_source?: string | null
           role?: string | null
           stripe_customer_id?: string | null
@@ -868,7 +917,9 @@ export type Database = {
           is_pro?: boolean
           monthly_edit_count?: number
           monthly_reset_date?: string
+          offer_variant?: string | null
           onboarding_completed?: boolean | null
+          pro_until?: string | null
           referral_source?: string | null
           role?: string | null
           stripe_customer_id?: string | null
@@ -972,6 +1023,17 @@ export type Database = {
         }
         Returns: boolean
       }
+      grant_pro_pass: {
+        Args: {
+          p_amount_cents?: number | null
+          p_checkout_session_id: string
+          p_currency?: string | null
+          p_days: number
+          p_payment_intent_id?: string | null
+          p_user_id: string
+        }
+        Returns: string | null
+      }
       grant_generation_purchase: {
         Args: {
           p_amount_cents?: number | null
@@ -994,6 +1056,10 @@ export type Database = {
       refund_generation: {
         Args: { p_kind: string; p_user_id: string }
         Returns: boolean
+      }
+      revoke_pro_pass: {
+        Args: { p_checkout_session_id: string; p_reason?: string | null }
+        Returns: string | null
       }
       update_user_subscription_status: {
         Args: {

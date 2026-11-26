@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { Check } from 'lucide-react';
@@ -45,6 +45,18 @@ import { AuthMarketingSection } from '@/components/auth/auth-marketing-section';
 import { StartWithDocument } from '@/components/onboarding/start-with-document';
 import { hasFinishedOnboarding, onboardingPaywallApplies, safeNextPath } from '@/lib/onboarding/paywall-gate';
 import { PlanStepActions } from './components/plan-step-actions';
+import { OfferV2Plans } from '@/components/subscription/offer-v2-plans';
+import { useCountdown, useOffer } from '@/hooks/use-offer';
+import { useRegionalPricing } from '@/hooks/use-regional-pricing';
+import { CHECKOUT_OFFERS, discountedAmount } from '@/lib/checkout-offers';
+import {
+  OFFER_HEADLINE,
+  OFFER_SUBHEADLINE,
+  offerPlanCopy,
+  type OfferPlan,
+} from '@/lib/offer-v2/offer';
+import { AnalyticsEvents } from '@/lib/analytics/events';
+import { track } from '@/lib/analytics/track';
 
 // What Pro adds over the free plan, kept to three lines (see app/onboarding/components/feature-list.tsx for the full list).
 const PRO_HIGHLIGHTS = [
@@ -75,6 +87,32 @@ export default function OnboardingPage() {
   // not older than ONBOARDING_PAYWALL_SINCE); settled once the user loads.
   const [paywallRequired, setPaywallRequired] = useState(ONBOARDING_PAYWALL_REQUIRED);
   const router = useRouter();
+  // `onboarding-offer-v2` (GET /api/offer): which plan step this user sees.
+  // Asked only on the plan step: GET /api/offer assigns the arm.
+  const offer = useOffer({ enabled: currentStep === PLAN_STEP });
+  const isOfferV2 = offer?.variant === 'offer_v2';
+  const pricing = useRegionalPricing();
+  const deadline = isOfferV2 ? offer?.deadline ?? null : null;
+  const deadlineMsLeft = useCountdown(deadline?.endsAt);
+  // The first-purchase offer applies only while its real deadline runs.
+  const deadlineOffer = deadline && deadlineMsLeft !== null && deadlineMsLeft > 0 ? deadline.offer : null;
+  const [v2Plan, setV2Plan] = useState<OfferPlan | null>(null);
+  const [passRevealed, setPassRevealed] = useState(false);
+  // Annual first; while the sign-up offer runs, its plan (monthly) is preselected.
+  const defaultV2Plan: OfferPlan = deadlineOffer ? 'monthly' : 'annual';
+  const selectedV2Plan: OfferPlan = v2Plan ?? defaultV2Plan;
+  // Fix the default into state once the offer is known, so the countdown
+  // running out only drops the discount and never switches the plan.
+  useEffect(() => {
+    if (isOfferV2 && v2Plan === null) setV2Plan(defaultV2Plan);
+  }, [isOfferV2, v2Plan, defaultV2Plan]);
+  const v2Plans = useMemo(() => {
+    const percentOff = deadlineOffer ? CHECKOUT_OFFERS[deadlineOffer].percentOff : 0;
+    const firstMonth = deadlineOffer
+      ? { price: `$${discountedAmount(pricing.proPlans.monthly.amount, percentOff).toFixed(2)}`, percentOff }
+      : null;
+    return offerPlanCopy(pricing, firstMonth);
+  }, [pricing, deadlineOffer]);
   // With the paywall on the "Start with your document" step is never reached
   // (it followed the free path); paid users land on the dashboard's empty
   // state, which offers the same options.
@@ -180,10 +218,12 @@ export default function OnboardingPage() {
     if (currentStep === PLAN_STEP) {
       setIsSubmitting(true);
       try {
+        const checkoutPlan = isOfferV2 ? selectedV2Plan : plan;
         const checkoutUrl = await createCheckoutSession({
-          plan,
+          plan: checkoutPlan,
           withTrial: false,
           source: 'onboarding',
+          ...(isOfferV2 && deadlineOffer && checkoutPlan === 'monthly' ? { offer: deadlineOffer } : {}),
           ...(paywallRequired ? { onboardingPaywall: true } : {}),
           ...(nextPath ? { successPath: nextPath } : {}),
         });
@@ -315,6 +355,50 @@ export default function OnboardingPage() {
         );
 
       case 1:
+        if (offer === undefined) {
+          // GET /api/offer decides which plan step to show; it answers fast
+          // (control on any failure), so a short skeleton beats a flash of
+          // the wrong variant.
+          return (
+            <div className="space-y-3">
+              <Skeleton className="h-7 w-3/4" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-48 w-full" />
+            </div>
+          );
+        }
+        if (isOfferV2) {
+          return (
+            <>
+              <div className="space-y-1.5">
+                <h2 className="text-2xl font-semibold leading-tight tracking-tight">{OFFER_HEADLINE}</h2>
+                <p className="text-sm text-muted-foreground">{OFFER_SUBHEADLINE}</p>
+              </div>
+              <div className="mt-4">
+                <OfferV2Plans
+                  plans={v2Plans}
+                  plan={selectedV2Plan}
+                  onPlanChange={setV2Plan}
+                  deadlineMsLeft={deadlineOffer ? deadlineMsLeft : null}
+                  deadlineLabel={deadlineOffer ? CHECKOUT_OFFERS[deadlineOffer].label : undefined}
+                  proofCount={offer.proof?.count ?? null}
+                  passRevealed={passRevealed || selectedV2Plan === 'deadline_pass'}
+                  onRevealPass={() => {
+                    setPassRevealed(true);
+                    setV2Plan('deadline_pass');
+                    track(AnalyticsEvents.PAYWALL_DOWNSELL_SHOWN, {
+                      placement: 'onboarding',
+                      offers: ['pass'],
+                      offer_variant: 'offer_v2',
+                      feature: 'onboarding',
+                    });
+                  }}
+                  disabled={isSubmitting}
+                />
+              </div>
+            </>
+          );
+        }
         return (
           <>
             <div className="space-y-1.5">
@@ -396,6 +480,8 @@ export default function OnboardingPage() {
               {/* The start step's cards are their own actions; no footer button. */}
               {currentStep === PLAN_STEP && (
                 <PlanStepActions
+                  offerVariant={offer?.variant ?? null}
+                  ctaLabel={isOfferV2 ? `${v2Plans[selectedV2Plan].cta} →` : undefined}
                   paywallRequired={paywallRequired}
                   isSubmitting={isSubmitting}
                   onCheckout={handleNext}

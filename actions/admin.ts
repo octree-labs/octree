@@ -199,6 +199,8 @@ export interface ProSubscriber {
   is_pro: boolean;
   subscription_status: string | null;
   current_period_end: string | null;
+  /** End of a Deadline Pass (user_usage.pro_until), when one was bought. */
+  pro_until: string | null;
 }
 
 export async function getProSubscribers(): Promise<ProSubscriber[]> {
@@ -208,9 +210,10 @@ export async function getProSubscribers(): Promise<ProSubscriber[]> {
   // Get user_usage rows that are pro or have active subscription
   const { data: usageData, error: usageError } = await supabase
     .from('user_usage')
-    .select('user_id, is_pro, subscription_status, current_period_end')
+    .select('user_id, is_pro, subscription_status, current_period_end, pro_until')
     .or(
-      'is_pro.eq.true,and(subscription_status.in.(active,trialing),current_period_end.gt.now())'
+      // Subscribers, plus anyone on a running Deadline Pass.
+      `is_pro.eq.true,and(subscription_status.in.(active,trialing),current_period_end.gt.now()),pro_until.gt.${new Date().toISOString()}`
     )
     .order('updated_at', { ascending: false });
 
@@ -255,6 +258,7 @@ export async function getProSubscribers(): Promise<ProSubscriber[]> {
       is_pro: u.is_pro,
       subscription_status: u.subscription_status,
       current_period_end: u.current_period_end,
+      pro_until: u.pro_until,
     }));
 }
 

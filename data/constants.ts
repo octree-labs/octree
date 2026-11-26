@@ -24,6 +24,43 @@ export const EXPORT_SINGLE_PRICE = {
   productName: 'Octree — Export this document',
 } as const;
 
+// Deadline Pass: a one-off purchase of PRO_PASS_DAYS days of Pro, no
+// subscription. It sets user_usage.pro_until (stacking: a second pass
+// extends the first) and everything that asks "is this user Pro" honours it
+// (lib/subscription/entitlement.ts, increment_edit_count and
+// consume_generation in the database). Quotas while it runs are Pro's:
+// the monthly Pro allowance of PRO_MONTHLY_EDIT_LIMIT AI edits (the same
+// monthly counter a subscription uses, so stacked passes in one month do not
+// multiply it), unlimited generations, export, ATS check, the Pro API limits.
+// Keep in sync with lib/stripe-prices.ts (octree_deadline_pass_7d) and
+// supabase/migrations/20261130000000_deadline_pass.sql.
+export const PRO_PASS_DAYS = 7;
+export const DEADLINE_PASS_PRICE = {
+  amount: 4.99,
+  price: '$4.99',
+  days: PRO_PASS_DAYS,
+  lookupKey: 'octree_deadline_pass_7d',
+  productName: 'Octree Deadline Pass (7 days of Pro)',
+  label: 'Deadline Pass',
+} as const;
+
+/**
+ * Where people reach a human about billing and refunds: the inbox the
+ * contact form delivers to (app/api/contact) and the address lifecycle
+ * emails are sent from (lib/email/client.ts).
+ */
+export const SUPPORT_EMAIL = 'basil@useoctree.com';
+
+/**
+ * The `onboarding-offer-v2` experiment (lib/offer-v2/variant.ts) covers
+ * accounts created at or after this instant; older accounts always get
+ * `control`, without PostHog being asked.
+ */
+export const OFFER_V2_SINCE = '2026-11-26T00:00:00Z';
+
+/** The money-back window shown with the offer (paywall, Checkout, /success, refund policy). */
+export const MONEY_BACK_GUARANTEE_DAYS = 7;
+
 // Free first export: every account's first PDF/ZIP export is free (recorded
 // as a project_export_unlocks row with source 'free_first', so that project
 // stays exportable); from the second export on the paywall applies. Kill

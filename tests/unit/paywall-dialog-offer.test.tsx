@@ -50,7 +50,7 @@ function stableIds(html: string): string {
 
 function resetStore() {
   PaywallActions.close();
-  usePaywallStore.setState({ open: false, feature: null, reason: null, offers: ['pro'], firstPurchaseOffer: null, context: null });
+  usePaywallStore.setState({ open: false, feature: null, reason: null, offers: ['pro'], firstPurchaseOffer: null, context: null, offerVariant: null });
 }
 
 describe('PaywallDialog without a first-purchase offer (unchanged)', () => {

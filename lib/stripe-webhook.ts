@@ -17,6 +17,7 @@ import { STRIPE_PRICE_IDS } from '@/lib/stripe-config';
 import { PRICE_LOOKUP_KEYS, PRICE_METADATA_KEY, isPriceLookupKey } from '@/lib/stripe-prices';
 import { baseLookupKey } from '@/lib/regional-pricing';
 import { isMissingExportUnlockSchema } from '@/lib/export-unlock';
+import { isOfferVariant, type OfferVariant } from '@/lib/offer-v2/variant';
 
 /** One server-side analytics event with its typed properties. */
 export type ServerAnalyticsEvent = {
@@ -67,6 +68,14 @@ export function checkoutAttributionFromMetadata(
   return attribution;
 }
 
+/** `metadata.offer_variant` (the `onboarding-offer-v2` variant at checkout), when valid. */
+export function offerVariantFromMetadata(
+  metadata: Stripe.Metadata | null | undefined
+): { offer_variant?: OfferVariant } {
+  const value = metadata?.offer_variant;
+  return isOfferVariant(value) ? { offer_variant: value } : {};
+}
+
 /** `metadata.plan` when it names a recurring plan; the Checkout Session wrote it. */
 export function subscriptionPlanFromMetadata(metadata: Stripe.Metadata | null | undefined): CheckoutPlan | null {
   const plan = metadata?.plan;
@@ -109,6 +118,7 @@ export async function describeCheckoutSessionPlan(
     amount: typeof session.amount_total === 'number' ? session.amount_total / 100 : null,
     currency: session.currency ? session.currency.toUpperCase() : null,
     ...checkoutAttributionFromMetadata(session.metadata),
+    ...offerVariantFromMetadata(session.metadata),
   };
 }
 
@@ -542,4 +552,146 @@ export async function grantExportUnlock(
   }
 
   return { granted: true, userId, projectId };
+}
+
+/** `metadata.pro_pass_days` as a day count (1..366, like the RPC), else 0. */
+function passDaysFromMetadata(metadata: Stripe.Metadata | null | undefined): number {
+  const raw = metadata?.pro_pass_days;
+  if (raw == null) return 0;
+  const days = Number.parseInt(String(raw), 10);
+  return Number.isInteger(days) && days > 0 && days <= 366 ? days : 0;
+}
+
+/**
+ * Whether a session is a Deadline Pass checkout at all (paid or not):
+ * payment mode with `metadata.pro_pass_days`. /success decides its copy on
+ * this, so a pass never reads as a credit pack.
+ */
+export function isProPassSession(session: Pick<Stripe.Checkout.Session, 'mode' | 'metadata'>): boolean {
+  return session.mode === 'payment' && passDaysFromMetadata(session.metadata) > 0;
+}
+
+/** Settled sessions: paid, or nothing to pay (a 100%-off session). */
+const SETTLED_PAYMENT_STATUSES: ReadonlySet<string> = new Set(['paid', 'no_payment_required']);
+
+/**
+ * The days of Pro a settled Deadline Pass session bought, or 0 when it is
+ * not a paid (or `no_payment_required`), payment-mode session carrying
+ * `metadata.pro_pass_days` (lib/checkout-plans.ts sets it for
+ * `deadline_pass`). Bounded like the RPC (1..366) so a malformed value is
+ * ignored rather than retried forever.
+ */
+export function proPassDaysFromSession(
+  session: Pick<Stripe.Checkout.Session, 'mode' | 'payment_status' | 'metadata'>
+): number {
+  if (session.mode !== 'payment' || !SETTLED_PAYMENT_STATUSES.has(session.payment_status)) return 0;
+  return passDaysFromMetadata(session.metadata);
+}
+
+function paymentIntentIdOf(value: string | { id: string } | null | undefined): string | null {
+  if (!value) return null;
+  return typeof value === 'string' ? value : value.id ?? null;
+}
+
+export type GrantProPassResult =
+  | { granted: true; userId: string; days: number; proUntil: string }
+  | { granted: false; reason: 'not_a_pass_purchase' | 'missing_user' | 'already_granted' };
+
+/**
+ * Extends the buyer's `user_usage.pro_until` by the pass's days through the
+ * service-role-only `grant_pro_pass` RPC: one pro_pass_purchases row (unique
+ * per session id) and the new end in ONE transaction, stacked onto a pass
+ * still running (supabase/migrations/20261130000000_deadline_pass.sql). The
+ * RPC returns NULL for a session already granted, so the webhook and the
+ * /success page can both call this and the pass is granted once. A database
+ * error is thrown so Stripe retries the webhook.
+ */
+export async function grantProPass(
+  supabase: SupabaseClient<any, any, any>,
+  session: Pick<Stripe.Checkout.Session, 'id' | 'mode' | 'payment_status' | 'metadata' | 'amount_total' | 'currency'> &
+    Partial<Pick<Stripe.Checkout.Session, 'payment_intent'>>
+): Promise<GrantProPassResult> {
+  const days = proPassDaysFromSession(session);
+  if (days === 0) return { granted: false, reason: 'not_a_pass_purchase' };
+
+  const userId = session.metadata?.user_id;
+  if (!userId) return { granted: false, reason: 'missing_user' };
+
+  const { data, error } = await supabase.rpc('grant_pro_pass', {
+    p_user_id: userId,
+    p_checkout_session_id: session.id,
+    p_days: days,
+    p_amount_cents: typeof session.amount_total === 'number' ? session.amount_total : null,
+    p_currency: session.currency ?? null,
+    // Stored on the ledger so a refund or dispute (charge events carry the
+    // payment intent, not the session) can find the pass.
+    p_payment_intent_id: paymentIntentIdOf(session.payment_intent),
+  });
+  if (error) throw error;
+  if (data === null || data === undefined) return { granted: false, reason: 'already_granted' };
+
+  return { granted: true, userId, days, proUntil: String(data) };
+}
+
+export type RevokeProPassResult =
+  | { revoked: true; userId: string; sessionId: string; proUntil: string }
+  | { revoked: false; reason: 'not_a_pass' | 'already_revoked' };
+
+/** The subset of Stripe the revoke needs (sessions by payment intent); mockable. */
+export type PassRefundStripe = {
+  checkout: {
+    sessions: {
+      list(params: { payment_intent: string; limit: number }): Promise<{
+        data: Array<Pick<Stripe.Checkout.Session, 'id' | 'mode' | 'metadata'>>;
+      }>;
+    };
+  };
+};
+
+/**
+ * Rolls back the Deadline Pass a payment intent paid for, after a full
+ * refund (`charge.refunded`) or a dispute (`charge.dispute.created`).
+ *
+ * The ledger row is found by the payment intent stored at grant time; for
+ * a row without it, Stripe is asked for the Checkout Session of that
+ * payment intent. Anything that is not an Octree pass (a subscription
+ * invoice, a credit pack, the other app on this Stripe account) is
+ * `not_a_pass` and nothing changes. `revoke_pro_pass` is idempotent per
+ * session (`already_revoked` on a redelivery). Database errors are thrown
+ * so Stripe retries.
+ */
+export async function revokeProPassForPaymentIntent(
+  supabase: SupabaseClient<any, any, any>,
+  stripe: PassRefundStripe,
+  paymentIntentId: string,
+  reason: 'refund' | 'dispute'
+): Promise<RevokeProPassResult> {
+  const { data: row, error: readError } = await supabase
+    .from('pro_pass_purchases')
+    .select('checkout_session_id, user_id')
+    .eq('payment_intent_id', paymentIntentId)
+    .maybeSingle();
+  if (readError) throw readError;
+
+  let sessionId: string | null = row?.checkout_session_id ?? null;
+  let userId: string | null = row?.user_id ?? null;
+  if (!sessionId) {
+    const { data: sessions } = await stripe.checkout.sessions.list({ payment_intent: paymentIntentId, limit: 1 });
+    const session = sessions[0];
+    if (!session || !isProPassSession(session) || !isOctreeCheckoutSession(session)) {
+      return { revoked: false, reason: 'not_a_pass' };
+    }
+    sessionId = session.id;
+    userId = session.metadata?.user_id ?? null;
+  }
+
+  const { data, error } = await supabase.rpc('revoke_pro_pass', {
+    p_checkout_session_id: sessionId,
+    p_reason: reason,
+  });
+  if (error) throw error;
+  if (data === null || data === undefined) {
+    return row ? { revoked: false, reason: 'already_revoked' } : { revoked: false, reason: 'not_a_pass' };
+  }
+  return { revoked: true, userId: userId ?? '', sessionId, proUntil: String(data) };
 }

@@ -42,7 +42,7 @@ import {
 } from '@/lib/email/lifecycle';
 import { isAdminEmail } from '@/lib/admin';
 import { hasUnlimitedEdits } from '@/lib/paywall';
-import { isProEntitled } from '@/lib/subscription/entitlement';
+import { isProEntitled, proPassActive } from '@/lib/subscription/entitlement';
 
 export interface LifecycleUserRow {
   userId: string;
@@ -60,6 +60,8 @@ export interface LifecycleUserRow {
   /** user_usage.stripe_subscription_id / current_period_end: the entitlement rule reads them. */
   stripeSubscriptionId?: string | null;
   currentPeriodEnd?: string | null;
+  /** user_usage.pro_until: the end of a Deadline Pass (lib/subscription/entitlement.ts). */
+  proUntil?: string | null;
   /**
    * user_usage.current_period_start: written by the Stripe webhook when the
    * subscription starts and on every renewal. Null for rows from before the
@@ -238,6 +240,7 @@ export function isEntitledToPro(user: LifecycleUserRow, now: Date): boolean {
       subscription_status: user.subscriptionStatus,
       stripe_subscription_id: user.stripeSubscriptionId ?? null,
       current_period_end: user.currentPeriodEnd ?? null,
+      pro_until: user.proUntil ?? null,
     },
     hasUnlimited: hasUnlimitedEdits(user.email),
     now,
@@ -262,6 +265,9 @@ export function scheduledRef(template: ScheduledLifecycleTemplate, now: Date): s
 export function eligibleSince(user: LifecycleUserRow, template: ScheduledLifecycleTemplate, now: Date): number | null {
   const nowMs = now.getTime();
   if (isStaff(user)) return null;
+  // A running Deadline Pass: a week of Pro bought for a deadline. No upsell
+  // and no "you have not used Pro" nudge while it runs.
+  if (proPassActive({ pro_until: user.proUntil ?? null }, now)) return null;
 
   if (template === 'pro_inactive') {
     // `unlimited` is a manual grant (staff, partners), not a plan to come back to.
@@ -315,7 +321,7 @@ export function eligibleSince(user: LifecycleUserRow, template: ScheduledLifecyc
       // first-time transactions, so anyone with prior payments would be
       // promised a discount Stripe then refuses.
       if (user.subscriptionStatus === 'unlimited' || isEntitledToPro(user, now)) return null;
-      if (user.stripeSubscriptionId || user.stripeCustomerId || user.hasOneOffPurchase) return null;
+      if (user.stripeSubscriptionId || user.stripeCustomerId || user.hasOneOffPurchase || user.proUntil) return null;
       const hit = ms(user.lastPaywallHit?.createdAt ?? null);
       if (hit === null) return null;
       const age = nowMs - hit;

@@ -2,7 +2,12 @@ import { NextResponse } from 'next/server';
 
 import { stripe } from '@/lib/stripe';
 import { requireOwnedSubscription, subscriptionSummary } from '@/lib/subscription-save';
-import { isCancelFeedback, trimCancelComment } from '@/lib/stripe-subscription';
+import {
+  cancellationComment,
+  isCancelFeedback,
+  trimCancelComment,
+  trimMissingFeature,
+} from '@/lib/stripe-subscription';
 import { AnalyticsEvents } from '@/lib/analytics/events';
 import {
   captureServerEventAfterResponse,
@@ -17,7 +22,7 @@ import {
  */
 export async function POST(request: Request) {
   try {
-    let body: { feedback?: unknown; comment?: unknown } = {};
+    let body: { feedback?: unknown; comment?: unknown; missingFeature?: unknown; saveOfferShown?: unknown } = {};
     try {
       body = await request.json();
     } catch {
@@ -27,7 +32,10 @@ export async function POST(request: Request) {
     if (!isCancelFeedback(feedback)) {
       return NextResponse.json({ error: 'A cancellation reason is required' }, { status: 400 });
     }
-    const comment = trimCancelComment(body.comment);
+    // "Which feature?" (missing_features only): kept with the reason on
+    // Stripe's cancellation_details.comment and on the event.
+    const missingFeature = feedback === 'missing_features' ? trimMissingFeature(body.missingFeature) : undefined;
+    const comment = cancellationComment(trimCancelComment(body.comment), missingFeature);
 
     const owned = await requireOwnedSubscription();
     if (!owned.ok) return owned.response;
@@ -49,7 +57,9 @@ export async function POST(request: Request) {
 
     captureServerEventAfterResponse(user.id, AnalyticsEvents.SUBSCRIPTION_CANCEL_CONFIRMED, {
       feedback,
-      has_comment: Boolean(comment),
+      has_comment: Boolean(trimCancelComment(body.comment)),
+      ...(missingFeature ? { missing_feature: missingFeature } : {}),
+      ...(typeof body.saveOfferShown === 'boolean' ? { save_offer_shown: body.saveOfferShown } : {}),
     });
 
     return NextResponse.json({

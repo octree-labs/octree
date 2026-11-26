@@ -10,12 +10,16 @@ import {
   enteredDelinquency,
   exportProjectFromSession,
   generationCreditsFromSession,
+  offerVariantFromMetadata,
+  proPassDaysFromSession,
   grantCreditsFromCheckoutSession,
   grantExportUnlock,
   grantGenerationCredits,
+  grantProPass,
   isOctreeCheckoutSession,
   isOctreeSubscription,
   recordStripeEvent,
+  revokeProPassForPaymentIntent,
   subscriptionLifecycleEvents,
   trackPurchaseFromCheckoutSession,
 } from '@/lib/stripe-webhook';
@@ -152,6 +156,27 @@ export async function POST(request: Request) {
               });
             } else if (unlock.reason === 'missing_user') {
               console.error('Export unlock purchase without user_id in metadata:', session.id);
+            }
+          }
+          // The Deadline Pass (`metadata.pro_pass_days`): days of Pro on
+          // user_usage.pro_until. /success may have granted it already; the
+          // ledger makes the second call a no-op.
+          if (proPassDaysFromSession(session) > 0) {
+            const pass = await grantProPass(supabase, session);
+            if (pass.granted) {
+              captureServerEventAfterResponse(pass.userId, AnalyticsEvents.PRO_PASS_PURCHASED, {
+                plan: 'deadline_pass',
+                days: pass.days,
+                pro_until: pass.proUntil,
+                session_id: session.id,
+                amount: typeof session.amount_total === 'number' ? session.amount_total / 100 : null,
+                currency: session.currency ? session.currency.toUpperCase() : null,
+                granted_by: 'webhook',
+                ...checkoutAttributionFromMetadata(session.metadata),
+                ...offerVariantFromMetadata(session.metadata),
+              });
+            } else if (pass.reason === 'missing_user') {
+              console.error('Deadline Pass purchase without user_id in metadata:', session.id);
             }
           }
           try {
@@ -355,6 +380,34 @@ export async function POST(request: Request) {
           }
         }
         break;
+      case 'charge.refunded':
+      case 'charge.dispute.created': {
+        // A Deadline Pass that is fully refunded, or disputed, is taken back
+        // (revoke_pro_pass: idempotent per session, never below now()).
+        // Anything else (subscription invoices, credit packs, partial
+        // refunds, the other app on this Stripe account) is acknowledged and
+        // left alone. Database errors throw: 500, Stripe retries.
+        const isRefund = event.type === 'charge.refunded';
+        const object = event.data.object as Stripe.Charge | Stripe.Dispute;
+        if (isRefund && !(object as Stripe.Charge).refunded) break;
+        const paymentIntent = object.payment_intent;
+        const paymentIntentId = typeof paymentIntent === 'string' ? paymentIntent : paymentIntent?.id;
+        if (!paymentIntentId) break;
+        const revoked = await revokeProPassForPaymentIntent(
+          supabase,
+          stripe,
+          paymentIntentId,
+          isRefund ? 'refund' : 'dispute'
+        );
+        if (revoked.revoked && revoked.userId) {
+          captureServerEventAfterResponse(revoked.userId, AnalyticsEvents.PRO_PASS_REVOKED, {
+            reason: isRefund ? 'refund' : 'dispute',
+            session_id: revoked.sessionId,
+            pro_until: revoked.proUntil,
+          });
+        }
+        break;
+      }
       case 'checkout.session.expired': {
         // Abandoned checkout. Stripe attaches `after_expiration.recovery.url`
         // because the session was created with recovery enabled

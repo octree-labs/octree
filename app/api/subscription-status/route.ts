@@ -12,6 +12,7 @@ import { hasUnlimitedEdits } from '@/lib/paywall';
 import {
   isRevokingStripeStatus,
   proEntitlement,
+  usesProQuota,
   revokedRowStatus,
   rowClaimsPro,
   type RevokingStripeStatus,
@@ -203,10 +204,8 @@ function buildUsageResponse(
   const editCount = usageData?.edit_count || 0;
   const monthlyEditCount = usageData?.monthly_edit_count || 0;
   // Paused collection reads as the free tier once the paid period has ended
-  // (see lib/stripe-subscription.ts). `usageData.is_pro` was read before the
-  // RPC below rewrote it, so it must not be trusted for a paused subscription.
+  // (see lib/stripe-subscription.ts).
   const effectiveStatus = subscription ? effectiveSubscriptionStatus(subscription) : null;
-  const isActive = effectiveStatus === 'active';
 
   // Pro by the shared rule (lib/subscription/entitlement.ts): Stripe's
   // answer when there is one, else the allowlist, the `unlimited` grant, or
@@ -217,7 +216,13 @@ function buildUsageResponse(
     hasUnlimited,
   });
 
-  const baseRemainingEdits = isActive
+  // Which allowance the counters are on: exactly increment_edit_count's
+  // rule (is_pro, which includes trialing, or a running Deadline Pass;
+  // lib/subscription/entitlement.ts usesProQuota), so the limit flags the
+  // client gates on match what the database will allow.
+  const proQuota = usesProQuota(usageData);
+
+  const baseRemainingEdits = proQuota
     ? Math.max(0, PRO_MONTHLY_EDIT_LIMIT - monthlyEditCount)
     : Math.max(0, FREE_DAILY_EDIT_LIMIT - editCount);
 
@@ -225,7 +230,7 @@ function buildUsageResponse(
   // allowance is spent, so the limit flags the client gates on only trip
   // when the credits are gone too.
   const editCredits = usageData?.edit_credits ?? 0;
-  const allowanceSpent = isActive
+  const allowanceSpent = proQuota
     ? monthlyEditCount >= PRO_MONTHLY_EDIT_LIMIT
     : editCount >= FREE_DAILY_EDIT_LIMIT;
 
@@ -235,7 +240,7 @@ function buildUsageResponse(
     remainingEdits: hasUnlimited ? null : baseRemainingEdits,
     remainingMonthlyEdits: hasUnlimited
       ? null
-      : isActive
+      : proQuota
         ? baseRemainingEdits
         : 0,
     editCredits,
@@ -247,10 +252,13 @@ function buildUsageResponse(
     currentPeriodEnd: usageData?.current_period_end ?? null,
     hasStripeSubscription: Boolean(usageData?.stripe_subscription_id),
     stripeStatus: storedStripeStatus ?? null,
+    // The end of a Deadline Pass (ISO), so the client applies the same rule
+    // and the billing page can say "Pro until <date>".
+    proUntil: usageData?.pro_until ?? null,
     limitReached: hasUnlimited ? false : allowanceSpent && editCredits <= 0,
     monthlyLimitReached: hasUnlimited
       ? false
-      : isActive
+      : proQuota
         ? allowanceSpent && editCredits <= 0
         : false,
     monthlyResetDate: usageData?.monthly_reset_date || null,

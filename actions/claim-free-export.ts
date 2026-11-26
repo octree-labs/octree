@@ -51,7 +51,7 @@ export async function claimFreeFirstExport(
 
     const { data: row } = await supabase
       .from('user_usage')
-      .select('subscription_status, stripe_subscription_id, current_period_end')
+      .select('subscription_status, stripe_subscription_id, current_period_end, pro_until')
       .eq('user_id', user.id)
       .maybeSingle();
     if (proEntitlement({ row, hasUnlimited: hasUnlimitedEdits(user.email) }).isPro) {

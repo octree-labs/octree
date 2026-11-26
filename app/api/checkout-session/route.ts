@@ -7,6 +7,7 @@ import { resolveStripeCustomer } from '@/lib/stripe-customer';
 import { getOrCreatePrice } from '@/lib/stripe-prices';
 import {
   buildCheckoutSessionParams,
+  isPassPlan,
   isSubscriptionPlan,
   lookupKeyForPlan,
   resolveCheckoutPlan,
@@ -15,6 +16,8 @@ import { ensureOfferPromotionCode } from '@/lib/checkout-offers-stripe';
 import { countryFromHeaders, priceTierForCountry } from '@/lib/regional-pricing';
 import { EXPORT_ALREADY_UNLOCKED_MESSAGE, readExportUnlocked } from '@/lib/export-unlock';
 import { AnalyticsEvents } from '@/lib/analytics/events';
+import { hasLiveSubscription, passTrialEnd, type BillingRow } from '@/lib/subscription/pass-trial';
+import { effectiveOfferVariant } from '@/lib/offer-v2/variant';
 import {
   captureServerEventAfterResponse,
   captureServerExceptionAfterResponse,
@@ -105,6 +108,20 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: ALREADY_SUBSCRIBED_MESSAGE }, { status: 409 });
     }
 
+    // A Deadline Pass on top of a live (active/trialing) subscription buys
+    // nothing: they are Pro already. A failed renewal (past_due, unpaid,
+    // incomplete) or a stale is_pro does not block it: that user is not Pro.
+    // Also carries the stored onboarding-offer-v2 arm (assigned by GET
+    // /api/offer); checkout never evaluates the flag itself.
+    const billingRow = await readBillingRow(supabase, user.id);
+    const offerVariant = effectiveOfferVariant(billingRow?.offer_variant, process.env.NEXT_PUBLIC_OFFER_V2);
+    if (isPassPlan(resolved.plan) && hasLiveSubscription(billingRow)) {
+      return NextResponse.json({ error: PASS_WHILE_SUBSCRIBED_MESSAGE }, { status: 409 });
+    }
+    // Subscribing while a Deadline Pass runs: billing starts when the pass
+    // ends (trial_end), computed from the database row, never the client.
+    const trialEnd = isSubscriptionPlan(resolved.plan) ? passTrialEnd(billingRow?.pro_until) : null;
+
     if (resolved.projectId) {
       const { data: project, error: projectError } = await supabase
         .from('projects')
@@ -160,6 +177,8 @@ export async function POST(request: Request) {
       ...(resolved.successPath ? { successPath: resolved.successPath } : {}),
       priceTier,
       country,
+      ...(trialEnd ? { trialEnd } : {}),
+      offerVariant,
     };
     let offerApplied = !!resolved.offer && !!promotionCodeId;
     if (resolved.offer && !promotionCodeId) {
@@ -200,6 +219,8 @@ export async function POST(request: Request) {
       country,
       session_id: session.id,
       captured: 'server',
+      ...(trialEnd ? { trial_until_pass_end: true } : {}),
+      offer_variant: offerVariant,
       ...(resolved.offer ? { offer: offerApplied ? resolved.offer : undefined, offer_applied: offerApplied } : {}),
       ...(isOnboardingPaywallCheckout(body, resolved.source) ? { onboarding_paywall: true } : {}),
     });
@@ -216,6 +237,26 @@ export async function POST(request: Request) {
 
 const ALREADY_SUBSCRIBED_MESSAGE =
   'You already have an Octree Pro subscription (it can take a minute to activate). Refresh the page in a moment.';
+
+const PASS_WHILE_SUBSCRIBED_MESSAGE =
+  'You already have Octree Pro through your subscription, so a Deadline Pass would add nothing.';
+
+/** The billing columns the pass guard and the pass trial read. Null on any error (never blocks a sale). */
+async function readBillingRow(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string
+): Promise<BillingRow | null> {
+  try {
+    const { data } = await (supabase.from('user_usage') as any)
+      .select('subscription_status, stripe_subscription_id, current_period_end, pro_until, offer_variant')
+      .eq('user_id', userId)
+      .maybeSingle();
+    return (data as BillingRow | null) ?? null;
+  } catch (error) {
+    console.error('[checkout] could not read the billing row:', error);
+    return null;
+  }
+}
 
 /** Subscription states in which another onboarding checkout would charge twice. */
 const IN_FLIGHT_SUBSCRIPTION_STATUSES = new Set(['active', 'trialing', 'incomplete', 'past_due']);

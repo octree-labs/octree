@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import { Loader2, PauseCircle, Percent } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { AnalyticsEvents, type CancelSaveOffer } from '@/lib/analytics/events';
+import { track } from '@/lib/analytics/track';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -17,13 +20,17 @@ import { Textarea } from '@/components/ui/textarea';
 import type { CancelFeedback } from '@/lib/analytics/events';
 import {
   applySaveDiscount,
+  applySaveOnceOffer,
   cancelSubscription,
   fetchCancelOffers,
   pauseSubscription,
 } from '@/lib/requests/subscription';
 import {
   CANCEL_COMMENT_MAX_LENGTH,
+  MISSING_FEATURE_MAX_LENGTH,
   PAUSE_MONTH_OPTIONS,
+  SAVE_ONCE_PERCENT_OFF,
+  SAVE_STEP_PAUSE_MONTHS,
   SAVE_COUPON_MONTHS,
   SAVE_COUPON_PERCENT_OFF,
   type PauseMonths,
@@ -35,7 +42,7 @@ interface CancelDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-type Step = 'offers' | 'reason' | 'paused' | 'discounted' | 'canceled';
+type Step = 'offers' | 'reason' | 'save' | 'paused' | 'discounted' | 'saved_once' | 'canceled';
 
 const REASONS: Array<{ value: CancelFeedback; label: string }> = [
   { value: 'unused', label: "I'm not using it enough" },
@@ -70,6 +77,10 @@ export function CancelDialog({ open, onOpenChange }: CancelDialogProps) {
   const [busy, setBusy] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<CancelFeedback | null>(null);
   const [comment, setComment] = useState('');
+  // `missing_features`: "Which feature?" (stored on the event and in Stripe's cancellation comment).
+  const [missingFeature, setMissingFeature] = useState('');
+  // The save step is offered once per opening, after the reason.
+  const [saveShown, setSaveShown] = useState(false);
   const [result, setResult] = useState<{
     until?: number | null;
     paidThrough?: number | null;
@@ -86,6 +97,8 @@ export function CancelDialog({ open, onOpenChange }: CancelDialogProps) {
     setBusy(null);
     setFeedback(null);
     setComment('');
+    setMissingFeature('');
+    setSaveShown(false);
     setResult(null);
     fetchCancelOffers()
       .then((data) => {
@@ -132,12 +145,56 @@ export function CancelDialog({ open, onOpenChange }: CancelDialogProps) {
       setStep('discounted');
     });
 
-  const handleCancel = () =>
+  const doCancel = () =>
     run('cancel', async () => {
       if (!feedback) return;
-      const data = await cancelSubscription(feedback, comment);
+      const data = await cancelSubscription(feedback, comment, {
+        ...(feedback === 'missing_features' && missingFeature.trim() ? { missingFeature: missingFeature.trim() } : {}),
+        saveOfferShown: saveShown,
+      });
       setResult({ periodEnd: data.subscription.current_period_end });
       setStep('canceled');
+    });
+
+  // The save step's offers that still apply: 50% off the next payment
+  // (once per subscription) and a one-month pause.
+  const saveOffers: CancelSaveOffer[] = offers
+    ? [
+        ...(offers.save_offer_available ? (['discount_once'] as const) : []),
+        ...(offers.paused_until == null && offers.effective_status !== 'paused' ? (['pause_1m'] as const) : []),
+      ]
+    : [];
+
+  // Before confirming: one save step (if anything is left to offer), then the cancel.
+  const handleCancel = () => {
+    if (!feedback) return;
+    if (!saveShown && saveOffers.length > 0) {
+      setSaveShown(true);
+      setStep('save');
+      track(AnalyticsEvents.CANCEL_SAVE_OFFER_SHOWN, {
+        feedback,
+        offers: saveOffers,
+        has_missing_feature: feedback === 'missing_features' && missingFeature.trim().length > 0,
+      });
+      return;
+    }
+    void doCancel();
+  };
+
+  const handleSaveOnce = () =>
+    run('save-once', async () => {
+      await applySaveOnceOffer(feedback ?? undefined);
+      setStep('saved_once');
+    });
+
+  const handleSavePause = () =>
+    run('save-pause', async () => {
+      const data = await pauseSubscription(SAVE_STEP_PAUSE_MONTHS, feedback ? { feedback } : undefined);
+      setResult({
+        until: data.subscription.paused_until,
+        paidThrough: data.subscription.pause_paid_through,
+      });
+      setStep('paused');
     });
 
   // A pause already set (active now or scheduled) rules both offers out: a
@@ -145,7 +202,7 @@ export function CancelDialog({ open, onOpenChange }: CancelDialogProps) {
   const alreadyPaused = offers ? offers.paused_until != null || offers.effective_status === 'paused' : false;
   const isOnFreePlan = offers?.effective_status === 'paused';
   const canPause = offers ? !alreadyPaused : false;
-  const canDiscount = offers ? !offers.has_discount && !alreadyPaused : false;
+  const canDiscount = offers ? offers.discount_available !== false && !offers.has_discount && !alreadyPaused : false;
   const hasOffers = canPause || canDiscount;
   const periodEndLabel = offers ? formatDate(offers.current_period_end) : '';
   const price = offers?.price;
@@ -297,6 +354,21 @@ export function CancelDialog({ open, onOpenChange }: CancelDialogProps) {
               ))}
             </fieldset>
 
+            {feedback === 'missing_features' && (
+              <div className="space-y-1">
+                <Label htmlFor="cancel-missing-feature" className="text-sm text-neutral-600">
+                  Which feature?
+                </Label>
+                <Input
+                  id="cancel-missing-feature"
+                  value={missingFeature}
+                  maxLength={MISSING_FEATURE_MAX_LENGTH}
+                  onChange={(e) => setMissingFeature(e.target.value)}
+                  placeholder="The one thing Octree didn't do for you"
+                />
+              </div>
+            )}
+
             <div className="space-y-1">
               <Label htmlFor="cancel-comment" className="text-sm text-neutral-600">
                 Anything else? (optional)
@@ -335,6 +407,96 @@ export function CancelDialog({ open, onOpenChange }: CancelDialogProps) {
                   'Cancel subscription'
                 )}
               </Button>
+            </DialogFooter>
+          </>
+        )}
+
+        {step === 'save' && (
+          <>
+            <DialogHeader>
+              <DialogTitle>Before you cancel</DialogTitle>
+              <DialogDescription>
+                {feedback === 'missing_features'
+                  ? 'Thanks for telling us what was missing; we read every answer. If you want to give it a little longer:'
+                  : 'If you want to give Octree a little longer:'}
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-3">
+              {saveOffers.includes('discount_once') && (
+                <Button
+                  variant="outline"
+                  className="h-auto w-full justify-start gap-3 py-3 text-left"
+                  disabled={busy !== null}
+                  onClick={handleSaveOnce}
+                >
+                  {busy === 'save-once' ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Percent className="h-4 w-4 shrink-0" />
+                  )}
+                  <span>
+                    <span className="block text-sm font-medium">{SAVE_ONCE_PERCENT_OFF}% off your next payment</span>
+                    <span className="block text-xs font-normal text-neutral-600">
+                      {priceNow && priceHalf
+                        ? `${priceHalf} instead of ${priceNow} next time, then the normal price.`
+                        : 'Half price next time, then the normal price.'}
+                    </span>
+                  </span>
+                </Button>
+              )}
+              {saveOffers.includes('pause_1m') && (
+                <Button
+                  variant="outline"
+                  className="h-auto w-full justify-start gap-3 py-3 text-left"
+                  disabled={busy !== null}
+                  onClick={handleSavePause}
+                >
+                  {busy === 'save-pause' ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <PauseCircle className="h-4 w-4 shrink-0" />
+                  )}
+                  <span>
+                    <span className="block text-sm font-medium">Pause for 1 month</span>
+                    <span className="block text-xs font-normal text-neutral-600">
+                      Keep Pro until {periodEndLabel || 'the end of this period'}, then no charge for a month.
+                    </span>
+                  </span>
+                </Button>
+              )}
+            </div>
+
+            {error && <div className="rounded-md bg-red-50 p-3 text-sm text-red-600">{error}</div>}
+
+            <DialogFooter className="sm:justify-between">
+              <Button variant="outline" onClick={handleClose} disabled={busy !== null}>
+                Keep subscription
+              </Button>
+              <Button variant="destructive" onClick={() => void doCancel()} disabled={busy !== null}>
+                {busy === 'cancel' ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Cancelling...
+                  </>
+                ) : (
+                  'No thanks, cancel'
+                )}
+              </Button>
+            </DialogFooter>
+          </>
+        )}
+
+        {step === 'saved_once' && (
+          <>
+            <DialogHeader>
+              <DialogTitle>Discount applied</DialogTitle>
+              <DialogDescription>
+                Your next payment is {SAVE_ONCE_PERCENT_OFF}% off and your subscription stays on. Nothing else changes.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button onClick={handleClose}>Done</Button>
             </DialogFooter>
           </>
         )}

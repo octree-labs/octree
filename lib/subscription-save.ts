@@ -8,6 +8,8 @@ import {
   SAVE_COUPON_ID,
   SAVE_COUPON_MONTHS,
   SAVE_COUPON_PERCENT_OFF,
+  SAVE_ONCE_COUPON_ID,
+  SAVE_ONCE_PERCENT_OFF,
   pausePaidThrough,
   pauseResumesAt,
   subscriptionPeriod,
@@ -78,24 +80,38 @@ function stripeErrorCode(error: unknown): string | undefined {
  * across requests and across environments (test and live each get their own).
  */
 export async function ensureSaveCoupon(): Promise<Stripe.Coupon> {
+  return ensureCoupon({
+    id: SAVE_COUPON_ID,
+    name: `${SAVE_COUPON_PERCENT_OFF}% off for ${SAVE_COUPON_MONTHS} months`,
+    percent_off: SAVE_COUPON_PERCENT_OFF,
+    duration: 'repeating',
+    duration_in_months: SAVE_COUPON_MONTHS,
+  });
+}
+
+/** The save step's coupon (50% off the next invoice only), created on first use. */
+export async function ensureSaveOnceCoupon(): Promise<Stripe.Coupon> {
+  return ensureCoupon({
+    id: SAVE_ONCE_COUPON_ID,
+    name: `${SAVE_ONCE_PERCENT_OFF}% off your next payment`,
+    percent_off: SAVE_ONCE_PERCENT_OFF,
+    duration: 'once',
+  });
+}
+
+async function ensureCoupon(params: Stripe.CouponCreateParams & { id: string }): Promise<Stripe.Coupon> {
   try {
-    return await stripe.coupons.retrieve(SAVE_COUPON_ID);
+    return await stripe.coupons.retrieve(params.id);
   } catch (error) {
     if (stripeErrorCode(error) !== 'resource_missing') throw error;
   }
 
   try {
-    return await stripe.coupons.create({
-      id: SAVE_COUPON_ID,
-      name: `${SAVE_COUPON_PERCENT_OFF}% off for ${SAVE_COUPON_MONTHS} months`,
-      percent_off: SAVE_COUPON_PERCENT_OFF,
-      duration: 'repeating',
-      duration_in_months: SAVE_COUPON_MONTHS,
-    });
+    return await stripe.coupons.create(params);
   } catch (error) {
     // Two requests raced past the retrieve; the other one won.
     if (stripeErrorCode(error) === 'resource_already_exists') {
-      return stripe.coupons.retrieve(SAVE_COUPON_ID);
+      return stripe.coupons.retrieve(params.id);
     }
     throw error;
   }

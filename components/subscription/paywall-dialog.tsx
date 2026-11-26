@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { Check } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Check, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
 
 import {
@@ -21,6 +21,29 @@ import { CHECKOUT_OFFERS, offerAppliesToPlan } from '@/lib/checkout-offers';
 import { firstPurchaseOfferCopy } from '@/lib/first-purchase-offer';
 import { EXPORT_ALREADY_UNLOCKED_MESSAGE } from '@/lib/export-unlock';
 import { PaywallActions, paywallOfferFor, usePaywall } from '@/stores/paywall';
+import { useOffer } from '@/hooks/use-offer';
+import { guaranteeLine, offerValueStack } from '@/lib/offer-v2/offer';
+import { AnalyticsEvents } from '@/lib/analytics/events';
+import { track } from '@/lib/analytics/track';
+
+/** Once per browser: the offer_v2 downsell on closing the paywall (no trap: one card, one "No thanks"). */
+const DOWNSELL_SEEN_KEY = 'octree:paywall-downsell-seen';
+
+function downsellSeen(): boolean {
+  try {
+    return window.localStorage.getItem(DOWNSELL_SEEN_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function markDownsellSeen(): void {
+  try {
+    window.localStorage.setItem(DOWNSELL_SEEN_KEY, '1');
+  } catch {
+    // Private mode / blocked storage: it may show once more; harmless.
+  }
+}
 import { ProjectActions } from '@/stores/project';
 
 const copyFor = (creditPrice: string): Record<ProFeature, { title: string; description: string }> => ({
@@ -104,8 +127,24 @@ type SingleOffer = {
 export function PaywallDialog() {
   const { open, feature, reason, offers, firstPurchaseOffer, context } = usePaywall();
   const [plan, setPlan] = useState<PickerPlan>('monthly');
-  const [isSubmitting, setIsSubmitting] = useState<'pro' | 'single' | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState<'pro' | 'single' | 'pass' | null>(null);
+  const [showDownsell, setShowDownsell] = useState(false);
   const pricing = useRegionalPricing();
+  // `onboarding-offer-v2`: the variant also decides this dialog's value list,
+  // the guarantee line and the downsell on close.
+  // Asked only once the dialog opens (GET /api/offer assigns the arm, so a
+  // user who never sees a paywall is never exposed to the experiment).
+  const offerResponse = useOffer({ enabled: open });
+  const offerVariant = offerResponse?.variant ?? null;
+  const isOfferV2 = offerVariant === 'offer_v2';
+  useEffect(() => {
+    // Sticky: a closed dialog (no request) keeps the last known arm for the
+    // next open's `paywall_shown`.
+    if (offerVariant) PaywallActions.setOfferVariant(offerVariant);
+  }, [offerVariant]);
+  useEffect(() => {
+    if (open) setShowDownsell(false);
+  }, [open]);
 
   const creditsOnly = reason === 'monthly_limit';
   const exportProjectId = feature === 'export' ? context?.projectId : undefined;
@@ -142,7 +181,7 @@ export function PaywallDialog() {
   const proLeads = feature === 'export' && reason === 'free_export_used';
 
   const startCheckout = async (
-    kind: 'pro' | 'single',
+    kind: 'pro' | 'single' | 'pass',
     request: Parameters<typeof createCheckoutSession>[0]
   ) => {
     setIsSubmitting(kind);
@@ -181,6 +220,96 @@ export function PaywallDialog() {
       source: 'paywall',
       ...(pickerOffer ? { offer: pickerOffer } : {}),
     });
+
+  /**
+   * offer_v2: closing the paywall the first time shows one small downsell
+   * (the Deadline Pass, plus this paywall's one-off purchase if it has one)
+   * with a plain "No thanks". Never for a Pro user out of edits.
+   */
+  const handleDismiss = () => {
+    if (isSubmitting !== null) return;
+    if (isOfferV2 && !showDownsell && !creditsOnly && !downsellSeen()) {
+      markDownsellSeen();
+      setShowDownsell(true);
+      track(AnalyticsEvents.PAYWALL_DOWNSELL_SHOWN, {
+        placement: 'dialog',
+        offers: singleOffer ? ['pass', 'single'] : ['pass'],
+        offer_variant: 'offer_v2',
+        ...(feature ? { feature } : {}),
+      });
+      return;
+    }
+    PaywallActions.close();
+  };
+
+  if (showDownsell) {
+    return (
+      <Dialog open={open} onOpenChange={(next) => !next && PaywallActions.close()}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Only need Pro for one deadline?</DialogTitle>
+            <DialogDescription>
+              Get {pricing.deadlinePass.days} days of Pro for {pricing.deadlinePass.price}, once. No subscription,
+              nothing renews.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="rounded-lg border p-4">
+              <div className="flex items-baseline justify-between gap-2">
+                <p className="font-semibold">Deadline Pass</p>
+                <p className="text-sm text-muted-foreground">{pricing.deadlinePass.price} once</p>
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Everything in Pro for {pricing.deadlinePass.days} days: {PRO_MONTHLY_EDIT_LIMIT} AI edits a month,
+                export, generate, ATS check.
+              </p>
+              <Button
+                className="mt-3 w-full"
+                variant="gradient"
+                onClick={() => startCheckout('pass', { plan: 'deadline_pass', source: 'paywall' })}
+                disabled={isSubmitting !== null}
+              >
+                {isSubmitting === 'pass' ? 'Loading...' : `Get ${pricing.deadlinePass.days} days for ${pricing.deadlinePass.price}`}
+              </Button>
+            </div>
+            {singleOffer && (
+              <div className="rounded-lg border p-4">
+                <div className="flex items-baseline justify-between gap-2">
+                  <p className="font-semibold">{singleOffer.heading}</p>
+                  <p className="text-sm text-muted-foreground">{singleOffer.price}</p>
+                </div>
+                <p className="mt-1 text-sm text-muted-foreground">{singleOffer.blurb}</p>
+                <Button
+                  className="mt-3 w-full"
+                  variant="outline"
+                  onClick={() => startCheckout('single', singleOffer.request)}
+                  disabled={isSubmitting !== null}
+                >
+                  {isSubmitting === 'single' ? 'Loading...' : singleOffer.button}
+                </Button>
+              </div>
+            )}
+            <Button
+              variant="link"
+              size="sm"
+              className="mx-auto flex h-auto p-0 text-muted-foreground hover:text-foreground"
+              onClick={PaywallActions.close}
+              disabled={isSubmitting !== null}
+            >
+              No thanks
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  const guaranteeNote = isOfferV2 ? (
+    <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+      <ShieldCheck className="mt-px size-3.5 shrink-0 text-emerald-700" />
+      {guaranteeLine()}
+    </p>
+  ) : null;
 
   if (singleOffer) {
     const singleCard = (
@@ -231,11 +360,12 @@ export function PaywallDialog() {
               ? offerCopy.button
               : `Go Pro for ${pricing.proPlans.monthly.price}/mo`}
         </Button>
+        {guaranteeNote && <div className="mt-3">{guaranteeNote}</div>}
       </div>
     );
 
     return (
-      <Dialog open={open} onOpenChange={(next) => !next && PaywallActions.close()}>
+      <Dialog open={open} onOpenChange={(next) => !next && handleDismiss()}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>{copy.title}</DialogTitle>
@@ -259,7 +389,7 @@ export function PaywallDialog() {
               variant="link"
               size="sm"
               className="mx-auto flex h-auto p-0 text-muted-foreground hover:text-foreground"
-              onClick={PaywallActions.close}
+              onClick={handleDismiss}
               disabled={isSubmitting !== null}
             >
               Not now
@@ -271,7 +401,7 @@ export function PaywallDialog() {
   }
 
   return (
-    <Dialog open={open} onOpenChange={(next) => !next && PaywallActions.close()}>
+    <Dialog open={open} onOpenChange={(next) => !next && handleDismiss()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>{copy.title}</DialogTitle>
@@ -292,7 +422,7 @@ export function PaywallDialog() {
 
           {!creditsOnly && (
             <ul className="space-y-1.5">
-              {PRO_FEATURES.map((text) => (
+              {(isOfferV2 ? offerValueStack() : [...PRO_FEATURES]).map((text) => (
                 <li key={text} className="flex gap-2.5 text-sm text-muted-foreground">
                   <Check className="mt-0.5 size-4 shrink-0 text-primary" />
                   <span>{text}</span>
@@ -302,6 +432,7 @@ export function PaywallDialog() {
           )}
 
           <div className="space-y-2">
+            {!creditsOnly && guaranteeNote}
             {!creditsOnly && (
               <Button
                 className="w-full"
@@ -320,7 +451,7 @@ export function PaywallDialog() {
               variant="link"
               size="sm"
               className="mx-auto flex h-auto p-0 text-muted-foreground hover:text-foreground"
-              onClick={PaywallActions.close}
+              onClick={handleDismiss}
               disabled={isSubmitting !== null}
             >
               Not now

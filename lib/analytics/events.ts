@@ -40,6 +40,10 @@ export const AnalyticsEvents = {
   // --- Monetisation (browser) ---
   PAYWALL_SHOWN: 'paywall_shown',
   PAYWALL_DISMISSED: 'paywall_dismissed',
+  // offer_v2: the Deadline Pass downsell was revealed (onboarding link, or the dialog's close).
+  PAYWALL_DOWNSELL_SHOWN: 'paywall_downsell_shown',
+  // Server: a user's onboarding-offer-v2 arm was assigned and stored (once per user; sets the person property).
+  OFFER_VARIANT_ASSIGNED: 'offer_variant_assigned',
   EDIT_LIMIT_HIT: 'edit_limit_hit',
   DUNNING_BANNER_CLICKED: 'dunning_banner_clicked',
   // /buy?offer=<id>: the discount banner rendered (app/buy/buy-page-client.tsx).
@@ -55,6 +59,9 @@ export const AnalyticsEvents = {
   SUBSCRIPTION_REACTIVATED: 'subscription_reactivated',
   CANCEL_FLOW_OPENED: 'cancel_flow_opened',
   CANCEL_OFFER_ACCEPTED: 'cancel_offer_accepted',
+  // The save step after the cancel reason (components/subscription/cancel-dialog.tsx).
+  CANCEL_SAVE_OFFER_SHOWN: 'cancel_save_offer_shown',
+  CANCEL_SAVE_OFFER_ACCEPTED: 'cancel_save_offer_accepted',
   SUBSCRIPTION_PAUSED: 'subscription_paused',
   SUBSCRIPTION_RESUMED: 'subscription_resumed',
   SUBSCRIPTION_CANCEL_CONFIRMED: 'subscription_cancel_confirmed',
@@ -70,6 +77,10 @@ export const AnalyticsEvents = {
   GENERATION_PURCHASED: 'generation_purchased',
   // A one-off $4.99 export unlock for one project was granted (Stripe webhook).
   EXPORT_UNLOCKED: 'export_unlocked',
+  // A Deadline Pass was paid and user_usage.pro_until extended (Stripe webhook or /success).
+  PRO_PASS_PURCHASED: 'pro_pass_purchased',
+  // A Deadline Pass was fully refunded or disputed and its days taken back (Stripe webhook).
+  PRO_PASS_REVOKED: 'pro_pass_revoked',
   // The free first export was used on a project (actions/claim-free-export.ts).
   EXPORT_FREE_USED: 'export_free_used',
   // Billing recovery (Stripe webhook + lifecycle cron)
@@ -117,8 +128,12 @@ export type PaywallReason =
   | 'onboarding_required';
 /** Where a paywall was shown: the in-product dialog, or the onboarding plan step. */
 export type PaywallPlacement = 'dialog' | 'onboarding';
-/** What the paywall can sell: the subscription, or one generation credit. */
-export type PaywallOffer = 'pro' | 'single';
+/** What the paywall can sell: the subscription, one generation credit / export, or the Deadline Pass. */
+export type PaywallOffer = 'pro' | 'single' | 'pass';
+/** The `onboarding-offer-v2` PostHog flag variant (lib/offer-v2/variant.ts). */
+export type OfferVariantProperty = 'control' | 'offer_v2';
+/** The save step's offers (lib/stripe-subscription.ts SAVE_ONCE_COUPON_ID, a 1-month pause). */
+export type CancelSaveOffer = 'discount_once' | 'pause_1m';
 /** Recurring plans. `weekly` is retired for new purchases but still appears on legacy subscriptions. */
 export type CheckoutPlan = 'monthly' | 'annual' | 'semester' | 'weekly';
 /**
@@ -126,7 +141,13 @@ export type CheckoutPlan = 'monthly' | 'annual' | 'semester' | 'weekly';
  * credit pack, the one-off $2.99 generation credit and the one-off $4.99
  * export unlock for one project.
  */
-export type PurchasePlan = CheckoutPlan | 'credits_100' | 'generate_single' | 'export_single';
+export type PurchasePlan =
+  | CheckoutPlan
+  | 'credits_100'
+  | 'generate_single'
+  | 'export_single'
+  /** The one-off Deadline Pass: 7 days of Pro (lib/checkout-plans.ts). */
+  | 'deadline_pass';
 /** How a generation was paid for (consume_generation in the database). */
 export type GenerationKind = 'pro' | 'free' | 'credit';
 export const CHECKOUT_SOURCES = ['onboarding', 'paywall', 'settings', 'generate-preview', 'toolbar', 'buy'] as const;
@@ -385,6 +406,19 @@ export interface AnalyticsEventProperties {
     offer?: CheckoutOfferId;
     /** Absent on events from before the onboarding paywall: those are all `dialog`. */
     placement?: PaywallPlacement;
+    /** `onboarding-offer-v2` variant; absent before the experiment. */
+    offer_variant?: OfferVariantProperty;
+  };
+  [AnalyticsEvents.OFFER_VARIANT_ASSIGNED]: {
+    offer_variant: OfferVariantProperty;
+    /** PostHog person property, so every event can be split by arm. */
+    $set: { offer_variant: OfferVariantProperty };
+  };
+  [AnalyticsEvents.PAYWALL_DOWNSELL_SHOWN]: {
+    placement: PaywallPlacement;
+    offers: PaywallOffer[];
+    offer_variant: OfferVariantProperty;
+    feature?: PaywallFeature;
   };
   [AnalyticsEvents.PAYWALL_DISMISSED]: { feature: PaywallFeature; reason?: PaywallReason };
   [AnalyticsEvents.EDIT_LIMIT_HIT]: { is_pro: boolean; source: 'chat' | 'accept' };
@@ -416,6 +450,10 @@ export interface AnalyticsEventProperties {
     offer_applied?: boolean;
     /** The checkout came from the onboarding plan step while it had no free path. */
     onboarding_paywall?: boolean;
+    /** A subscription bought during a Deadline Pass: billing starts when the pass ends (trial_end). */
+    trial_until_pass_end?: boolean;
+    /** `onboarding-offer-v2` variant, evaluated server side (also on the Stripe metadata). */
+    offer_variant?: OfferVariantProperty;
   };
   /**
    * The /buy offer banner. `auto: true` when the page applied the
@@ -434,6 +472,8 @@ export interface AnalyticsEventProperties {
     source?: CheckoutSource;
     /** For a checkout from /generate: how the visitor reached /generate. */
     entry?: GenerateEntry;
+    /** `onboarding-offer-v2` variant at checkout (Checkout Session metadata). */
+    offer_variant?: OfferVariantProperty;
   };
   [AnalyticsEvents.SUBSCRIPTION_CANCELED]: {
     /** `at_period_end`: user turned off renewal; `deleted`: Stripe ended it. */
@@ -451,6 +491,15 @@ export interface AnalyticsEventProperties {
     cancel_at_period_end: boolean;
   };
   [AnalyticsEvents.CANCEL_OFFER_ACCEPTED]: { offer: CancelOffer };
+  [AnalyticsEvents.CANCEL_SAVE_OFFER_SHOWN]: {
+    feedback: CancelFeedback;
+    offers: CancelSaveOffer[];
+    has_missing_feature: boolean;
+  };
+  [AnalyticsEvents.CANCEL_SAVE_OFFER_ACCEPTED]: {
+    offer: CancelSaveOffer;
+    feedback?: CancelFeedback;
+  };
   [AnalyticsEvents.SUBSCRIPTION_PAUSED]: {
     months: number;
     /** Unix seconds; when Stripe resumes collection on its own. */
@@ -463,6 +512,10 @@ export interface AnalyticsEventProperties {
   [AnalyticsEvents.SUBSCRIPTION_CANCEL_CONFIRMED]: {
     feedback: CancelFeedback;
     has_comment: boolean;
+    /** `missing_features` only: the user's answer to "Which feature?" (trimmed, at most 200 chars). */
+    missing_feature?: string;
+    /** Whether the save step was shown before this confirmation. */
+    save_offer_shown?: boolean;
   };
   [AnalyticsEvents.IMPORT_COMPLETED]: {
     source: string;
@@ -559,6 +612,26 @@ export interface AnalyticsEventProperties {
   [AnalyticsEvents.EXPORT_FREE_USED]: {
     project_id: string;
     format: ExportFormat;
+  };
+  [AnalyticsEvents.PRO_PASS_REVOKED]: {
+    reason: 'refund' | 'dispute';
+    session_id: string;
+    /** ISO pro_until after the rollback (never earlier than the moment of the refund). */
+    pro_until: string;
+  };
+  [AnalyticsEvents.PRO_PASS_PURCHASED]: {
+    plan: 'deadline_pass';
+    days: number;
+    /** ISO end of Pro after this pass (stacked onto any pass still running). */
+    pro_until: string;
+    session_id: string;
+    amount: number | null;
+    currency: string | null;
+    /** `webhook` or `success_page`: whichever granted first (the ledger makes it once). */
+    granted_by: 'webhook' | 'success_page';
+    source?: CheckoutSource;
+    entry?: GenerateEntry;
+    offer_variant?: OfferVariantProperty;
   };
   [AnalyticsEvents.EXPORT_UNLOCKED]: {
     project_id: string;

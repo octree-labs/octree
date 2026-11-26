@@ -62,6 +62,7 @@ describe('regional amounts', () => {
       credits_100: list.creditPack.amount,
       generate_single: list.generateSingle.amount,
       export_single: list.exportSingle.amount,
+      deadline_pass: list.deadlinePass.amount,
     };
     for (const [plan, key] of PLAN_KEYS) {
       expect(Math.round(shown[plan] * 100)).toBe(PRICE_DEFINITIONS[key].unitAmount);

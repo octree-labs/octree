@@ -135,10 +135,14 @@ export async function fetchCancelOffers(): Promise<SubscriptionOfferState> {
   return data.subscription as SubscriptionOfferState;
 }
 
-export function pauseSubscription(months: PauseMonths) {
+export function pauseSubscription(
+  months: PauseMonths,
+  /** The save step's pause: tagged `cancel_save_offer_accepted` server side. */
+  saveStep?: { feedback: CancelFeedback }
+) {
   return postSubscriptionAction<SubscriptionActionResult & { alreadyPaused: boolean }>(
     '/api/subscription/pause',
-    { months },
+    saveStep ? { months, via: 'save_offer', feedback: saveStep.feedback } : { months },
     'Failed to pause subscription'
   );
 }
@@ -159,10 +163,23 @@ export function applySaveDiscount() {
   );
 }
 
-export function cancelSubscription(feedback: CancelFeedback, comment?: string) {
+/** The save step's 50% off the next payment (`octree_save50_once`). */
+export function applySaveOnceOffer(feedback?: CancelFeedback) {
+  return postSubscriptionAction<SubscriptionActionResult>(
+    '/api/subscription/save-offer',
+    feedback ? { feedback } : undefined,
+    'Failed to apply the offer'
+  );
+}
+
+export function cancelSubscription(
+  feedback: CancelFeedback,
+  comment?: string,
+  extra: { missingFeature?: string; saveOfferShown?: boolean } = {}
+) {
   return postSubscriptionAction<SubscriptionActionResult & { alreadyCanceled: boolean }>(
     '/api/cancel-subscription',
-    { feedback, comment },
+    { feedback, comment, ...extra },
     'Failed to cancel subscription'
   );
 }

@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   from: vi.fn(),
 }));
 
+
 vi.mock('@/lib/checkout-offers-stripe', () => ({
   ensureOfferPromotionCode: mocks.ensureOfferPromotionCode,
 }));
@@ -100,6 +101,7 @@ describe('POST /api/checkout-session analytics', () => {
       country: null,
       session_id: 'cs_test_1',
       captured: 'server',
+      offer_variant: 'control',
     });
     // No offer asked for: Stripe is not asked about one and the session keeps the promo box.
     expect(mocks.ensureOfferPromotionCode).not.toHaveBeenCalled();
@@ -395,6 +397,7 @@ describe('POST /api/checkout-session export_single', () => {
       plan: 'export_single',
       source: 'paywall',
       export_project_id: projectId,
+      offer_variant: 'control',
     });
     expect(params.payment_intent_data.metadata).toEqual(params.metadata);
     expect(params.success_url).toBe(`https://app.example.com/projects/${projectId}?export=unlocked`);
@@ -483,7 +486,132 @@ describe('POST /api/checkout-session export_single', () => {
     mocks.sessionsCreate.mockResolvedValue({ id: 'cs_test_1', url: 'https://checkout.stripe.com/c/cs_test_1' });
     const response = await POST(post({ plan: 'monthly', projectId }));
     expect(response.status).toBe(200);
-    expect(mocks.from).not.toHaveBeenCalled();
+    // Only the billing row (for a Deadline Pass trial), never projects.
+    expect(mocks.from).not.toHaveBeenCalledWith('projects');
     expect(mocks.sessionsCreate.mock.calls[0][0].metadata).not.toHaveProperty('export_project_id');
+  });
+});
+
+describe('POST /api/checkout-session and a running Deadline Pass', () => {
+  const row = (fields: Record<string, unknown>) => ({
+    select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: fields }) }) }),
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.getUser.mockResolvedValue({ data: { user }, error: null });
+    mocks.getOrCreatePrice.mockResolvedValue('price_123');
+    mocks.resolveStripeCustomer.mockResolvedValue({ customerId: 'cus_1' });
+    mocks.sessionsCreate.mockResolvedValue({ id: 'cs_t', url: 'https://checkout.stripe.com/c/cs_t' });
+  });
+
+  it('lets a user whose renewal failed (past_due, stale is_pro) buy a pass', async () => {
+    mocks.from.mockReturnValue(
+      row({ subscription_status: 'past_due', stripe_subscription_id: 'sub_1', current_period_end: null, pro_until: null })
+    );
+    const response = await POST(post({ plan: 'deadline_pass', source: 'paywall' }));
+    expect(response.status).toBe(200);
+  });
+
+  it('starts billing at the pass end when the pass runs for more than 48 hours (from the DB row)', async () => {
+    const passEnd = new Date(Date.now() + 5 * 24 * 3600 * 1000).toISOString();
+    mocks.from.mockReturnValue(
+      row({ subscription_status: 'inactive', stripe_subscription_id: null, current_period_end: null, pro_until: passEnd })
+    );
+    await POST(post({ plan: 'monthly', source: 'settings', trialEnd: 1 }));
+    const params = mocks.sessionsCreate.mock.calls[0][0];
+    expect(params.subscription_data.trial_end).toBe(Math.floor(Date.parse(passEnd) / 1000));
+  });
+
+  it('bills today when the pass ends within 48 hours', async () => {
+    const passEnd = new Date(Date.now() + 24 * 3600 * 1000).toISOString();
+    mocks.from.mockReturnValue(
+      row({ subscription_status: 'inactive', stripe_subscription_id: null, current_period_end: null, pro_until: passEnd })
+    );
+    await POST(post({ plan: 'monthly', source: 'settings' }));
+    expect(mocks.sessionsCreate.mock.calls[0][0].subscription_data.trial_end).toBeUndefined();
+  });
+});
+
+function storedRow(fields: Record<string, unknown>) {
+  mocks.from.mockReturnValue({
+    select: () => ({
+      eq: () => ({
+        maybeSingle: async () => ({
+          data: { subscription_status: 'inactive', stripe_subscription_id: null, current_period_end: null, pro_until: null, ...fields },
+        }),
+      }),
+    }),
+  });
+}
+
+describe('POST /api/checkout-session onboarding-offer-v2 and the Deadline Pass', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.getUser.mockResolvedValue({ data: { user }, error: null });
+    mocks.getOrCreatePrice.mockResolvedValue('price_123');
+    mocks.resolveStripeCustomer.mockResolvedValue({ customerId: 'cus_1' });
+    mocks.sessionsCreate.mockResolvedValue({ id: 'cs_test_2', url: 'https://checkout.stripe.com/c/cs_test_2' });
+    // The stored arm (user_usage.offer_variant, assigned by GET /api/offer).
+    storedRow({ offer_variant: 'offer_v2' });
+  });
+
+  it('never evaluates the flag: a user with no stored arm checks out as control', async () => {
+    storedRow({ offer_variant: null });
+    await POST(post({ plan: 'annual', source: 'onboarding' }));
+    expect(mocks.sessionsCreate.mock.calls[0][0].metadata.offer_variant).toBe('control');
+  });
+
+  it('tags offer_v2 on the metadata and checkout_started, and shows the guarantee on Checkout', async () => {
+    const response = await POST(post({ plan: 'annual', source: 'onboarding' }));
+
+    expect(response.status).toBe(200);
+    const params = mocks.sessionsCreate.mock.calls[0][0];
+    expect(params.metadata.offer_variant).toBe('offer_v2');
+    expect(params.subscription_data.metadata.offer_variant).toBe('offer_v2');
+    expect(params.custom_text.submit.message).toMatch(/^7-day money-back guarantee: .*basil@useoctree\.com/);
+    expect(mocks.captureEvent).toHaveBeenCalledWith(
+      'user-1',
+      'checkout_started',
+      expect.objectContaining({ offer_variant: 'offer_v2', plan: 'annual' })
+    );
+  });
+
+  it('control gets no guarantee text on Checkout', async () => {
+    storedRow({ offer_variant: 'control' });
+    await POST(post({ plan: 'annual', source: 'onboarding' }));
+    expect(mocks.sessionsCreate.mock.calls[0][0].custom_text).toBeUndefined();
+  });
+
+  it('sells the Deadline Pass at the regional price as a payment session', async () => {
+    requestHeaders.country = 'IN';
+    mocks.from.mockReturnValue({
+      select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { is_pro: false, subscription_status: 'inactive' } }) }) }),
+    });
+    try {
+      const response = await POST(post({ plan: 'deadline_pass', source: 'paywall' }));
+      expect(response.status).toBe(200);
+      expect(mocks.getOrCreatePrice).toHaveBeenCalledWith('octree_deadline_pass_7d', expect.anything(), 'tier3');
+      const params = mocks.sessionsCreate.mock.calls[0][0];
+      expect(params.mode).toBe('payment');
+      expect(params.metadata).toMatchObject({ plan: 'deadline_pass', pro_pass_days: '7', price_tier: 'tier3' });
+    } finally {
+      requestHeaders.country = null;
+    }
+  });
+
+  it('refuses a Deadline Pass for a user with a live subscription (409)', async () => {
+    mocks.from.mockReturnValue({
+      select: () => ({
+        eq: () => ({
+          maybeSingle: async () => ({
+            data: { is_pro: true, subscription_status: 'active', stripe_subscription_id: 'sub_1', current_period_end: null },
+          }),
+        }),
+      }),
+    });
+    const response = await POST(post({ plan: 'deadline_pass', source: 'paywall' }));
+    expect(response.status).toBe(409);
+    expect(mocks.sessionsCreate).not.toHaveBeenCalled();
   });
 });

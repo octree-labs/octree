@@ -1,4 +1,4 @@
-import { PRO_MONTHLY_EDIT_LIMIT, PRO_PLANS } from '@/data/constants';
+import { DEADLINE_PASS_PRICE, PRO_MONTHLY_EDIT_LIMIT, PRO_PLANS } from '@/data/constants';
 import { WARM_LEAD_OFFER, warmLeadOfferUrl } from '@/lib/checkout-offers';
 import {
   cards,
@@ -435,6 +435,8 @@ function cartLabel(input: Pick<CheckoutRecoveryEmailInput, 'plan' | 'amountCents
       return `one document generation (${amount ?? '$2.99'})`;
     case 'export_single':
       return `export for one document (${amount ?? '$4.99'})`;
+    case 'deadline_pass':
+      return `the Octree Deadline Pass (${DEADLINE_PASS_PRICE.days} days of Pro, ${amount ?? DEADLINE_PASS_PRICE.price} once)`;
     default:
       return amount ? `Octree Pro (${amount})` : 'Octree Pro';
   }
@@ -452,7 +454,11 @@ export function checkoutRecoveryEmail(input: CheckoutRecoveryEmailInput): Lifecy
     blocks: [
       p(`Basil here. You started checking out for ${cart} and did not finish. No problem; the link below reopens the same checkout, nothing was charged.`),
       facts([['In your cart', cart]]),
-      p(`Pro is ${PRO_MONTHLY_EDIT_LIMIT} AI edits a month, PDF and ZIP export, and Generate (a full document from a prompt). Cancel anytime.`),
+      p(
+        input.plan === 'deadline_pass'
+          ? `The pass is ${DEADLINE_PASS_PRICE.days} days of Pro: ${PRO_MONTHLY_EDIT_LIMIT} AI edits, PDF and ZIP export, and Generate (a full document from a prompt). One payment; nothing renews.`
+          : `Pro is ${PRO_MONTHLY_EDIT_LIMIT} AI edits a month, PDF and ZIP export, and Generate (a full document from a prompt). Cancel anytime.`
+      ),
       p('If something stopped you, a price, a missing feature, a card that would not go through, reply to this email and tell me. I read every one.'),
     ],
     cta: { label: 'Finish checkout', href: input.recoveryUrl },
@@ -470,7 +476,11 @@ export function checkoutRecoveryOfferEmail(input: CheckoutRecoveryEmailInput): L
       ]
     : [
         p(`Basil here. One last note about the ${cart} checkout you left open. The link below reopens it; nothing was charged.`),
-        p('Free stays free: 5 AI edits a day, unlimited compiles. Pro is for when you reach for the AI a lot.'),
+        p(
+          input.plan === 'deadline_pass'
+            ? `Free stays free: 5 AI edits a day, unlimited compiles. The pass is for one deadline: ${DEADLINE_PASS_PRICE.days} days of Pro, one payment, nothing renews.`
+            : 'Free stays free: 5 AI edits a day, unlimited compiles. Pro is for when you reach for the AI a lot.'
+        ),
       ];
   return renderLifecycleEmail({
     template: 'checkout_recovery_offer',

@@ -4,6 +4,8 @@ import { stripe } from '@/lib/stripe';
 import { requireOwnedSubscription, subscriptionSummary } from '@/lib/subscription-save';
 import {
   PAUSE_PAID_THROUGH_KEY,
+  SAVE_STEP_PAUSE_MONTHS,
+  isCancelFeedback,
   isPauseMonths,
   isSubscriptionPaused,
   pauseResumeTimestamp,
@@ -29,8 +31,10 @@ import {
 export async function POST(request: Request) {
   try {
     let months: unknown;
+    let via: unknown;
+    let feedback: unknown;
     try {
-      ({ months } = await request.json());
+      ({ months, via, feedback } = await request.json());
     } catch {
       return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
     }
@@ -65,9 +69,19 @@ export async function POST(request: Request) {
       metadata: { [PAUSE_PAID_THROUGH_KEY]: String(paidThrough) },
     });
 
-    captureServerEventAfterResponse(user.id, AnalyticsEvents.CANCEL_OFFER_ACCEPTED, {
-      offer: 'pause',
-    });
+    // The first screen's offer; the save step's pause is counted below instead.
+    if (via !== 'save_offer') {
+      captureServerEventAfterResponse(user.id, AnalyticsEvents.CANCEL_OFFER_ACCEPTED, {
+        offer: 'pause',
+      });
+    }
+    // `via: 'save_offer'`: the pause offered on the save step after the reason.
+    if (via === 'save_offer' && months === SAVE_STEP_PAUSE_MONTHS) {
+      captureServerEventAfterResponse(user.id, AnalyticsEvents.CANCEL_SAVE_OFFER_ACCEPTED, {
+        offer: 'pause_1m',
+        ...(isCancelFeedback(feedback) ? { feedback } : {}),
+      });
+    }
     captureServerEventAfterResponse(user.id, AnalyticsEvents.SUBSCRIPTION_PAUSED, {
       months,
       resumes_at: resumesAt,

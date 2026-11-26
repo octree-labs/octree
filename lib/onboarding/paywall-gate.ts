@@ -1,4 +1,5 @@
 import { ONBOARDING_PAYWALL_REQUIRED, ONBOARDING_PAYWALL_SINCE } from '@/data/constants';
+import { proPassActive } from '@/lib/subscription/entitlement';
 
 /**
  * Whether the onboarding paywall applies to an account created at
@@ -28,6 +29,8 @@ export function onboardingPaywallApplies(
 export interface OnboardingGateUsage {
   is_pro?: boolean | null;
   onboarding_completed?: boolean | null;
+  /** A running Deadline Pass counts as Pro (lib/subscription/entitlement.ts). */
+  pro_until?: string | null;
 }
 
 /**
@@ -47,10 +50,11 @@ export type OnboardingGateSurface = 'dashboard' | 'app';
  */
 export function hasFinishedOnboarding(
   usage: OnboardingGateUsage | null | undefined,
-  paywallRequired: boolean = ONBOARDING_PAYWALL_REQUIRED
+  paywallRequired: boolean = ONBOARDING_PAYWALL_REQUIRED,
+  now: Date = new Date()
 ): boolean {
   if (usage?.onboarding_completed) return true;
-  return paywallRequired && !!usage?.is_pro;
+  return paywallRequired && (!!usage?.is_pro || proPassActive(usage, now));
 }
 
 /**

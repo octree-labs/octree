@@ -45,9 +45,15 @@ const mocks = vi.hoisted(() => {
 
   // grant_export_unlock answered false: was this session granted before?
   const exportUnlockMaybeSingle = vi.fn().mockResolvedValue({ data: null, error: null });
+  // A Deadline Pass by payment intent (refunds and disputes).
+  const passMaybeSingle = vi.fn().mockResolvedValue({ data: null, error: null });
+  const sessionsList = vi.fn().mockResolvedValue({ data: [] });
 
   const from = vi.fn((table: string) => {
     if (table === 'stripe_webhook_events') return { insert: eventsInsert };
+    if (table === 'pro_pass_purchases') {
+      return { select: () => ({ eq: () => ({ maybeSingle: passMaybeSingle }) }) };
+    }
     if (table === 'project_export_unlocks') {
       return { select: () => ({ eq: () => ({ maybeSingle: exportUnlockMaybeSingle }) }) };
     }
@@ -83,13 +89,15 @@ const mocks = vi.hoisted(() => {
     resendSend,
     ledgerRecentLimit,
     exportUnlockMaybeSingle,
+    passMaybeSingle,
+    sessionsList,
   };
 });
 
 vi.mock('stripe', () => ({
   default: class StripeMock {
     webhooks = { constructEvent: mocks.constructEvent };
-    checkout = { sessions: { listLineItems: vi.fn().mockResolvedValue({ data: [] }) } };
+    checkout = { sessions: { listLineItems: vi.fn().mockResolvedValue({ data: [] }), list: mocks.sessionsList } };
     invoices = { retrieve: mocks.invoiceRetrieve };
     subscriptions = { list: mocks.subscriptionsList };
   },
@@ -468,6 +476,119 @@ describe('POST /api/webhooks/stripe', () => {
       expect(res.status).toBe(200);
       expect(mocks.rpc).toHaveBeenCalledWith('grant_credit_purchase', expect.objectContaining({ p_credits: 100 }));
       expect(mocks.rpc).toHaveBeenCalledWith('grant_generation_purchase', expect.objectContaining({ p_credits: 1 }));
+    });
+  });
+
+  describe('checkout.session.completed for a Deadline Pass (mode: payment)', () => {
+    const passOverrides = {
+      id: 'cs_pass_1',
+      mode: 'payment',
+      amount_total: 499,
+      metadata: { app: 'octree', user_id: 'user-1', plan: 'deadline_pass', pro_pass_days: '7', source: 'onboarding' },
+    };
+
+    it('extends pro_until through grant_pro_pass before logging the event, and captures pro_pass_purchased', async () => {
+      mocks.constructEvent.mockReturnValue(checkoutEvent(passOverrides));
+      mocks.rpc.mockResolvedValue({ data: '2026-12-03T12:00:00+00:00', error: null });
+
+      const res = await POST(makeRequest());
+
+      expect(res.status).toBe(200);
+      expect(mocks.rpc).toHaveBeenCalledTimes(1);
+      expect(mocks.rpc).toHaveBeenCalledWith('grant_pro_pass', {
+        p_user_id: 'user-1',
+        p_checkout_session_id: 'cs_pass_1',
+        p_days: 7,
+        p_amount_cents: 499,
+        p_currency: 'usd',
+        p_payment_intent_id: null,
+      });
+      expect(mocks.rpc.mock.invocationCallOrder[0]).toBeLessThan(mocks.eventsInsert.mock.invocationCallOrder[0]);
+      expect(mocks.captureServerEvent).toHaveBeenCalledWith('user-1', 'pro_pass_purchased', {
+        plan: 'deadline_pass',
+        days: 7,
+        pro_until: '2026-12-03T12:00:00+00:00',
+        session_id: 'cs_pass_1',
+        amount: 4.99,
+        currency: 'USD',
+        granted_by: 'webhook',
+        source: 'onboarding',
+      });
+      // Not a subscription: no user_usage subscription write.
+      expect(mocks.usageUpdate).not.toHaveBeenCalled();
+    });
+
+    it('captures nothing when /success already granted the session (the RPC answers null)', async () => {
+      mocks.constructEvent.mockReturnValue(checkoutEvent(passOverrides));
+      mocks.rpc.mockResolvedValue({ data: null, error: null });
+
+      const res = await POST(makeRequest());
+
+      expect(res.status).toBe(200);
+      expect(mocks.captureServerEvent).not.toHaveBeenCalledWith('user-1', 'pro_pass_purchased', expect.anything());
+    });
+
+    it('answers 500 on a database error so Stripe retries the grant', async () => {
+      mocks.constructEvent.mockReturnValue(checkoutEvent(passOverrides));
+      mocks.rpc.mockResolvedValue({ data: null, error: { message: 'connection reset' } });
+
+      const res = await POST(makeRequest());
+
+      expect(res.status).toBe(500);
+      expect(mocks.eventsInsert).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('charge.refunded / charge.dispute.created for a Deadline Pass', () => {
+    function chargeEvent(type: string, object: Record<string, unknown>) {
+      return { id: 'evt_charge_1', type, data: { object } };
+    }
+
+    it('a full refund revokes the pass found by payment intent and captures pro_pass_revoked', async () => {
+      mocks.constructEvent.mockReturnValue(chargeEvent('charge.refunded', { id: 'ch_1', refunded: true, payment_intent: 'pi_1' }));
+      mocks.passMaybeSingle.mockResolvedValue({ data: { checkout_session_id: 'cs_pass_1', user_id: 'user-1' }, error: null });
+      mocks.rpc.mockResolvedValue({ data: '2026-11-26T12:00:00+00:00', error: null });
+
+      const res = await POST(makeRequest());
+
+      expect(res.status).toBe(200);
+      expect(mocks.rpc).toHaveBeenCalledWith('revoke_pro_pass', { p_checkout_session_id: 'cs_pass_1', p_reason: 'refund' });
+      expect(mocks.captureServerEvent).toHaveBeenCalledWith('user-1', 'pro_pass_revoked', {
+        reason: 'refund',
+        session_id: 'cs_pass_1',
+        pro_until: '2026-11-26T12:00:00+00:00',
+      });
+    });
+
+    it('a partial refund changes nothing', async () => {
+      mocks.constructEvent.mockReturnValue(chargeEvent('charge.refunded', { id: 'ch_1', refunded: false, payment_intent: 'pi_1' }));
+
+      const res = await POST(makeRequest());
+
+      expect(res.status).toBe(200);
+      expect(mocks.rpc).not.toHaveBeenCalled();
+    });
+
+    it('a dispute revokes the pass', async () => {
+      mocks.constructEvent.mockReturnValue(chargeEvent('charge.dispute.created', { id: 'dp_1', payment_intent: 'pi_1' }));
+      mocks.passMaybeSingle.mockResolvedValue({ data: { checkout_session_id: 'cs_pass_1', user_id: 'user-1' }, error: null });
+      mocks.rpc.mockResolvedValue({ data: '2026-11-26T12:00:00+00:00', error: null });
+
+      await POST(makeRequest());
+
+      expect(mocks.rpc).toHaveBeenCalledWith('revoke_pro_pass', { p_checkout_session_id: 'cs_pass_1', p_reason: 'dispute' });
+    });
+
+    it('a refund of something else (no pass for the payment intent) is acknowledged and ignored', async () => {
+      mocks.constructEvent.mockReturnValue(chargeEvent('charge.refunded', { id: 'ch_2', refunded: true, payment_intent: 'pi_other' }));
+      mocks.passMaybeSingle.mockResolvedValue({ data: null, error: null });
+      mocks.sessionsList.mockResolvedValue({ data: [] });
+
+      const res = await POST(makeRequest());
+
+      expect(res.status).toBe(200);
+      expect(mocks.rpc).not.toHaveBeenCalled();
+      expect(mocks.captureServerEvent).not.toHaveBeenCalled();
     });
   });
 

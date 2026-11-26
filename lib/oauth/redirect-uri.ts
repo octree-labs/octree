@@ -114,7 +114,9 @@ export function redirectUriMatches(registered: string, presented: string): boole
   const b = parse(presented);
   if (!a || !b) return false;
   if (a.protocol !== 'http:' || b.protocol !== 'http:') return false;
-  if (!isLoopbackHost(a.hostname) || a.hostname !== b.hostname) return false;
+  // Any loopback host matches any other (127.0.0.1 / localhost / [::1]), as
+  // Claude's connector docs ask; the port is ignored (RFC 8252 section 7.3).
+  if (!isLoopbackHost(a.hostname) || !isLoopbackHost(b.hostname)) return false;
   if (b.username || b.password || b.hash || presented.includes('#')) return false;
   return a.pathname === b.pathname && a.search === b.search;
 }

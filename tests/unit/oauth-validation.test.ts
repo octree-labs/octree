@@ -135,15 +135,15 @@ describe('redirect URIs', () => {
     expect(checkRedirectUris(Array.from({ length: 11 }, (_, i) => `https://x.com/cb${i}`)).ok).toBe(false);
   });
 
-  it('matches exactly, except the port of a loopback redirect', () => {
+  it('matches exactly, except the port and loopback host of a loopback redirect', () => {
     expect(redirectUriMatches('https://claude.ai/api/mcp/auth_callback', 'https://claude.ai/api/mcp/auth_callback')).toBe(true);
     expect(redirectUriMatches('https://claude.ai/api/mcp/auth_callback', 'https://claude.ai/api/mcp/auth_callback/')).toBe(false);
     expect(redirectUriMatches('https://claude.ai/cb', 'https://claude.ai:8443/cb')).toBe(false);
     expect(redirectUriMatches('http://localhost/callback', 'http://localhost:3118/callback')).toBe(true);
     expect(redirectUriMatches('http://127.0.0.1/callback', 'http://127.0.0.1:52011/callback')).toBe(true);
     expect(redirectUriMatches('http://127.0.0.1:1234/callback', 'http://127.0.0.1:9999/callback')).toBe(true);
-    // Host, path and query still have to match.
-    expect(redirectUriMatches('http://localhost/callback', 'http://127.0.0.1:3118/callback')).toBe(false);
+    // Loopback hosts are interchangeable (127.0.0.1 / localhost / [::1]); path and query still have to match.
+    expect(redirectUriMatches('http://localhost/callback', 'http://127.0.0.1:3118/callback')).toBe(true);
     expect(redirectUriMatches('http://localhost/callback', 'http://localhost:3118/other')).toBe(false);
     expect(redirectUriMatches('http://localhost/callback', 'http://localhost:3118/callback?x=1')).toBe(false);
     expect(redirectUriMatches('http://localhost/callback', 'http://localhost.evil.com:3118/callback')).toBe(false);

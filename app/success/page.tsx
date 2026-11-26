@@ -10,8 +10,10 @@ import {
   grantProPass,
   isOctreeCheckoutSession,
   isProPassSession,
+  offerVariantFromMetadata,
   proPassDaysFromSession,
 } from '@/lib/stripe-webhook';
+import { guaranteeLine } from '@/lib/offer-v2/offer';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { AnalyticsEvents } from '@/lib/analytics/events';
@@ -54,6 +56,11 @@ export default async function Success({ searchParams }: SuccessPageProps) {
     const passEnd = isPass ? await grantPassAfterPayment(session) : null;
     // "Active" only while the pass end is still ahead (not refunded, not lapsed).
     const passActive = !!passEnd && Date.parse(passEnd) > Date.now();
+    // The guarantee was promised on the offer_v2 paywall and at Checkout:
+    // repeat it here for a Pro purchase (subscription or pass) made under it.
+    const showGuarantee =
+      offerVariantFromMetadata(session.metadata).offer_variant === 'offer_v2' &&
+      (isPass || session.mode === 'subscription');
 
     return (
       <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-neutral-50 to-neutral-100 p-4">
@@ -99,6 +106,10 @@ export default async function Success({ searchParams }: SuccessPageProps) {
                 )}
               </p>
             </div>
+
+            {showGuarantee && (
+              <p className="text-center text-xs text-neutral-600">{guaranteeLine()}</p>
+            )}
 
             <div className="flex gap-2">
               <Button asChild className="flex-1" variant="gradient">
@@ -155,6 +166,7 @@ async function grantPassAfterPayment(session: Stripe.Checkout.Session): Promise<
         currency: session.currency ? session.currency.toUpperCase() : null,
         granted_by: 'success_page',
         ...checkoutAttributionFromMetadata(session.metadata),
+        ...offerVariantFromMetadata(session.metadata),
       });
       return result.proUntil;
     }

@@ -58,6 +58,7 @@ describe('onboarding plan step, paywall on', () => {
       reason: 'onboarding_required',
       offers: ['pro'],
       placement: 'onboarding',
+      offer_variant: 'control',
     });
   });
 });

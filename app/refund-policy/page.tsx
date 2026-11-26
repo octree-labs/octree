@@ -1,6 +1,8 @@
 import { FileText, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 
+import { MONEY_BACK_GUARANTEE_DAYS, SUPPORT_EMAIL } from '@/data/constants';
+
 export default function RefundPolicyPage() {
     return (
         <div className="min-h-screen bg-white">
@@ -30,7 +32,8 @@ export default function RefundPolicyPage() {
                     <div className="rounded-lg border border-gray-200 bg-white p-8 shadow-sm">
                         <div className="space-y-6">
                             <p className="text-neutral-700">
-                                All purchases made on our platform are final and non-refundable.
+                                Apart from the money-back guarantee below, all purchases made on
+                                our platform are final and non-refundable.
                             </p>
 
                             <p className="text-neutral-600">
@@ -47,6 +50,22 @@ export default function RefundPolicyPage() {
                                 you to try the free version or contact us prior to subscribing.
                             </p>
 
+                            <div className="pt-4">
+                                <h2 className="mb-3 text-xl font-semibold text-neutral-900">
+                                    {MONEY_BACK_GUARANTEE_DAYS}-day money-back guarantee
+                                </h2>
+                                <p className="text-neutral-600">
+                                    If you bought Octree Pro or a Deadline Pass with our{' '}
+                                    {MONEY_BACK_GUARANTEE_DAYS}-day money-back guarantee and Octree
+                                    doesn&apos;t get your document compiling within{' '}
+                                    {MONEY_BACK_GUARANTEE_DAYS} days of the purchase, email{' '}
+                                    <a href={`mailto:${SUPPORT_EMAIL}`} className="text-blue-600 hover:text-blue-700">
+                                        {SUPPORT_EMAIL}
+                                    </a>{' '}
+                                    within those {MONEY_BACK_GUARANTEE_DAYS} days for a full refund
+                                    of that payment, no questions asked.
+                                </p>
+                            </div>
                             <div className="pt-4">
                                 <h2 className="mb-3 text-xl font-semibold text-neutral-900">
                                     Exceptions
@@ -85,10 +104,10 @@ export default function RefundPolicyPage() {
                                     If you believe there has been a billing mistake, please contact
                                     us at{' '}
                                     <a
-                                        href="mailto:basil@useoctree.online"
+                                        href={`mailto:${SUPPORT_EMAIL}`}
                                         className="text-blue-600 hover:text-blue-700"
                                     >
-                                        basil@useoctree.online
+                                        {SUPPORT_EMAIL}
                                     </a>
                                 </p>
                             </div>

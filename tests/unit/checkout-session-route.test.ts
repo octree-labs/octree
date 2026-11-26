@@ -21,6 +21,11 @@ const mocks = vi.hoisted(() => ({
   // The already-unlocked read: from('project_export_unlocks').select().eq().limit().
   unlockLimit: vi.fn(),
   from: vi.fn(),
+  getOfferVariant: vi.fn(),
+}));
+
+vi.mock('@/lib/offer-v2/variant-server', () => ({
+  getOfferVariant: mocks.getOfferVariant,
 }));
 
 vi.mock('@/lib/checkout-offers-stripe', () => ({
@@ -81,6 +86,7 @@ describe('POST /api/checkout-session analytics', () => {
     mocks.resolveStripeCustomer.mockResolvedValue({ customerId: 'cus_1' });
     mocks.sessionsCreate.mockResolvedValue({ id: 'cs_test_1', url: 'https://checkout.stripe.com/c/cs_test_1' });
     mocks.ensureOfferPromotionCode.mockResolvedValue('promo_welcome');
+    mocks.getOfferVariant.mockResolvedValue('control');
   });
 
   it('captures checkout_started for the user with the plan, source and session', async () => {
@@ -100,6 +106,7 @@ describe('POST /api/checkout-session analytics', () => {
       country: null,
       session_id: 'cs_test_1',
       captured: 'server',
+      offer_variant: 'control',
     });
     // No offer asked for: Stripe is not asked about one and the session keeps the promo box.
     expect(mocks.ensureOfferPromotionCode).not.toHaveBeenCalled();
@@ -395,6 +402,7 @@ describe('POST /api/checkout-session export_single', () => {
       plan: 'export_single',
       source: 'paywall',
       export_project_id: projectId,
+      offer_variant: 'control',
     });
     expect(params.payment_intent_data.metadata).toEqual(params.metadata);
     expect(params.success_url).toBe(`https://app.example.com/projects/${projectId}?export=unlocked`);
@@ -527,5 +535,63 @@ describe('POST /api/checkout-session and a running Deadline Pass', () => {
     );
     await POST(post({ plan: 'monthly', source: 'settings' }));
     expect(mocks.sessionsCreate.mock.calls[0][0].subscription_data.trial_end).toBeUndefined();
+  });
+});
+
+describe('POST /api/checkout-session onboarding-offer-v2 and the Deadline Pass', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.getUser.mockResolvedValue({ data: { user }, error: null });
+    mocks.getOrCreatePrice.mockResolvedValue('price_123');
+    mocks.resolveStripeCustomer.mockResolvedValue({ customerId: 'cus_1' });
+    mocks.sessionsCreate.mockResolvedValue({ id: 'cs_test_2', url: 'https://checkout.stripe.com/c/cs_test_2' });
+    mocks.getOfferVariant.mockResolvedValue('offer_v2');
+  });
+
+  it('tags offer_v2 on the metadata and checkout_started, and shows the guarantee on Checkout', async () => {
+    const response = await POST(post({ plan: 'annual', source: 'onboarding' }));
+
+    expect(response.status).toBe(200);
+    const params = mocks.sessionsCreate.mock.calls[0][0];
+    expect(params.metadata.offer_variant).toBe('offer_v2');
+    expect(params.subscription_data.metadata.offer_variant).toBe('offer_v2');
+    expect(params.custom_text.submit.message).toMatch(/^7-day money-back guarantee: .*basil@useoctree\.com/);
+    expect(mocks.captureEvent).toHaveBeenCalledWith(
+      'user-1',
+      'checkout_started',
+      expect.objectContaining({ offer_variant: 'offer_v2', plan: 'annual' })
+    );
+  });
+
+  it('control gets no guarantee text on Checkout', async () => {
+    mocks.getOfferVariant.mockResolvedValue('control');
+    await POST(post({ plan: 'annual', source: 'onboarding' }));
+    expect(mocks.sessionsCreate.mock.calls[0][0].custom_text).toBeUndefined();
+  });
+
+  it('sells the Deadline Pass at the regional price as a payment session', async () => {
+    requestHeaders.country = 'IN';
+    mocks.from.mockReturnValue({
+      select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { is_pro: false, subscription_status: 'inactive' } }) }) }),
+    });
+    try {
+      const response = await POST(post({ plan: 'deadline_pass', source: 'paywall' }));
+      expect(response.status).toBe(200);
+      expect(mocks.getOrCreatePrice).toHaveBeenCalledWith('octree_deadline_pass_7d', expect.anything(), 'tier3');
+      const params = mocks.sessionsCreate.mock.calls[0][0];
+      expect(params.mode).toBe('payment');
+      expect(params.metadata).toMatchObject({ plan: 'deadline_pass', pro_pass_days: '7', price_tier: 'tier3' });
+    } finally {
+      requestHeaders.country = null;
+    }
+  });
+
+  it('refuses a Deadline Pass for a user with a live subscription (409)', async () => {
+    mocks.from.mockReturnValue({
+      select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { is_pro: true, subscription_status: 'active' } }) }) }),
+    });
+    const response = await POST(post({ plan: 'deadline_pass', source: 'paywall' }));
+    expect(response.status).toBe(409);
+    expect(mocks.sessionsCreate).not.toHaveBeenCalled();
   });
 });

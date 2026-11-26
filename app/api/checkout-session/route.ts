@@ -17,6 +17,7 @@ import { countryFromHeaders, priceTierForCountry } from '@/lib/regional-pricing'
 import { EXPORT_ALREADY_UNLOCKED_MESSAGE, readExportUnlocked } from '@/lib/export-unlock';
 import { AnalyticsEvents } from '@/lib/analytics/events';
 import { hasLiveSubscription, passTrialEnd, type BillingRow } from '@/lib/subscription/pass-trial';
+import { getOfferVariant } from '@/lib/offer-v2/variant-server';
 import {
   captureServerEventAfterResponse,
   captureServerExceptionAfterResponse,
@@ -142,7 +143,7 @@ export async function POST(request: Request) {
     const lookupKey = lookupKeyForPlan(resolved.plan);
     const country = countryFromHeaders(headersList);
     let priceTier = priceTierForCountry(country);
-    const [priceId, customer, promotionCodeId] = await Promise.all([
+    const [priceId, customer, promotionCodeId, offerVariant] = await Promise.all([
       // A regional price that cannot be resolved (Stripe hiccup, creation
       // refused) must not cost the visitor their checkout: open it at the
       // list price instead, which Stripe shows them before they pay.
@@ -157,6 +158,8 @@ export async function POST(request: Request) {
         return null;
       }),
       resolved.offer ? ensureOfferPromotionCode(resolved.offer, stripe) : Promise.resolve(null),
+      // `onboarding-offer-v2` (bounded, never throws; control on any failure).
+      getOfferVariant(user.id),
     ]);
 
     const sessionInput = {
@@ -175,6 +178,7 @@ export async function POST(request: Request) {
       priceTier,
       country,
       ...(trialEnd ? { trialEnd } : {}),
+      offerVariant,
     };
     let offerApplied = !!resolved.offer && !!promotionCodeId;
     if (resolved.offer && !promotionCodeId) {
@@ -216,6 +220,7 @@ export async function POST(request: Request) {
       session_id: session.id,
       captured: 'server',
       ...(trialEnd ? { trial_until_pass_end: true } : {}),
+      offer_variant: offerVariant,
       ...(resolved.offer ? { offer: offerApplied ? resolved.offer : undefined, offer_applied: offerApplied } : {}),
       ...(isOnboardingPaywallCheckout(body, resolved.source) ? { onboarding_paywall: true } : {}),
     });

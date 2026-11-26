@@ -9,6 +9,7 @@ import {
 import { track } from '@/lib/analytics/track';
 import { recordPaywallHit } from '@/lib/requests/paywall';
 import type { CheckoutOfferId } from '@/lib/checkout-offers';
+import type { OfferVariant } from '@/lib/offer-v2/variant';
 
 interface PaywallState {
   open: boolean;
@@ -33,6 +34,11 @@ interface PaywallState {
    * every open; null when the opener passed none.
    */
   context: PaywallContext | null;
+  /**
+   * The `onboarding-offer-v2` variant (GET /api/offer, set by the dialog);
+   * null until known. Tagged on `paywall_shown`.
+   */
+  offerVariant: OfferVariant | null;
 }
 
 export interface PaywallContext {
@@ -49,6 +55,7 @@ export const usePaywallStore = create<PaywallState>(() => ({
   offers: DEFAULT_OFFERS,
   firstPurchaseOffer: null,
   context: null,
+  offerVariant: null,
 }));
 
 /**
@@ -71,14 +78,25 @@ export const PaywallActions = {
     offers: PaywallOffer[] = DEFAULT_OFFERS,
     context?: PaywallContext
   ) {
-    const { open: wasOpen, firstPurchaseOffer } = usePaywallStore.getState();
+    const { open: wasOpen, firstPurchaseOffer, offerVariant } = usePaywallStore.getState();
     usePaywallStore.setState({ open: true, feature, reason, offers, context: context ?? null });
     if (!wasOpen) {
       const offer = paywallOfferFor(reason, firstPurchaseOffer);
-      track(AnalyticsEvents.PAYWALL_SHOWN, { feature, reason, offers, ...(offer ? { offer } : {}) });
+      track(AnalyticsEvents.PAYWALL_SHOWN, {
+        feature,
+        reason,
+        offers,
+        ...(offer ? { offer } : {}),
+        ...(offerVariant ? { offer_variant: offerVariant } : {}),
+      });
       // Server-side record for the warm_lead_offer email; skips monthly_limit
       // and never throws.
       void recordPaywallHit(feature, reason);
+    }
+  },
+  setOfferVariant(offerVariant: OfferVariant | null) {
+    if (usePaywallStore.getState().offerVariant !== offerVariant) {
+      usePaywallStore.setState({ offerVariant });
     }
   },
   setFirstPurchaseOffer(firstPurchaseOffer: CheckoutOfferId | null) {

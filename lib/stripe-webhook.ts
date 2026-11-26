@@ -17,6 +17,7 @@ import { STRIPE_PRICE_IDS } from '@/lib/stripe-config';
 import { PRICE_LOOKUP_KEYS, PRICE_METADATA_KEY, isPriceLookupKey } from '@/lib/stripe-prices';
 import { baseLookupKey } from '@/lib/regional-pricing';
 import { isMissingExportUnlockSchema } from '@/lib/export-unlock';
+import { isOfferVariant, type OfferVariant } from '@/lib/offer-v2/variant';
 
 /** One server-side analytics event with its typed properties. */
 export type ServerAnalyticsEvent = {
@@ -67,6 +68,14 @@ export function checkoutAttributionFromMetadata(
   return attribution;
 }
 
+/** `metadata.offer_variant` (the `onboarding-offer-v2` variant at checkout), when valid. */
+export function offerVariantFromMetadata(
+  metadata: Stripe.Metadata | null | undefined
+): { offer_variant?: OfferVariant } {
+  const value = metadata?.offer_variant;
+  return isOfferVariant(value) ? { offer_variant: value } : {};
+}
+
 /** `metadata.plan` when it names a recurring plan; the Checkout Session wrote it. */
 export function subscriptionPlanFromMetadata(metadata: Stripe.Metadata | null | undefined): CheckoutPlan | null {
   const plan = metadata?.plan;
@@ -109,6 +118,7 @@ export async function describeCheckoutSessionPlan(
     amount: typeof session.amount_total === 'number' ? session.amount_total / 100 : null,
     currency: session.currency ? session.currency.toUpperCase() : null,
     ...checkoutAttributionFromMetadata(session.metadata),
+    ...offerVariantFromMetadata(session.metadata),
   };
 }
 

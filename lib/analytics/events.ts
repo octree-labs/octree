@@ -40,6 +40,8 @@ export const AnalyticsEvents = {
   // --- Monetisation (browser) ---
   PAYWALL_SHOWN: 'paywall_shown',
   PAYWALL_DISMISSED: 'paywall_dismissed',
+  // offer_v2: the Deadline Pass downsell was revealed (onboarding link, or the dialog's close).
+  PAYWALL_DOWNSELL_SHOWN: 'paywall_downsell_shown',
   EDIT_LIMIT_HIT: 'edit_limit_hit',
   DUNNING_BANNER_CLICKED: 'dunning_banner_clicked',
   // /buy?offer=<id>: the discount banner rendered (app/buy/buy-page-client.tsx).
@@ -55,6 +57,9 @@ export const AnalyticsEvents = {
   SUBSCRIPTION_REACTIVATED: 'subscription_reactivated',
   CANCEL_FLOW_OPENED: 'cancel_flow_opened',
   CANCEL_OFFER_ACCEPTED: 'cancel_offer_accepted',
+  // The save step after the cancel reason (components/subscription/cancel-dialog.tsx).
+  CANCEL_SAVE_OFFER_SHOWN: 'cancel_save_offer_shown',
+  CANCEL_SAVE_OFFER_ACCEPTED: 'cancel_save_offer_accepted',
   SUBSCRIPTION_PAUSED: 'subscription_paused',
   SUBSCRIPTION_RESUMED: 'subscription_resumed',
   SUBSCRIPTION_CANCEL_CONFIRMED: 'subscription_cancel_confirmed',
@@ -121,8 +126,12 @@ export type PaywallReason =
   | 'onboarding_required';
 /** Where a paywall was shown: the in-product dialog, or the onboarding plan step. */
 export type PaywallPlacement = 'dialog' | 'onboarding';
-/** What the paywall can sell: the subscription, or one generation credit. */
-export type PaywallOffer = 'pro' | 'single';
+/** What the paywall can sell: the subscription, one generation credit / export, or the Deadline Pass. */
+export type PaywallOffer = 'pro' | 'single' | 'pass';
+/** The `onboarding-offer-v2` PostHog flag variant (lib/offer-v2/variant.ts). */
+export type OfferVariantProperty = 'control' | 'offer_v2';
+/** The save step's offers (lib/stripe-subscription.ts SAVE_ONCE_COUPON_ID, a 1-month pause). */
+export type CancelSaveOffer = 'discount_once' | 'pause_1m';
 /** Recurring plans. `weekly` is retired for new purchases but still appears on legacy subscriptions. */
 export type CheckoutPlan = 'monthly' | 'annual' | 'semester' | 'weekly';
 /**
@@ -395,6 +404,14 @@ export interface AnalyticsEventProperties {
     offer?: CheckoutOfferId;
     /** Absent on events from before the onboarding paywall: those are all `dialog`. */
     placement?: PaywallPlacement;
+    /** `onboarding-offer-v2` variant; absent before the experiment. */
+    offer_variant?: OfferVariantProperty;
+  };
+  [AnalyticsEvents.PAYWALL_DOWNSELL_SHOWN]: {
+    placement: PaywallPlacement;
+    offers: PaywallOffer[];
+    offer_variant: OfferVariantProperty;
+    feature?: PaywallFeature;
   };
   [AnalyticsEvents.PAYWALL_DISMISSED]: { feature: PaywallFeature; reason?: PaywallReason };
   [AnalyticsEvents.EDIT_LIMIT_HIT]: { is_pro: boolean; source: 'chat' | 'accept' };
@@ -428,6 +445,8 @@ export interface AnalyticsEventProperties {
     onboarding_paywall?: boolean;
     /** A subscription bought during a Deadline Pass: billing starts when the pass ends (trial_end). */
     trial_until_pass_end?: boolean;
+    /** `onboarding-offer-v2` variant, evaluated server side (also on the Stripe metadata). */
+    offer_variant?: OfferVariantProperty;
   };
   /**
    * The /buy offer banner. `auto: true` when the page applied the
@@ -446,6 +465,8 @@ export interface AnalyticsEventProperties {
     source?: CheckoutSource;
     /** For a checkout from /generate: how the visitor reached /generate. */
     entry?: GenerateEntry;
+    /** `onboarding-offer-v2` variant at checkout (Checkout Session metadata). */
+    offer_variant?: OfferVariantProperty;
   };
   [AnalyticsEvents.SUBSCRIPTION_CANCELED]: {
     /** `at_period_end`: user turned off renewal; `deleted`: Stripe ended it. */
@@ -463,6 +484,15 @@ export interface AnalyticsEventProperties {
     cancel_at_period_end: boolean;
   };
   [AnalyticsEvents.CANCEL_OFFER_ACCEPTED]: { offer: CancelOffer };
+  [AnalyticsEvents.CANCEL_SAVE_OFFER_SHOWN]: {
+    feedback: CancelFeedback;
+    offers: CancelSaveOffer[];
+    has_missing_feature: boolean;
+  };
+  [AnalyticsEvents.CANCEL_SAVE_OFFER_ACCEPTED]: {
+    offer: CancelSaveOffer;
+    feedback?: CancelFeedback;
+  };
   [AnalyticsEvents.SUBSCRIPTION_PAUSED]: {
     months: number;
     /** Unix seconds; when Stripe resumes collection on its own. */
@@ -475,6 +505,10 @@ export interface AnalyticsEventProperties {
   [AnalyticsEvents.SUBSCRIPTION_CANCEL_CONFIRMED]: {
     feedback: CancelFeedback;
     has_comment: boolean;
+    /** `missing_features` only: the user's answer to "Which feature?" (trimmed, at most 200 chars). */
+    missing_feature?: string;
+    /** Whether the save step was shown before this confirmation. */
+    save_offer_shown?: boolean;
   };
   [AnalyticsEvents.IMPORT_COMPLETED]: {
     source: string;
@@ -590,6 +624,7 @@ export interface AnalyticsEventProperties {
     granted_by: 'webhook' | 'success_page';
     source?: CheckoutSource;
     entry?: GenerateEntry;
+    offer_variant?: OfferVariantProperty;
   };
   [AnalyticsEvents.EXPORT_UNLOCKED]: {
     project_id: string;

@@ -24,6 +24,19 @@ export const SAVE_COUPON_ID = 'save50-2mo';
 export const SAVE_COUPON_PERCENT_OFF = 50;
 export const SAVE_COUPON_MONTHS = 2;
 
+/**
+ * The save step's discount (after the cancel reason): 50% off the next
+ * invoice only (`duration: 'once'`), at most once per subscription
+ * (`metadata.save_offer_once_used`, written when it is applied).
+ */
+export const SAVE_ONCE_COUPON_ID = 'octree_save50_once';
+export const SAVE_ONCE_PERCENT_OFF = 50;
+export const SAVE_OFFER_USED_KEY = 'save_offer_once_used';
+/** The save step's pause: one month (a PAUSE_MONTH_OPTIONS value). */
+export const SAVE_STEP_PAUSE_MONTHS = 1;
+/** "Which feature?" on a `missing_features` cancellation. */
+export const MISSING_FEATURE_MAX_LENGTH = 200;
+
 export const PAUSE_MONTH_OPTIONS = [1, 2, 3] as const;
 export type PauseMonths = (typeof PAUSE_MONTH_OPTIONS)[number];
 
@@ -144,6 +157,41 @@ export function trimCancelComment(comment: unknown): string | undefined {
   return trimmed.slice(0, CANCEL_COMMENT_MAX_LENGTH);
 }
 
+export function trimMissingFeature(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.replace(/\s+/g, ' ').trim();
+  if (!trimmed) return undefined;
+  return trimmed.slice(0, MISSING_FEATURE_MAX_LENGTH);
+}
+
+/**
+ * The comment written to Stripe's `cancellation_details.comment` (max
+ * CANCEL_COMMENT_MAX_LENGTH): the missing feature first, so it survives the
+ * cut, then the free comment.
+ */
+export function cancellationComment(comment: string | undefined, missingFeature: string | undefined): string | undefined {
+  const parts = [missingFeature ? `Missing feature: ${missingFeature}` : null, comment ?? null].filter(
+    (part): part is string => !!part
+  );
+  if (parts.length === 0) return undefined;
+  return parts.join(' | ').slice(0, CANCEL_COMMENT_MAX_LENGTH);
+}
+
+export type SaveOfferEligibility = 'eligible' | 'already_used' | 'has_discount' | 'paused';
+
+/**
+ * Whether the save step's 50%-off-once discount can be applied: never twice
+ * on one subscription (the metadata flag outlives the one-invoice coupon),
+ * never on top of another discount, never while paused (the invoice it
+ * would land on is voided).
+ */
+export function saveOfferEligibility(subscription: SubscriptionLike): SaveOfferEligibility {
+  if (subscription.metadata?.[SAVE_OFFER_USED_KEY]) return 'already_used';
+  if (subscriptionHasDiscount(subscription)) return 'has_discount';
+  if (isSubscriptionPaused(subscription)) return 'paused';
+  return 'eligible';
+}
+
 /** The subscription fields the cancel dialog and the status card render. */
 export interface SubscriptionOfferState {
   id: string;
@@ -157,6 +205,8 @@ export interface SubscriptionOfferState {
   has_discount: boolean;
   /** Only the save coupon can be offered; another discount also blocks it. */
   discount_coupon_id: string | null;
+  /** The save step's 50%-off-once discount can still be applied (saveOfferEligibility). */
+  save_offer_available: boolean;
   price: {
     unit_amount: number | null;
     currency: string;
@@ -177,6 +227,7 @@ export function describeSubscriptionOffers(subscription: Stripe.Subscription): S
     pause_paid_through: pausePaidThrough(subscription),
     has_discount: subscriptionHasDiscount(subscription),
     discount_coupon_id: appliedCouponId(subscription),
+    save_offer_available: saveOfferEligibility(subscription) === 'eligible',
     price: price
       ? {
           unit_amount: price.unit_amount,

@@ -44,6 +44,7 @@ import { POST as pause } from '@/app/api/subscription/pause/route';
 import { POST as resume } from '@/app/api/subscription/resume/route';
 import { POST as discount } from '@/app/api/subscription/discount/route';
 import { POST as cancel } from '@/app/api/cancel-subscription/route';
+import { POST as saveOffer } from '@/app/api/subscription/save-offer/route';
 
 const user = { id: 'user-1', email: 'payer@example.com' };
 
@@ -174,6 +175,7 @@ describe('GET /api/subscription/offers', () => {
         pause_paid_through: null,
         has_discount: false,
         discount_coupon_id: null,
+        save_offer_available: true,
         price: { unit_amount: 999, currency: 'usd', interval: 'month' },
       },
     });
@@ -433,5 +435,110 @@ describe('POST /api/cancel-subscription', () => {
     await expect(res.json()).resolves.toMatchObject({ success: true, alreadyCanceled: true });
     expect(mocks.subscriptionsUpdate).not.toHaveBeenCalled();
     expect(mocks.captureEvent).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /api/subscription/save-offer (the save step after the cancel reason)', () => {
+  beforeEach(() => {
+    mocks.couponsRetrieve.mockResolvedValue({ id: 'octree_save50_once', percent_off: 50, duration: 'once' });
+  });
+
+  it('applies the 50%-off-once coupon, marks it used, turns renewal back on and tracks the acceptance', async () => {
+    signedInWith(subscription({ cancel_at_period_end: true, metadata: { user_id: 'user-1' } }));
+
+    const res = await saveOffer(post({ feedback: 'missing_features' }));
+
+    expect(res.status).toBe(200);
+    expect(mocks.couponsRetrieve).toHaveBeenCalledWith('octree_save50_once');
+    expect(mocks.subscriptionsUpdate).toHaveBeenCalledTimes(1);
+    const [id, params] = mocks.subscriptionsUpdate.mock.calls[0];
+    expect(id).toBe('sub_1');
+    expect(params.discounts).toEqual([{ coupon: 'octree_save50_once' }]);
+    expect(params.cancel_at_period_end).toBe(false);
+    expect(params.metadata.save_offer_once_used).toEqual(expect.any(String));
+    expect(mocks.captureEvent).toHaveBeenCalledWith('user-1', 'cancel_save_offer_accepted', {
+      offer: 'discount_once',
+      feedback: 'missing_features',
+    });
+  });
+
+  it('creates the coupon (duration once) on first use', async () => {
+    signedInWith(subscription());
+    mocks.couponsRetrieve.mockRejectedValueOnce(stripeError('resource_missing'));
+    mocks.couponsCreate.mockResolvedValue({ id: 'octree_save50_once', percent_off: 50, duration: 'once' });
+
+    const res = await saveOffer(post());
+
+    expect(res.status).toBe(200);
+    expect(mocks.couponsCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'octree_save50_once', percent_off: 50, duration: 'once' })
+    );
+  });
+
+  it('is applied once per subscription: a second request is refused (409) without touching Stripe', async () => {
+    signedInWith(subscription({ metadata: { user_id: 'user-1', save_offer_once_used: '2026-11-26T00:00:00Z' } }));
+
+    const res = await saveOffer(post());
+
+    expect(res.status).toBe(409);
+    await expect(res.json()).resolves.toMatchObject({ reason: 'already_used' });
+    expect(mocks.subscriptionsUpdate).not.toHaveBeenCalled();
+    expect(mocks.captureEvent).not.toHaveBeenCalled();
+  });
+
+  it('refuses on top of another discount, and while paused', async () => {
+    signedInWith(subscription({ discounts: [{ coupon: { id: 'save50-2mo' } }] }));
+    expect((await saveOffer(post())).status).toBe(409);
+
+    signedInWith(subscription({ pause_collection: { behavior: 'void', resumes_at: 1_705_000_000 } }));
+    expect((await saveOffer(post())).status).toBe(409);
+    expect(mocks.subscriptionsUpdate).not.toHaveBeenCalled();
+  });
+
+  it('the save step pause (1 month, via save_offer) is tracked as a save acceptance', async () => {
+    signedInWith(subscription());
+
+    const res = await pause(post({ months: 1, via: 'save_offer', feedback: 'too_expensive' }));
+
+    expect(res.status).toBe(200);
+    expect(mocks.captureEvent).toHaveBeenCalledWith('user-1', 'cancel_save_offer_accepted', {
+      offer: 'pause_1m',
+      feedback: 'too_expensive',
+    });
+  });
+
+  it('cancel stores "Which feature?" with the reason on Stripe and on the event', async () => {
+    signedInWith(subscription());
+
+    const res = await cancel(
+      post({
+        feedback: 'missing_features',
+        comment: 'otherwise great',
+        missingFeature: '  Overleaf   git sync ',
+        saveOfferShown: true,
+      })
+    );
+
+    expect(res.status).toBe(200);
+    const [, params] = mocks.subscriptionsUpdate.mock.calls[0];
+    expect(params.cancellation_details).toEqual({
+      feedback: 'missing_features',
+      comment: 'Missing feature: Overleaf git sync | otherwise great',
+    });
+    expect(mocks.captureEvent).toHaveBeenCalledWith('user-1', 'subscription_cancel_confirmed', {
+      feedback: 'missing_features',
+      has_comment: true,
+      missing_feature: 'Overleaf git sync',
+      save_offer_shown: true,
+    });
+  });
+
+  it('ignores a missing feature sent with another reason', async () => {
+    signedInWith(subscription());
+
+    await cancel(post({ feedback: 'too_expensive', missingFeature: 'x' }));
+
+    const [, params] = mocks.subscriptionsUpdate.mock.calls[0];
+    expect(params.cancellation_details).toEqual({ feedback: 'too_expensive' });
   });
 });

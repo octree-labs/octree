@@ -10,6 +10,8 @@ import { PRICE_LOOKUP_KEYS, type PriceLookupKey } from '@/lib/stripe-prices';
 import { isCheckoutOfferId, offerAppliesToPlan, type CheckoutOfferId } from '@/lib/checkout-offers';
 import type { PriceTier } from '@/lib/regional-pricing';
 import { PRO_PASS_DAYS } from '@/data/constants';
+import { guaranteeLine } from '@/lib/offer-v2/offer';
+import type { OfferVariant } from '@/lib/offer-v2/variant';
 
 /**
  * What /api/checkout-session sells, and how a request body maps onto it.
@@ -314,6 +316,13 @@ export interface CheckoutSessionInput {
    * pass ends. Takes precedence over `withTrial`.
    */
   trialEnd?: number;
+  /**
+   * The `onboarding-offer-v2` variant (lib/offer-v2/variant-server.ts),
+   * written to the metadata so `subscription_started` can be split by it.
+   * `offer_v2` also shows the money-back guarantee on the Checkout page
+   * (`custom_text.submit.message`).
+   */
+  offerVariant?: OfferVariant;
 }
 
 /**
@@ -383,6 +392,7 @@ export function buildCheckoutSessionParams(
     metadata.price_tier = input.priceTier;
     if (input.country) metadata.country = input.country;
   }
+  if (input.offerVariant) metadata.offer_variant = input.offerVariant;
   const discounted = !!input.offer && !!input.promotionCodeId;
   if (discounted) metadata.offer = input.offer!;
   const exportProjectId = isExportPlan(plan) ? input.projectId : undefined;
@@ -413,6 +423,10 @@ export function buildCheckoutSessionParams(
     expires_at: nowSeconds + CHECKOUT_SESSION_TTL_SECONDS,
     after_expiration: { recovery: { enabled: true, allow_promotion_codes: true } },
   };
+
+  if (input.offerVariant === 'offer_v2') {
+    params.custom_text = { submit: { message: guaranteeLine() } };
+  }
 
   if (discounted) {
     // Stripe refuses `discounts` together with `allow_promotion_codes`

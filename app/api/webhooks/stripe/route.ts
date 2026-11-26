@@ -10,6 +10,7 @@ import {
   enteredDelinquency,
   exportProjectFromSession,
   generationCreditsFromSession,
+  offerVariantFromMetadata,
   proPassDaysFromSession,
   grantCreditsFromCheckoutSession,
   grantExportUnlock,
@@ -172,6 +173,7 @@ export async function POST(request: Request) {
                 currency: session.currency ? session.currency.toUpperCase() : null,
                 granted_by: 'webhook',
                 ...checkoutAttributionFromMetadata(session.metadata),
+                ...offerVariantFromMetadata(session.metadata),
               });
             } else if (pass.reason === 'missing_user') {
               console.error('Deadline Pass purchase without user_id in metadata:', session.id);

@@ -146,6 +146,7 @@ describe('describeSubscriptionOffers', () => {
       pause_paid_through: null,
       has_discount: false,
       discount_coupon_id: null,
+      save_offer_available: false,
       price: { unit_amount: 999, currency: 'usd', interval: 'month' },
     });
   });

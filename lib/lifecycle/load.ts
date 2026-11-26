@@ -121,7 +121,7 @@ export async function loadLifecycleRows(supabase: Db, now: Date = new Date()): P
       supabase
         .from('user_usage')
         .select(
-          'user_id, edit_count, daily_reset_date, is_pro, subscription_status, stripe_customer_id, stripe_subscription_id, current_period_start, current_period_end, updated_at, role'
+          'user_id, edit_count, daily_reset_date, is_pro, subscription_status, stripe_customer_id, stripe_subscription_id, current_period_start, current_period_end, pro_until, updated_at, role'
         )
         .order('user_id')
         .range(from, to)
@@ -233,6 +233,7 @@ export async function loadLifecycleRows(supabase: Db, now: Date = new Date()): P
       stripeSubscriptionId: row?.stripe_subscription_id ?? null,
       currentPeriodStart: row?.current_period_start ?? null,
       currentPeriodEnd: row?.current_period_end ?? null,
+      proUntil: row?.pro_until ?? null,
       role: row?.role ?? null,
       firstProjectAt: firstProject.get(user.id) ?? null,
       subscriptionEndedAt: null,

@@ -123,7 +123,7 @@ async function resolvePlan(admin: ReturnType<typeof createAdminClient>, userId: 
   const [{ data: row }, { data: userData }] = await Promise.all([
     admin
       .from('user_usage')
-      .select('subscription_status, stripe_subscription_id, current_period_end')
+      .select('subscription_status, stripe_subscription_id, current_period_end, pro_until')
       .eq('user_id', userId)
       .maybeSingle(),
     admin.auth.admin.getUserById(userId),

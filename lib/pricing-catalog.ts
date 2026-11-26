@@ -1,5 +1,6 @@
 import {
   CREDIT_PACKS,
+  DEADLINE_PASS_PRICE,
   EXPORT_SINGLE_PRICE,
   GENERATE_SINGLE_PRICE,
   PRO_PLANS,
@@ -38,6 +39,8 @@ export interface PricingCatalog {
   };
   exportSingle: { amount: number; price: string };
   generateSingle: { amount: number; price: string };
+  /** The Deadline Pass (DEADLINE_PASS_PRICE): days of Pro for a one-off price. */
+  deadlinePass: { amount: number; price: string; days: number };
 }
 
 /** List prices, from the display constants (which match lib/stripe-prices.ts). */
@@ -48,6 +51,7 @@ const LIST_AMOUNTS: Record<RegionalPlan, number> = {
   credits_100: CREDIT_PACKS.credits_100.amount,
   generate_single: GENERATE_SINGLE_PRICE.amount,
   export_single: EXPORT_SINGLE_PRICE.amount,
+  deadline_pass: DEADLINE_PASS_PRICE.amount,
 };
 
 function cents(plan: RegionalPlan, tier: PriceTier): number {
@@ -84,6 +88,7 @@ export function pricingCatalog(tier: PriceTier): PricingCatalog {
     },
     exportSingle: { ...money(cents('export_single', tier)) },
     generateSingle: { ...money(cents('generate_single', tier)) },
+    deadlinePass: { ...money(cents('deadline_pass', tier)), days: DEADLINE_PASS_PRICE.days },
   };
 }
 

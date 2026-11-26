@@ -210,6 +210,8 @@ export interface SubscriptionStatusResponse {
     hasStripeSubscription?: boolean;
     /** Stripe's answer about the stored subscription when no live one was found (lib/subscription/entitlement.ts). */
     stripeStatus?: string | null;
+    /** user_usage.pro_until: the end of a Deadline Pass (ISO); Pro while in the future. */
+    proUntil?: string | null;
     /** The free first export (freeExportStateFor). Absent from older responses; treated as unavailable. */
     freeExport?: FreeExportState;
   } & Record<string, unknown>;

@@ -10,9 +10,11 @@ import {
   enteredDelinquency,
   exportProjectFromSession,
   generationCreditsFromSession,
+  proPassDaysFromSession,
   grantCreditsFromCheckoutSession,
   grantExportUnlock,
   grantGenerationCredits,
+  grantProPass,
   isOctreeCheckoutSession,
   isOctreeSubscription,
   recordStripeEvent,
@@ -152,6 +154,26 @@ export async function POST(request: Request) {
               });
             } else if (unlock.reason === 'missing_user') {
               console.error('Export unlock purchase without user_id in metadata:', session.id);
+            }
+          }
+          // The Deadline Pass (`metadata.pro_pass_days`): days of Pro on
+          // user_usage.pro_until. /success may have granted it already; the
+          // ledger makes the second call a no-op.
+          if (proPassDaysFromSession(session) > 0) {
+            const pass = await grantProPass(supabase, session);
+            if (pass.granted) {
+              captureServerEventAfterResponse(pass.userId, AnalyticsEvents.PRO_PASS_PURCHASED, {
+                plan: 'deadline_pass',
+                days: pass.days,
+                pro_until: pass.proUntil,
+                session_id: session.id,
+                amount: typeof session.amount_total === 'number' ? session.amount_total / 100 : null,
+                currency: session.currency ? session.currency.toUpperCase() : null,
+                granted_by: 'webhook',
+                ...checkoutAttributionFromMetadata(session.metadata),
+              });
+            } else if (pass.reason === 'missing_user') {
+              console.error('Deadline Pass purchase without user_id in metadata:', session.id);
             }
           }
           try {

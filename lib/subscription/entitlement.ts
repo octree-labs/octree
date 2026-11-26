@@ -14,6 +14,11 @@
  *      (written by ensureUnlimitedStatus in the status route), or
  *   3. Stripe's effective status for the user's subscription is `active` or
  *      `trialing` (`paused` is not: PR #398), or
+ *   3a. a Deadline Pass still running: `user_usage.pro_until` in the future
+ *      (a one-off purchase of days of Pro, supabase/migrations/
+ *      20261130000000_deadline_pass.sql). It is checked before Stripe's
+ *      answer, because it is not a subscription: a canceled or missing
+ *      subscription does not end a pass that was paid for separately.
  *   4. when Stripe was not consulted: the row says `active`/`trialing`, it
  *      names a Stripe subscription, and `current_period_end` has not passed
  *      (a null period end is unknown, not ended: several live subscribers'
@@ -39,6 +44,34 @@ export interface EntitlementRow {
   subscription_status?: string | null;
   stripe_subscription_id?: string | null;
   current_period_end?: string | null;
+  /** The end of a Deadline Pass (ISO); Pro while it is in the future. */
+  pro_until?: string | null;
+}
+
+/** True while a Deadline Pass runs: `pro_until` is a known date after `now`. */
+export function proPassActive(
+  row: Pick<EntitlementRow, 'pro_until'> | null | undefined,
+  now: Date = new Date()
+): boolean {
+  const value = row?.pro_until;
+  if (!value) return false;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) && ms > now.getTime();
+}
+
+/**
+ * Whether AI edit quotas use the Pro monthly allowance: the subscription
+ * flag the webhook keeps on the row (`is_pro`, as increment_edit_count has
+ * always read it) or a running Deadline Pass. The database applies the same
+ * rule (increment_edit_count, consume_generation in
+ * 20261130000000_deadline_pass.sql), so the pre-check in the routes and the
+ * counter agree.
+ */
+export function usesProQuota(
+  row: Pick<EntitlementRow, 'is_pro' | 'pro_until'> | null | undefined,
+  now: Date = new Date()
+): boolean {
+  return Boolean(row?.is_pro) || proPassActive(row, now);
 }
 
 /**
@@ -56,7 +89,7 @@ export interface EntitlementInput {
   now?: Date;
 }
 
-export type ProSource = 'allowlist' | 'unlimited' | 'stripe' | 'row';
+export type ProSource = 'allowlist' | 'unlimited' | 'pass' | 'stripe' | 'row';
 
 export type ProDenial =
   | 'no_row'
@@ -84,6 +117,7 @@ export function proEntitlement({
 }: EntitlementInput): ProEntitlement {
   if (hasUnlimited) return { isPro: true, source: 'allowlist' };
   if (row?.subscription_status === 'unlimited') return { isPro: true, source: 'unlimited' };
+  if (proPassActive(row, now)) return { isPro: true, source: 'pass' };
 
   if (stripeStatus != null) {
     return isProStatus(stripeStatus)
@@ -158,6 +192,8 @@ export interface EntitlementResponseFields {
    * Pro); `missing` for a 404, null when Stripe was not asked or failed.
    */
   stripeStatus?: string | null;
+  /** `user_usage.pro_until` (ISO): the end of a Deadline Pass, if one was ever bought. */
+  proUntil?: string | null;
 }
 
 export interface EntitlementResponseLike {
@@ -182,6 +218,9 @@ export function entitlementFromStatusResponse(
 ): ProEntitlement {
   if (!data?.usage) return { isPro: false, reason: 'no_row' };
   const { usage } = data;
+  if (!usage.hasUnlimitedEdits && proPassActive({ pro_until: usage.proUntil ?? null }, now)) {
+    return { isPro: true, source: 'pass' };
+  }
   const stripeStatus =
     data.subscription?.effective_status ??
     usage.stripeStatus ??
@@ -197,6 +236,7 @@ export function entitlementFromStatusResponse(
       subscription_status: usage.subscriptionStatus ?? null,
       current_period_end: usage.currentPeriodEnd ?? null,
       stripe_subscription_id: usage.hasStripeSubscription ? 'present' : null,
+      pro_until: usage.proUntil ?? null,
     },
     stripeStatus,
     hasUnlimited: Boolean(usage.hasUnlimitedEdits),

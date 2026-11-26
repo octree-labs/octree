@@ -543,3 +543,55 @@ export async function grantExportUnlock(
 
   return { granted: true, userId, projectId };
 }
+
+/**
+ * The days of Pro a paid Deadline Pass session bought, or 0 when it is not
+ * a paid, payment-mode session carrying `metadata.pro_pass_days`
+ * (lib/checkout-plans.ts sets it for `deadline_pass`). Bounded like the RPC
+ * (1..366) so a malformed value is ignored rather than retried forever.
+ */
+export function proPassDaysFromSession(
+  session: Pick<Stripe.Checkout.Session, 'mode' | 'payment_status' | 'metadata'>
+): number {
+  if (session.mode !== 'payment' || session.payment_status !== 'paid') return 0;
+  const raw = session.metadata?.pro_pass_days;
+  if (raw == null) return 0;
+  const days = Number.parseInt(String(raw), 10);
+  return Number.isInteger(days) && days > 0 && days <= 366 ? days : 0;
+}
+
+export type GrantProPassResult =
+  | { granted: true; userId: string; days: number; proUntil: string }
+  | { granted: false; reason: 'not_a_pass_purchase' | 'missing_user' | 'already_granted' };
+
+/**
+ * Extends the buyer's `user_usage.pro_until` by the pass's days through the
+ * service-role-only `grant_pro_pass` RPC: one pro_pass_purchases row (unique
+ * per session id) and the new end in ONE transaction, stacked onto a pass
+ * still running (supabase/migrations/20261130000000_deadline_pass.sql). The
+ * RPC returns NULL for a session already granted, so the webhook and the
+ * /success page can both call this and the pass is granted once. A database
+ * error is thrown so Stripe retries the webhook.
+ */
+export async function grantProPass(
+  supabase: SupabaseClient<any, any, any>,
+  session: Pick<Stripe.Checkout.Session, 'id' | 'mode' | 'payment_status' | 'metadata' | 'amount_total' | 'currency'>
+): Promise<GrantProPassResult> {
+  const days = proPassDaysFromSession(session);
+  if (days === 0) return { granted: false, reason: 'not_a_pass_purchase' };
+
+  const userId = session.metadata?.user_id;
+  if (!userId) return { granted: false, reason: 'missing_user' };
+
+  const { data, error } = await supabase.rpc('grant_pro_pass', {
+    p_user_id: userId,
+    p_checkout_session_id: session.id,
+    p_days: days,
+    p_amount_cents: typeof session.amount_total === 'number' ? session.amount_total : null,
+    p_currency: session.currency ?? null,
+  });
+  if (error) throw error;
+  if (data === null || data === undefined) return { granted: false, reason: 'already_granted' };
+
+  return { granted: true, userId, days, proUntil: String(data) };
+}

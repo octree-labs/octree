@@ -7,6 +7,7 @@ import type { TablesInsert } from '@/database.types';
 import { createSSEHeaders } from '@/lib/octra-agent/stream-handling';
 import { agentServiceHeaders } from '@/lib/octra-agent/agent-service-request';
 import { decideAllowance, limitReachedMessage } from '@/lib/usage/allowance';
+import { usesProQuota } from '@/lib/subscription/entitlement';
 import { AnalyticsEvents } from '@/lib/analytics/events';
 import { captureServerEventAfterResponse, captureServerExceptionAfterResponse } from '@/lib/posthog-server';
 
@@ -42,7 +43,7 @@ export async function POST(request: Request) {
     if (!hasUnlimited) {
       const usageRes = await supabase
         .from('user_usage')
-        .select('edit_count, monthly_edit_count, edit_credits, is_pro, daily_reset_date, monthly_reset_date')
+        .select('edit_count, monthly_edit_count, edit_credits, is_pro, pro_until, daily_reset_date, monthly_reset_date')
         .eq('user_id', user.id)
         .single();
       
@@ -51,6 +52,7 @@ export async function POST(request: Request) {
         monthly_edit_count: number;
         edit_credits: number;
         is_pro: boolean;
+        pro_until?: string | null;
         daily_reset_date: string | null;
         monthly_reset_date: string | null;
       } | null;
@@ -75,7 +77,7 @@ export async function POST(request: Request) {
           supabase.from('user_usage') as any
         )
           .insert(newUsagePayload)
-          .select('edit_count, monthly_edit_count, edit_credits, daily_reset_date, monthly_reset_date, is_pro')
+          .select('edit_count, monthly_edit_count, edit_credits, daily_reset_date, monthly_reset_date, is_pro, pro_until')
           .single();
         
         if (newUsageRes.error) {
@@ -91,6 +93,7 @@ export async function POST(request: Request) {
           monthly_edit_count: number;
           edit_credits: number;
           is_pro: boolean;
+          pro_until?: string | null;
           daily_reset_date: string | null;
           monthly_reset_date: string | null;
         } | null;
@@ -106,7 +109,9 @@ export async function POST(request: Request) {
       // Daily/monthly allowance first, then purchased credits, then 429
       // (lib/usage/allowance.ts has the table).
       if (usageData) {
-        const isPro = Boolean(usageData.is_pro);
+        // The subscription flag or a running Deadline Pass: the same rule as
+        // increment_edit_count (lib/subscription/entitlement.ts usesProQuota).
+        const isPro = usesProQuota(usageData);
         isProUser = isPro;
         const decision = decideAllowance(usageData, isPro);
 
@@ -162,12 +167,12 @@ export async function POST(request: Request) {
         // Re-fetch current usage to provide accurate error message
         const usageRes = await supabase
           .from('user_usage')
-          .select('is_pro, edit_count, monthly_edit_count')
+          .select('is_pro, pro_until, edit_count, monthly_edit_count')
           .eq('user_id', user.id)
           .single();
         
-        const usageData = usageRes.data as { is_pro: boolean; edit_count: number; monthly_edit_count: number } | null;
-        const isPro = usageData?.is_pro || false;
+        const usageData = usageRes.data as { is_pro: boolean; pro_until?: string | null; edit_count: number; monthly_edit_count: number } | null;
+        const isPro = usesProQuota(usageData);
         captureServerEventAfterResponse(user.id, AnalyticsEvents.EDIT_LIMIT_HIT_SERVER, { is_pro: isPro });
 
         return NextResponse.json(

@@ -90,6 +90,8 @@ export function firstPurchaseOfferFor(
   if (hasUnlimited || row.subscription_status === 'unlimited') return null;
   if (proEntitlement({ row, stripeStatus, hasUnlimited, now }).isPro) return null;
   if (row.is_pro) return null;
+  // A Deadline Pass (running or not) was a purchase.
+  if (row.pro_until) return null;
   if (row.stripe_customer_id || row.stripe_subscription_id) return null;
   if (row.subscription_status != null && !NEVER_SUBSCRIBED_STATUSES.has(row.subscription_status)) return null;
   if ((row.edit_credits ?? 0) > 0 || (row.generation_credits ?? 0) > 0) return null;

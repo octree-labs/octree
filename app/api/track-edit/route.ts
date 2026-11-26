@@ -5,6 +5,7 @@ import { hasUnlimitedEdits } from '@/lib/paywall';
 import type { TablesInsert, TablesUpdate, Tables } from '@/database.types';
 import { FREE_DAILY_EDIT_LIMIT, PRO_MONTHLY_EDIT_LIMIT } from '@/data/constants';
 import { decideAllowance } from '@/lib/usage/allowance';
+import { usesProQuota } from '@/lib/subscription/entitlement';
 
 type UsageSlice = {
   edit_count: number;
@@ -13,8 +14,21 @@ type UsageSlice = {
   daily_reset_date: string | null;
   monthly_reset_date: string | null;
   is_pro: boolean;
+  /** A running Deadline Pass counts as Pro for quotas (withPassAsPro). */
+  pro_until?: string | null;
   subscription_status: string | null;
 };
+
+/**
+ * The slice with `is_pro` read as "uses the Pro allowance": the subscription
+ * flag or a running Deadline Pass, the same rule as increment_edit_count
+ * (lib/subscription/entitlement.ts usesProQuota). Local only; never written
+ * back.
+ */
+function withPassAsPro<T extends UsageSlice | null>(slice: T): T {
+  if (slice && !slice.is_pro && usesProQuota(slice)) return { ...slice, is_pro: true };
+  return slice;
+}
 
 // Reads and the increment_edit_count RPC use the user-session client
 // (`supabase`). The row inserts, counter resets and the whitelisted-user
@@ -44,10 +58,10 @@ export async function GET() {
     // Fetch user usage data
     const usageRes = await supabase
       .from('user_usage' as const)
-      .select('edit_count, monthly_edit_count, edit_credits, daily_reset_date, monthly_reset_date, is_pro, subscription_status')
+      .select('edit_count, monthly_edit_count, edit_credits, daily_reset_date, monthly_reset_date, is_pro, pro_until, subscription_status')
       .eq('user_id', user.id)
       .single();
-    const usageData = usageRes.data as UsageSlice | null;
+    const usageData = withPassAsPro(usageRes.data as UsageSlice | null);
     const usageError = usageRes.error;
 
     // If no usage record exists, create one
@@ -66,7 +80,7 @@ export async function GET() {
         admin.from('user_usage') as any
       )
         .insert(newUsagePayload)
-        .select('edit_count, monthly_edit_count, edit_credits, monthly_reset_date, is_pro, subscription_status')
+        .select('edit_count, monthly_edit_count, edit_credits, monthly_reset_date, is_pro, pro_until, subscription_status')
         .single();
       const newUsageData = newUsageRes.data as UsageSlice | null;
       const createError = newUsageRes.error;
@@ -201,10 +215,10 @@ export async function POST() {
     // First, ensure user has a usage record
     const initialRes = await supabase
       .from('user_usage' as const)
-      .select('edit_count, monthly_edit_count, edit_credits, daily_reset_date, monthly_reset_date, is_pro, subscription_status')
+      .select('edit_count, monthly_edit_count, edit_credits, daily_reset_date, monthly_reset_date, is_pro, pro_until, subscription_status')
       .eq('user_id', user.id)
       .single();
-    let usageData = initialRes.data as UsageSlice | null;
+    let usageData = withPassAsPro(initialRes.data as UsageSlice | null);
     const usageError = initialRes.error;
 
     // If no usage record exists, create one
@@ -225,7 +239,7 @@ export async function POST() {
         admin.from('user_usage') as any
       )
         .insert(newUsagePayload)
-        .select('edit_count, monthly_edit_count, edit_credits, daily_reset_date, monthly_reset_date, is_pro, subscription_status')
+        .select('edit_count, monthly_edit_count, edit_credits, daily_reset_date, monthly_reset_date, is_pro, pro_until, subscription_status')
         .single();
       const newUsageData = newUsageRes.data as UsageSlice | null;
       const createError = newUsageRes.error;
@@ -288,7 +302,7 @@ export async function POST() {
       )
         .update(updatePayload)
         .eq('user_id', user.id)
-        .select('edit_count, monthly_edit_count, edit_credits, monthly_reset_date, is_pro, subscription_status')
+        .select('edit_count, monthly_edit_count, edit_credits, monthly_reset_date, is_pro, pro_until, subscription_status')
         .single();
 
       if (unlimitedRes.error) {
@@ -353,11 +367,11 @@ export async function POST() {
     // Get updated usage info
     const updatedRes = await supabase
       .from('user_usage' as const)
-      .select('edit_count, monthly_edit_count, edit_credits, daily_reset_date, monthly_reset_date, is_pro, subscription_status')
+      .select('edit_count, monthly_edit_count, edit_credits, daily_reset_date, monthly_reset_date, is_pro, pro_until, subscription_status')
       .eq('user_id', user.id)
       .single();
     // Cast via unknown to satisfy TS when nullable responses occur
-    const updatedUsageData = (updatedRes.data as unknown) as UsageSlice;
+    const updatedUsageData = withPassAsPro((updatedRes.data as unknown) as UsageSlice);
 
     const canEdit = data as boolean;
     const remainingEdits = Math.max(0, FREE_DAILY_EDIT_LIMIT - updatedUsageData.edit_count);

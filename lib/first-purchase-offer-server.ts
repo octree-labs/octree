@@ -25,6 +25,8 @@ async function hasOneOffPurchase(admin: SupabaseClient<any, any, any>, userId: s
   ]);
   if (credits.error) throw credits.error;
   if (generations.error) throw generations.error;
+  // A Deadline Pass sets user_usage.pro_until, which firstPurchaseOfferFor
+  // already rules out; no third ledger read is needed.
   return (credits.data?.length ?? 0) > 0 || (generations.data?.length ?? 0) > 0;
 }
 

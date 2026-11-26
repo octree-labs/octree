@@ -7,6 +7,7 @@ import { resolveStripeCustomer } from '@/lib/stripe-customer';
 import { getOrCreatePrice } from '@/lib/stripe-prices';
 import {
   buildCheckoutSessionParams,
+  isPassPlan,
   isSubscriptionPlan,
   lookupKeyForPlan,
   resolveCheckoutPlan,
@@ -103,6 +104,11 @@ export async function POST(request: Request) {
       (await hasSubscriptionInFlight(supabase, user.id))
     ) {
       return NextResponse.json({ error: ALREADY_SUBSCRIBED_MESSAGE }, { status: 409 });
+    }
+
+    // A Deadline Pass on top of a live subscription buys nothing: they are Pro already.
+    if (isPassPlan(resolved.plan) && (await hasSubscriptionInFlight(supabase, user.id))) {
+      return NextResponse.json({ error: PASS_WHILE_SUBSCRIBED_MESSAGE }, { status: 409 });
     }
 
     if (resolved.projectId) {
@@ -216,6 +222,9 @@ export async function POST(request: Request) {
 
 const ALREADY_SUBSCRIBED_MESSAGE =
   'You already have an Octree Pro subscription (it can take a minute to activate). Refresh the page in a moment.';
+
+const PASS_WHILE_SUBSCRIBED_MESSAGE =
+  'You already have Octree Pro through your subscription, so a Deadline Pass would add nothing.';
 
 /** Subscription states in which another onboarding checkout would charge twice. */
 const IN_FLIGHT_SUBSCRIPTION_STATUSES = new Set(['active', 'trialing', 'incomplete', 'past_due']);

@@ -12,6 +12,7 @@ import { hasUnlimitedEdits } from '@/lib/paywall';
 import {
   isRevokingStripeStatus,
   proEntitlement,
+  proPassActive,
   revokedRowStatus,
   rowClaimsPro,
   type RevokingStripeStatus,
@@ -217,7 +218,12 @@ function buildUsageResponse(
     hasUnlimited,
   });
 
-  const baseRemainingEdits = isActive
+  // The monthly Pro allowance applies to an active subscription and to a
+  // running Deadline Pass (the same rule as increment_edit_count).
+  const passActive = proPassActive(usageData);
+  const proQuota = isActive || passActive;
+
+  const baseRemainingEdits = proQuota
     ? Math.max(0, PRO_MONTHLY_EDIT_LIMIT - monthlyEditCount)
     : Math.max(0, FREE_DAILY_EDIT_LIMIT - editCount);
 
@@ -225,7 +231,7 @@ function buildUsageResponse(
   // allowance is spent, so the limit flags the client gates on only trip
   // when the credits are gone too.
   const editCredits = usageData?.edit_credits ?? 0;
-  const allowanceSpent = isActive
+  const allowanceSpent = proQuota
     ? monthlyEditCount >= PRO_MONTHLY_EDIT_LIMIT
     : editCount >= FREE_DAILY_EDIT_LIMIT;
 
@@ -235,7 +241,7 @@ function buildUsageResponse(
     remainingEdits: hasUnlimited ? null : baseRemainingEdits,
     remainingMonthlyEdits: hasUnlimited
       ? null
-      : isActive
+      : proQuota
         ? baseRemainingEdits
         : 0,
     editCredits,
@@ -247,10 +253,13 @@ function buildUsageResponse(
     currentPeriodEnd: usageData?.current_period_end ?? null,
     hasStripeSubscription: Boolean(usageData?.stripe_subscription_id),
     stripeStatus: storedStripeStatus ?? null,
+    // The end of a Deadline Pass (ISO), so the client applies the same rule
+    // and the billing page can say "Pro until <date>".
+    proUntil: usageData?.pro_until ?? null,
     limitReached: hasUnlimited ? false : allowanceSpent && editCredits <= 0,
     monthlyLimitReached: hasUnlimited
       ? false
-      : isActive
+      : proQuota
         ? allowanceSpent && editCredits <= 0
         : false,
     monthlyResetDate: usageData?.monthly_reset_date || null,

@@ -66,7 +66,7 @@ export async function POST(request: Request) {
   if (!hasUnlimited) {
     const { data: row } = await supabase
       .from('user_usage')
-      .select('is_pro, subscription_status, stripe_subscription_id, current_period_end')
+      .select('is_pro, subscription_status, stripe_subscription_id, current_period_end, pro_until')
       .eq('user_id', user.id)
       .maybeSingle();
     if (!isProEntitled({ row, hasUnlimited })) {

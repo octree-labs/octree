@@ -80,7 +80,8 @@ export type RegionalPlan =
   | 'semester'
   | 'credits_100'
   | 'generate_single'
-  | 'export_single';
+  | 'export_single'
+  | 'deadline_pass';
 
 export type RegionalTier = Exclude<PriceTier, 'standard'>;
 
@@ -97,6 +98,8 @@ export const REGIONAL_AMOUNT_CENTS: Record<RegionalPlan, Record<RegionalTier, nu
   credits_100: { tier2: 300, tier3: 200 },
   generate_single: { tier2: 199, tier3: 99 },
   export_single: { tier2: 299, tier3: 199 },
+  // Same list price as export_single ($4.99), so the same regional amounts.
+  deadline_pass: { tier2: 299, tier3: 199 },
 };
 
 export function regionalAmountCents(plan: RegionalPlan, tier: RegionalTier): number {

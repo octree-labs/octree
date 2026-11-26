@@ -23,9 +23,9 @@ export async function enforceOnboardingPaywall(
   const supabase = await createClient();
   const { data: usage, error } = await supabase
     .from('user_usage')
-    .select('is_pro, onboarding_completed')
+    .select('is_pro, onboarding_completed, pro_until')
     .eq('user_id', user.id)
-    .maybeSingle<{ is_pro: boolean | null; onboarding_completed: boolean | null }>();
+    .maybeSingle<{ is_pro: boolean | null; onboarding_completed: boolean | null; pro_until: string | null }>();
   // A failed read is not a new user: let them through rather than show a paying
   // customer the plan step (where they could start a second checkout).
   if (error) {

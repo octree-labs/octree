@@ -70,6 +70,8 @@ export const AnalyticsEvents = {
   GENERATION_PURCHASED: 'generation_purchased',
   // A one-off $4.99 export unlock for one project was granted (Stripe webhook).
   EXPORT_UNLOCKED: 'export_unlocked',
+  // A Deadline Pass was paid and user_usage.pro_until extended (Stripe webhook or /success).
+  PRO_PASS_PURCHASED: 'pro_pass_purchased',
   // The free first export was used on a project (actions/claim-free-export.ts).
   EXPORT_FREE_USED: 'export_free_used',
   // Billing recovery (Stripe webhook + lifecycle cron)
@@ -126,7 +128,13 @@ export type CheckoutPlan = 'monthly' | 'annual' | 'semester' | 'weekly';
  * credit pack, the one-off $2.99 generation credit and the one-off $4.99
  * export unlock for one project.
  */
-export type PurchasePlan = CheckoutPlan | 'credits_100' | 'generate_single' | 'export_single';
+export type PurchasePlan =
+  | CheckoutPlan
+  | 'credits_100'
+  | 'generate_single'
+  | 'export_single'
+  /** The one-off Deadline Pass: 7 days of Pro (lib/checkout-plans.ts). */
+  | 'deadline_pass';
 /** How a generation was paid for (consume_generation in the database). */
 export type GenerationKind = 'pro' | 'free' | 'credit';
 export const CHECKOUT_SOURCES = ['onboarding', 'paywall', 'settings', 'generate-preview', 'toolbar', 'buy'] as const;
@@ -559,6 +567,19 @@ export interface AnalyticsEventProperties {
   [AnalyticsEvents.EXPORT_FREE_USED]: {
     project_id: string;
     format: ExportFormat;
+  };
+  [AnalyticsEvents.PRO_PASS_PURCHASED]: {
+    plan: 'deadline_pass';
+    days: number;
+    /** ISO end of Pro after this pass (stacked onto any pass still running). */
+    pro_until: string;
+    session_id: string;
+    amount: number | null;
+    currency: string | null;
+    /** `webhook` or `success_page`: whichever granted first (the ledger makes it once). */
+    granted_by: 'webhook' | 'success_page';
+    source?: CheckoutSource;
+    entry?: GenerateEntry;
   };
   [AnalyticsEvents.EXPORT_UNLOCKED]: {
     project_id: string;

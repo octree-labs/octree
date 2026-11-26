@@ -31,6 +31,7 @@ export const PRICE_LOOKUP_KEYS = {
   credits_100: 'octree_credits_100',
   generate_single: 'octree_generate_single',
   export_single: 'octree_export_single',
+  deadline_pass: 'octree_deadline_pass_7d',
 } as const;
 
 export type PriceLookupKey = (typeof PRICE_LOOKUP_KEYS)[keyof typeof PRICE_LOOKUP_KEYS];
@@ -78,6 +79,11 @@ export const PRICE_DEFINITIONS: Record<PriceLookupKey, PriceDefinition> = {
   },
   octree_export_single: {
     productName: 'Octree — Export this document',
+    unitAmount: 499,
+    currency: 'usd',
+  },
+  octree_deadline_pass_7d: {
+    productName: 'Octree Deadline Pass (7 days of Pro)',
     unitAmount: 499,
     currency: 'usd',
   },
@@ -219,6 +225,7 @@ const PLAN_BY_PRICE_LOOKUP_KEY: Record<PriceLookupKey, RegionalPlan> = {
   octree_credits_100: 'credits_100',
   octree_generate_single: 'generate_single',
   octree_export_single: 'export_single',
+  octree_deadline_pass_7d: 'deadline_pass',
 };
 
 /**

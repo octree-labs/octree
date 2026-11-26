@@ -686,8 +686,11 @@ export type Database = {
           currency: string | null
           days: number
           id: number
+          payment_intent_id: string | null
           pro_until_after: string
           pro_until_before: string | null
+          refund_reason: string | null
+          refunded_at: string | null
           user_id: string
         }
         Insert: {
@@ -697,8 +700,11 @@ export type Database = {
           currency?: string | null
           days: number
           id?: number
+          payment_intent_id?: string | null
           pro_until_after: string
           pro_until_before?: string | null
+          refund_reason?: string | null
+          refunded_at?: string | null
           user_id: string
         }
         Update: {
@@ -708,8 +714,11 @@ export type Database = {
           currency?: string | null
           days?: number
           id?: number
+          payment_intent_id?: string | null
           pro_until_after?: string
           pro_until_before?: string | null
+          refund_reason?: string | null
+          refunded_at?: string | null
           user_id?: string
         }
         Relationships: []
@@ -856,6 +865,7 @@ export type Database = {
           is_pro: boolean
           monthly_edit_count: number
           monthly_reset_date: string
+          offer_variant: string | null
           onboarding_completed: boolean | null
           pro_until: string | null
           referral_source: string | null
@@ -881,6 +891,7 @@ export type Database = {
           is_pro?: boolean
           monthly_edit_count?: number
           monthly_reset_date?: string
+          offer_variant?: string | null
           onboarding_completed?: boolean | null
           pro_until?: string | null
           referral_source?: string | null
@@ -906,6 +917,7 @@ export type Database = {
           is_pro?: boolean
           monthly_edit_count?: number
           monthly_reset_date?: string
+          offer_variant?: string | null
           onboarding_completed?: boolean | null
           pro_until?: string | null
           referral_source?: string | null
@@ -1017,6 +1029,7 @@ export type Database = {
           p_checkout_session_id: string
           p_currency?: string | null
           p_days: number
+          p_payment_intent_id?: string | null
           p_user_id: string
         }
         Returns: string | null
@@ -1043,6 +1056,10 @@ export type Database = {
       refund_generation: {
         Args: { p_kind: string; p_user_id: string }
         Returns: boolean
+      }
+      revoke_pro_pass: {
+        Args: { p_checkout_session_id: string; p_reason?: string | null }
+        Returns: string | null
       }
       update_user_subscription_status: {
         Args: {

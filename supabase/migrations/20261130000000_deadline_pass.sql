@@ -14,20 +14,44 @@
 --   its current end, not from now. Marks onboarding_completed (like a paid
 --   subscription does in the webhook). Returns the new pro_until, or NULL
 --   when the session was already granted (a Stripe redelivery, or the
---   /success page and the webhook both granting).
+--   /success page and the webhook both granting). The Checkout Session's
+--   payment intent is stored on the ledger row so a refund or dispute can
+--   find the pass.
+-- * revoke_pro_pass(): a fully refunded or disputed pass is rolled back:
+--   the ledger row gets refunded_at, and pro_until moves back by the pass's
+--   days (never into the past: greatest(now(), pro_until - days)). Once
+--   per row; a second call (a redelivered event) changes nothing.
 -- * increment_edit_count / consume_generation: an active pass counts as
 --   Pro (the monthly Pro allowance of 500 AI edits and unlimited
 --   generations), the same rule as lib/subscription/entitlement.ts.
 --   A pass uses the same monthly Pro counter as a subscription, so buying
 --   several passes in one month does not multiply the allowance.
--- * user_usage_pro_until_guard: the API roles can never write pro_until
---   (own trigger, so it holds whatever order the user_usage_guard
---   re-definitions run in).
+-- * user_usage.offer_variant: the user's arm of the `onboarding-offer-v2`
+--   experiment (control / offer_v2), assigned once, server side, by
+--   GET /api/offer with the service role; checkout, /success and the
+--   webhook read it instead of evaluating the flag again.
+-- * user_usage_pro_until_guard: the API roles can never write pro_until or
+--   offer_variant (own trigger, so it holds whatever order the
+--   user_usage_guard re-definitions run in).
 --
 -- Idempotent. Apply BEFORE deploying the app code that selects pro_until.
 
 alter table public.user_usage
   add column if not exists pro_until timestamptz;
+
+alter table public.user_usage
+  add column if not exists offer_variant text;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'user_usage_offer_variant_check'
+  ) then
+    alter table public.user_usage
+      add constraint user_usage_offer_variant_check
+      check (offer_variant is null or offer_variant in ('control', 'offer_v2'));
+  end if;
+end $$;
 
 create table if not exists public.pro_pass_purchases (
   id bigserial primary key,
@@ -38,11 +62,18 @@ create table if not exists public.pro_pass_purchases (
   currency text,
   pro_until_before timestamptz,
   pro_until_after timestamptz not null,
+  payment_intent_id text,
+  refunded_at timestamptz,
+  refund_reason text,
   created_at timestamptz not null default now()
 );
 
 create index if not exists pro_pass_purchases_user_id_idx
   on public.pro_pass_purchases (user_id);
+
+create index if not exists pro_pass_purchases_payment_intent_id_idx
+  on public.pro_pass_purchases (payment_intent_id)
+  where payment_intent_id is not null;
 
 alter table public.pro_pass_purchases enable row level security;
 
@@ -51,7 +82,8 @@ grant all on table public.pro_pass_purchases to service_role;
 grant usage, select on sequence public.pro_pass_purchases_id_seq to service_role;
 
 -- ---------------------------------------------------------------------------
--- Column guard for pro_until (same trust rules as user_usage_guard).
+-- Column guard for pro_until and offer_variant (same trust rules as
+-- user_usage_guard).
 -- ---------------------------------------------------------------------------
 
 create or replace function public.user_usage_pro_until_guard()
@@ -72,8 +104,8 @@ begin
   end if;
 
   if tg_op = 'INSERT' then
-    if new.pro_until is not null then
-      raise exception 'user_usage: pro_until can only be set by the service role'
+    if new.pro_until is not null or new.offer_variant is not null then
+      raise exception 'user_usage: pro_until and offer_variant can only be set by the service role'
         using errcode = 'insufficient_privilege';
     end if;
     return new;
@@ -81,6 +113,11 @@ begin
 
   if new.pro_until is distinct from old.pro_until then
     raise exception 'user_usage: pro_until can only be changed by the service role'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  if new.offer_variant is distinct from old.offer_variant then
+    raise exception 'user_usage: offer_variant can only be changed by the service role'
       using errcode = 'insufficient_privilege';
   end if;
 
@@ -94,7 +131,8 @@ create trigger user_usage_pro_until_guard
   for each row execute function public.user_usage_pro_until_guard();
 
 -- ---------------------------------------------------------------------------
--- grant_pro_pass(user, session, days, amount, currency) -> new pro_until | null
+-- grant_pro_pass(user, session, days, amount, currency, payment intent)
+--   -> new pro_until | null
 -- ---------------------------------------------------------------------------
 
 create or replace function public.grant_pro_pass(
@@ -102,7 +140,8 @@ create or replace function public.grant_pro_pass(
   p_checkout_session_id text,
   p_days integer,
   p_amount_cents integer default null,
-  p_currency text default null
+  p_currency text default null,
+  p_payment_intent_id text default null
 )
 returns timestamptz
 language plpgsql
@@ -141,10 +180,11 @@ begin
   v_after := greatest(coalesce(v_before, now()), now()) + make_interval(days => p_days);
 
   insert into public.pro_pass_purchases (
-    user_id, checkout_session_id, days, amount_cents, currency, pro_until_before, pro_until_after
+    user_id, checkout_session_id, days, amount_cents, currency, pro_until_before, pro_until_after, payment_intent_id
   )
   values (
-    p_user_id, p_checkout_session_id, p_days, p_amount_cents, p_currency, v_before, v_after
+    p_user_id, p_checkout_session_id, p_days, p_amount_cents, p_currency, v_before, v_after,
+    nullif(p_payment_intent_id, '')
   )
   on conflict (checkout_session_id) do nothing;
 
@@ -162,8 +202,70 @@ begin
 end;
 $$;
 
-revoke execute on function public.grant_pro_pass(uuid, text, integer, integer, text) from public, anon, authenticated;
-grant execute on function public.grant_pro_pass(uuid, text, integer, integer, text) to service_role;
+revoke execute on function public.grant_pro_pass(uuid, text, integer, integer, text, text) from public, anon, authenticated;
+grant execute on function public.grant_pro_pass(uuid, text, integer, integer, text, text) to service_role;
+
+-- ---------------------------------------------------------------------------
+-- revoke_pro_pass(session, reason) -> new pro_until | null
+--
+-- A full refund or a dispute of a pass (Stripe webhook). Marks the ledger
+-- row refunded_at and takes the pass's days back off pro_until, never
+-- below now(). Returns NULL when there is no such purchase or it was
+-- already revoked, so a redelivered event is a no-op.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.revoke_pro_pass(
+  p_checkout_session_id text,
+  p_reason text default null
+)
+returns timestamptz
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_purchase public.pro_pass_purchases%rowtype;
+  v_after timestamptz;
+begin
+  select * into v_purchase
+  from public.pro_pass_purchases
+  where checkout_session_id = p_checkout_session_id;
+
+  if not found then
+    return null;
+  end if;
+
+  -- Same lock order as grant_pro_pass (the usage row first, then the
+  -- ledger), so a grant and a revoke for one user cannot deadlock.
+  perform 1 from public.user_usage where user_id = v_purchase.user_id for update;
+
+  select * into v_purchase
+  from public.pro_pass_purchases
+  where id = v_purchase.id
+  for update;
+
+  if v_purchase.refunded_at is not null then
+    return null;
+  end if;
+
+  update public.pro_pass_purchases
+  set refunded_at = now(),
+      refund_reason = nullif(p_reason, '')
+  where id = v_purchase.id;
+
+  update public.user_usage
+  set pro_until = greatest(now(), pro_until - make_interval(days => v_purchase.days)),
+      updated_at = now()
+  where user_id = v_purchase.user_id
+    and pro_until is not null
+  returning pro_until into v_after;
+
+  return coalesce(v_after, now());
+end;
+$$;
+
+revoke execute on function public.revoke_pro_pass(text, text) from public, anon, authenticated;
+grant execute on function public.revoke_pro_pass(text, text) to service_role;
 
 -- ---------------------------------------------------------------------------
 -- increment_edit_count: 20261018110000's version with the pass counted as Pro.

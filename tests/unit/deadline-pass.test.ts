@@ -12,7 +12,15 @@ import {
   type PriceClient,
 } from '@/lib/stripe-prices';
 import { buildCheckoutSessionParams, resolveCheckoutPlan } from '@/lib/checkout-plans';
-import { grantProPass, proPassDaysFromSession } from '@/lib/stripe-webhook';
+import {
+  grantProPass,
+  isProPassSession,
+  proPassDaysFromSession,
+  revokeProPassForPaymentIntent,
+} from '@/lib/stripe-webhook';
+import { hasLiveSubscription, passTrialEnd } from '@/lib/subscription/pass-trial';
+import { checkoutRecoveryEmail } from '@/lib/email/lifecycle';
+import { boughtPassSince } from '@/lib/lifecycle/billing-send';
 import {
   entitlementFromStatusResponse,
   proEntitlement,
@@ -170,6 +178,7 @@ describe('grantProPass (webhook and /success)', () => {
       p_days: 7,
       p_amount_cents: 499,
       p_currency: 'usd',
+      p_payment_intent_id: null,
     });
   });
 
@@ -302,5 +311,171 @@ describe('a running pass is Pro everywhere', () => {
       expect(eligibleSince(user, template, NOW)).toBeNull();
     }
     expect(isEntitledToPro({ ...user, proUntil: PAST }, NOW)).toBe(false);
+  });
+});
+
+describe('review fixes: pass sessions, refunds, checkout and copy', () => {
+  it('a no_payment_required pass session is granted; the metadata alone marks a pass', () => {
+    expect(proPassDaysFromSession(passSession({ payment_status: 'no_payment_required' }))).toBe(7);
+    expect(isProPassSession(passSession({ payment_status: 'unpaid' }))).toBe(true);
+    expect(isProPassSession(passSession({ metadata: { credits: '100' } }))).toBe(false);
+    expect(isProPassSession(passSession({ mode: 'subscription' }))).toBe(false);
+  });
+
+  it('stores the payment intent on the ledger at grant time', async () => {
+    const db = fakeDatabase(NOW);
+    await grantProPass(db.client, passSession({ payment_intent: { id: 'pi_1' } }));
+    expect(db.rpc.mock.calls[0][1]).toMatchObject({ p_payment_intent_id: 'pi_1' });
+  });
+
+  describe('revokeProPassForPaymentIntent (charge.refunded / charge.dispute.created)', () => {
+    function db(row: { checkout_session_id: string; user_id: string } | null, rpcData: string | null) {
+      const maybeSingle = vi.fn().mockResolvedValue({ data: row, error: null });
+      const eq = vi.fn().mockReturnValue({ maybeSingle });
+      const from = vi.fn().mockReturnValue({ select: () => ({ eq }) });
+      const rpc = vi.fn().mockResolvedValue({ data: rpcData, error: null });
+      return { client: { from, rpc } as any, from, eq, rpc };
+    }
+    const noStripe = { checkout: { sessions: { list: vi.fn().mockResolvedValue({ data: [] }) } } };
+
+    it('finds the pass by payment intent and revokes it', async () => {
+      const d = db({ checkout_session_id: 'cs_pass_1', user_id: 'user-1' }, '2026-11-28T12:00:00Z');
+      const result = await revokeProPassForPaymentIntent(d.client, noStripe, 'pi_1', 'refund');
+      expect(d.eq).toHaveBeenCalledWith('payment_intent_id', 'pi_1');
+      expect(d.rpc).toHaveBeenCalledWith('revoke_pro_pass', { p_checkout_session_id: 'cs_pass_1', p_reason: 'refund' });
+      expect(result).toEqual({ revoked: true, userId: 'user-1', sessionId: 'cs_pass_1', proUntil: '2026-11-28T12:00:00Z' });
+    });
+
+    it('is idempotent: a redelivered refund revokes nothing', async () => {
+      const d = db({ checkout_session_id: 'cs_pass_1', user_id: 'user-1' }, null);
+      expect(await revokeProPassForPaymentIntent(d.client, noStripe, 'pi_1', 'dispute')).toEqual({
+        revoked: false,
+        reason: 'already_revoked',
+      });
+    });
+
+    it('falls back to the Checkout Session of the payment intent for a ledger row without it', async () => {
+      const d = db(null, '2026-11-26T12:00:00Z');
+      const stripe = {
+        checkout: { sessions: { list: vi.fn().mockResolvedValue({ data: [passSession({ id: 'cs_old' })] }) } },
+      };
+      const result = await revokeProPassForPaymentIntent(d.client, stripe, 'pi_old', 'refund');
+      expect(stripe.checkout.sessions.list).toHaveBeenCalledWith({ payment_intent: 'pi_old', limit: 1 });
+      expect(result).toMatchObject({ revoked: true, sessionId: 'cs_old', userId: 'user-1' });
+    });
+
+    it('leaves anything that is not an Octree pass alone', async () => {
+      const d = db(null, null);
+      const stripe = {
+        checkout: {
+          sessions: {
+            list: vi.fn().mockResolvedValue({ data: [passSession({ metadata: { app: 'octree', user_id: 'u', credits: '100' } })] }),
+          },
+        },
+      };
+      expect(await revokeProPassForPaymentIntent(d.client, stripe, 'pi_x', 'refund')).toEqual({
+        revoked: false,
+        reason: 'not_a_pass',
+      });
+      expect(await revokeProPassForPaymentIntent(d.client, noStripe, 'pi_y', 'refund')).toEqual({
+        revoked: false,
+        reason: 'not_a_pass',
+      });
+      expect(d.rpc).not.toHaveBeenCalled();
+    });
+  });
+
+  it('pass checkouts take no promotion codes, on the session or the recovery link', () => {
+    const params = buildCheckoutSessionParams({
+      plan: 'deadline_pass',
+      priceId: 'price_pass',
+      userId: 'user-1',
+      customerId: null,
+      email: null,
+      origin: 'https://app.example',
+      withTrial: false,
+      nowSeconds: 1_000_000,
+    });
+    expect(params.allow_promotion_codes).toBe(false);
+    expect(params.after_expiration).toEqual({ recovery: { enabled: true, allow_promotion_codes: false } });
+  });
+
+  it('a subscription bought during a pass starts billing at the pass end (trial_end)', () => {
+    const params = buildCheckoutSessionParams({
+      plan: 'monthly',
+      priceId: 'price_m',
+      userId: 'user-1',
+      customerId: null,
+      email: null,
+      origin: 'https://app.example',
+      withTrial: true,
+      trialEnd: 1_800_000_000,
+      nowSeconds: 1_000_000,
+    });
+    expect(params.subscription_data?.trial_end).toBe(1_800_000_000);
+    expect(params.subscription_data?.trial_period_days).toBeUndefined();
+  });
+
+  it('passTrialEnd: only a pass ending more than 48 hours out', () => {
+    expect(passTrialEnd('2026-11-30T12:00:00Z', NOW)).toBe(Date.parse('2026-11-30T12:00:00Z') / 1000);
+    expect(passTrialEnd('2026-11-28T11:00:00Z', NOW)).toBeNull();
+    expect(passTrialEnd(PAST, NOW)).toBeNull();
+    expect(passTrialEnd(null, NOW)).toBeNull();
+  });
+
+  it('hasLiveSubscription: only active/trialing within the period blocks a pass', () => {
+    const row = { stripe_subscription_id: 'sub_1', current_period_end: FUTURE, pro_until: null };
+    expect(hasLiveSubscription({ ...row, subscription_status: 'active' }, NOW)).toBe(true);
+    expect(hasLiveSubscription({ ...row, subscription_status: 'trialing' }, NOW)).toBe(true);
+    for (const status of ['past_due', 'unpaid', 'incomplete', 'canceled', 'paused']) {
+      expect(hasLiveSubscription({ ...row, subscription_status: status }, NOW)).toBe(false);
+    }
+    expect(hasLiveSubscription({ ...row, subscription_status: 'active', current_period_end: PAST }, NOW)).toBe(false);
+    expect(hasLiveSubscription({ ...row, subscription_status: 'active', stripe_subscription_id: null }, NOW)).toBe(false);
+  });
+
+  it('after the pass ends the user is not sent back to /onboarding (grant_pro_pass set onboarding_completed)', () => {
+    // Both grant paths (webhook and /success) go through grant_pro_pass,
+    // which sets onboarding_completed (supabase/tests/deadline_pass.test.sql).
+    const afterPass = { onboarding_completed: true, is_pro: false, pro_until: PAST };
+    expect(hasFinishedOnboarding(afterPass, true, NOW)).toBe(true);
+    expect(shouldRedirectToOnboarding(afterPass, 'app', true)).toBe(false);
+    expect(shouldRedirectToOnboarding(afterPass, 'dashboard', true)).toBe(false);
+  });
+
+  it('checkout recovery emails describe the pass as a one-off', () => {
+    const email = checkoutRecoveryEmail({
+      recoveryUrl: 'https://checkout.stripe.com/r',
+      plan: 'deadline_pass',
+      amountCents: 199,
+      currency: 'usd',
+      promoCode: null,
+      unsubscribeUrl: 'https://app.example/u',
+    });
+    expect(email.text).toContain('the Octree Deadline Pass (7 days of Pro, $1.99 once)');
+    expect(email.text).toContain('nothing renews');
+    expect(email.text).not.toContain('Cancel anytime');
+  });
+});
+
+describe('boughtPassSince (checkout recovery skip)', () => {
+  function supabaseWith(result: { data: unknown[] | null; error: unknown }) {
+    const limit = vi.fn().mockResolvedValue(result);
+    const gte = vi.fn().mockReturnValue({ limit });
+    const eq = vi.fn().mockReturnValue({ gte });
+    return { client: { from: vi.fn().mockReturnValue({ select: () => ({ eq }) }) } as any, gte };
+  }
+
+  it('is true when a pass was bought after the checkout opened', async () => {
+    const s = supabaseWith({ data: [{ id: 1 }], error: null });
+    await expect(boughtPassSince(s.client, 'user-1', Date.parse('2026-11-25T00:00:00Z'))).resolves.toBe(true);
+    expect(s.gte).toHaveBeenCalledWith('created_at', '2026-11-25T00:00:00.000Z');
+  });
+
+  it('is false with no purchase, or when the ledger cannot be read (never loses a reminder)', async () => {
+    await expect(boughtPassSince(supabaseWith({ data: [], error: null }).client, 'u', 0)).resolves.toBe(false);
+    await expect(
+      boughtPassSince(supabaseWith({ data: null, error: { code: '42P01' } }).client, 'u', 0)
+    ).resolves.toBe(false);
   });
 });

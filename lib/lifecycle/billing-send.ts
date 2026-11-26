@@ -25,6 +25,7 @@ import { SAVE_COUPON_ID, SAVE_COUPON_MONTHS, SAVE_COUPON_PERCENT_OFF } from '@/l
 import { readExportUnlocked } from '@/lib/export-unlock';
 import { isOctreeSubscription } from '@/lib/stripe-webhook';
 import {
+  CHECKOUT_OFFER_DELAY_MS,
   CHECKOUT_RECOVERY_COOLDOWN_MS,
   COMEBACK_PROMO_CODE,
   DELINQUENT_STRIPE_STATUSES,
@@ -192,6 +193,29 @@ export interface CheckoutRecoverySendInput {
   now?: Date;
 }
 
+/** A Checkout Session lives at most a day (lib/checkout-plans.ts); an hour of slack. */
+const SESSION_LIFETIME_MS = 25 * 60 * 60 * 1000;
+
+/**
+ * Whether the user bought a Deadline Pass (pro_pass_purchases) after
+ * `sinceMs`. Any read error (the migration not applied yet) is "no": a
+ * reminder is never lost to it.
+ */
+export async function boughtPassSince(supabase: Db, userId: string, sinceMs: number): Promise<boolean> {
+  try {
+    const { data, error } = await (supabase as any)
+      .from('pro_pass_purchases')
+      .select('id')
+      .eq('user_id', userId)
+      .gte('created_at', new Date(sinceMs).toISOString())
+      .limit(1);
+    if (error) return false;
+    return (data ?? []).length > 0;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Whether a checkout-recovery email (first or offer) was delivered to the
  * user within CHECKOUT_RECOVERY_COOLDOWN_MS. Reads only columns the ledger
@@ -233,6 +257,12 @@ export async function sendCheckoutRecoveryEmail(
   const exportProjectId = input.session.metadata?.export_project_id;
   if (exportProjectId && (await readExportUnlocked(input.supabase, exportProjectId))) {
     return { sent: false, template, ref: checkout.sessionId, reason: 'export already unlocked', checkout };
+  }
+  // Bought a Deadline Pass since this checkout was opened: no nudge to
+  // finish the old one.
+  const openedAt = typeof input.session.created === 'number' ? input.session.created * 1000 : null;
+  if (await boughtPassSince(input.supabase, checkout.userId, openedAt ?? (input.now ?? new Date()).getTime() - SESSION_LIFETIME_MS)) {
+    return { sent: false, template, ref: checkout.sessionId, reason: 'bought a pass since', checkout };
   }
   // Every click on an upgrade button is a new session, and every one of
   // them expires: without this, five looks at the paywall in a week would be
@@ -754,10 +784,17 @@ async function sendCheckoutRecoveryOffer(
   if (await userHasLiveSubscription(input.supabase, input.stripe, item.userId, customerId)) {
     return { sent: false, template, ref: item.ref, reason: 'skip: subscribed since' };
   }
+  // The original checkout opened about a day before the first email, which
+  // went out CHECKOUT_OFFER_DELAY_MS before this one became due.
+  if (await boughtPassSince(input.supabase, item.userId, item.eligibleSince - CHECKOUT_OFFER_DELAY_MS - SESSION_LIFETIME_MS)) {
+    return { sent: false, template, ref: item.ref, reason: 'skip: bought a pass since' };
+  }
 
-  const promoCode = await ensureComebackPromoCode(input.stripe);
-  summary.checkout_recovery_offer.promo_code = promoCode;
   const plan = typeof item.payload.plan === 'string' ? item.payload.plan : null;
+  // The pass takes no promotion codes (lib/checkout-plans.ts) and the
+  // comeback code is for Pro months: a pass cart gets the plain reminder.
+  const promoCode = plan === 'deadline_pass' ? null : await ensureComebackPromoCode(input.stripe);
+  if (promoCode) summary.checkout_recovery_offer.promo_code = promoCode;
   const amountCents = typeof item.payload.amount_cents === 'number' ? item.payload.amount_cents : null;
   const currency = typeof item.payload.currency === 'string' ? item.payload.currency : null;
 
@@ -771,7 +808,7 @@ async function sendCheckoutRecoveryOffer(
       payload: { ...item.payload, promo_code: promoCode },
       render: ({ unsubscribeUrl }) =>
         checkoutRecoveryOfferEmail({
-          recoveryUrl: withPromoCode(recoveryUrl, promoCode),
+          recoveryUrl: promoCode ? withPromoCode(recoveryUrl, promoCode) : recoveryUrl,
           plan,
           amountCents,
           currency,

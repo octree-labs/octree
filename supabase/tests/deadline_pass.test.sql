@@ -38,10 +38,25 @@ begin
   end;
 
   begin
+    update public.user_usage set offer_variant = 'offer_v2'
+    where user_id = '00000000-0000-4000-8000-00000000d001';
+    raise exception 'FAIL: a user could pick their own offer_variant';
+  exception when insufficient_privilege then
+    raise notice 'PASS: users cannot write offer_variant';
+  end;
+
+  begin
     perform public.grant_pro_pass('00000000-0000-4000-8000-00000000d001', 'cs_self', 7);
     raise exception 'FAIL: a user could call grant_pro_pass';
   exception when insufficient_privilege then
     raise notice 'PASS: grant_pro_pass is service role only';
+  end;
+
+  begin
+    perform public.revoke_pro_pass('cs_self');
+    raise exception 'FAIL: a user could call revoke_pro_pass';
+  exception when insufficient_privilege then
+    raise notice 'PASS: revoke_pro_pass is service role only';
   end;
 
   begin
@@ -150,6 +165,54 @@ begin
     raise exception 'FAIL: an expired pass still granted generations';
   end if;
   raise notice 'PASS: an expired pass falls back to the free allowance';
+end $$;
+
+---------------------------------------------------------------------------
+-- Refunds and disputes: revoke_pro_pass.
+---------------------------------------------------------------------------
+
+do $$
+declare
+  v_granted timestamptz;
+  v_after timestamptz;
+begin
+  -- user 2 runs cs_pass_c (now + 7d); a second pass with its payment intent stacks to now + 14d.
+  v_granted := public.grant_pro_pass('00000000-0000-4000-8000-00000000d002', 'cs_pass_d', 7, 499, 'usd', 'pi_pass_d');
+  if (select payment_intent_id from public.pro_pass_purchases where checkout_session_id = 'cs_pass_d') <> 'pi_pass_d' then
+    raise exception 'FAIL: the payment intent must be stored on the ledger row';
+  end if;
+
+  v_after := public.revoke_pro_pass('cs_pass_d', 'refund');
+  if v_after <> v_granted - interval '7 days' then
+    raise exception 'FAIL: a refunded pass should take its 7 days back (% -> %)', v_granted, v_after;
+  end if;
+  if (select refunded_at from public.pro_pass_purchases where checkout_session_id = 'cs_pass_d') is null
+     or (select refund_reason from public.pro_pass_purchases where checkout_session_id = 'cs_pass_d') <> 'refund' then
+    raise exception 'FAIL: the ledger row must be marked refunded';
+  end if;
+  raise notice 'PASS: revoke_pro_pass takes the pass days back and marks the ledger';
+
+  if public.revoke_pro_pass('cs_pass_d', 'refund') is not null then
+    raise exception 'FAIL: a second revoke must be a no-op';
+  end if;
+  if (select pro_until from public.user_usage where user_id = '00000000-0000-4000-8000-00000000d002') <> v_after then
+    raise exception 'FAIL: a second revoke moved pro_until';
+  end if;
+  raise notice 'PASS: revoke_pro_pass is idempotent';
+
+  -- Revoking the remaining pass never pushes pro_until into the past.
+  update public.user_usage set pro_until = now() + interval '2 days'
+  where user_id = '00000000-0000-4000-8000-00000000d002';
+  v_after := public.revoke_pro_pass('cs_pass_c', 'dispute');
+  if abs(extract(epoch from (v_after - now()))) > 5 then
+    raise exception 'FAIL: pro_until should stop at now(), got %', v_after;
+  end if;
+  raise notice 'PASS: revoke_pro_pass never goes below now()';
+
+  if public.revoke_pro_pass('cs_unknown') is not null then
+    raise exception 'FAIL: an unknown session must return null';
+  end if;
+  raise notice 'PASS: unknown sessions are ignored';
 end $$;
 
 rollback;

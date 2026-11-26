@@ -18,6 +18,7 @@ import {
   isOctreeCheckoutSession,
   isOctreeSubscription,
   recordStripeEvent,
+  revokeProPassForPaymentIntent,
   subscriptionLifecycleEvents,
   trackPurchaseFromCheckoutSession,
 } from '@/lib/stripe-webhook';
@@ -377,6 +378,34 @@ export async function POST(request: Request) {
           }
         }
         break;
+      case 'charge.refunded':
+      case 'charge.dispute.created': {
+        // A Deadline Pass that is fully refunded, or disputed, is taken back
+        // (revoke_pro_pass: idempotent per session, never below now()).
+        // Anything else (subscription invoices, credit packs, partial
+        // refunds, the other app on this Stripe account) is acknowledged and
+        // left alone. Database errors throw: 500, Stripe retries.
+        const isRefund = event.type === 'charge.refunded';
+        const object = event.data.object as Stripe.Charge | Stripe.Dispute;
+        if (isRefund && !(object as Stripe.Charge).refunded) break;
+        const paymentIntent = object.payment_intent;
+        const paymentIntentId = typeof paymentIntent === 'string' ? paymentIntent : paymentIntent?.id;
+        if (!paymentIntentId) break;
+        const revoked = await revokeProPassForPaymentIntent(
+          supabase,
+          stripe,
+          paymentIntentId,
+          isRefund ? 'refund' : 'dispute'
+        );
+        if (revoked.revoked && revoked.userId) {
+          captureServerEventAfterResponse(revoked.userId, AnalyticsEvents.PRO_PASS_REVOKED, {
+            reason: isRefund ? 'refund' : 'dispute',
+            session_id: revoked.sessionId,
+            pro_until: revoked.proUntil,
+          });
+        }
+        break;
+      }
       case 'checkout.session.expired': {
         // Abandoned checkout. Stripe attaches `after_expiration.recovery.url`
         // because the session was created with recovery enabled

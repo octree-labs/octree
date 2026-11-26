@@ -13,6 +13,8 @@ import { SettingsCardSkeleton } from '@/components/settings/settings-card-skelet
 import { createCheckoutSession, resumeSubscription } from '@/lib/requests/subscription';
 import { describePlanPeriod } from '@/lib/stripe-subscription';
 import { cn } from '@/lib/utils';
+import { MIN_PASS_TRIAL_MS } from '@/lib/subscription/pass-trial';
+import { formatPassEnd } from '@/lib/subscription/pass-format';
 import { toast } from 'sonner';
 
 interface SubscriptionData {
@@ -69,9 +71,7 @@ function activePassEnd(proUntil: string | null | undefined, now: Date = new Date
   return Number.isFinite(end.getTime()) && end.getTime() > now.getTime() ? end : null;
 }
 
-function formatPassEnd(end: Date): string {
-  return end.toLocaleString(undefined, { month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-}
+
 
 export function SubscriptionStatus() {
   const { creditPack } = useRegionalPricing();
@@ -369,7 +369,13 @@ export function SubscriptionStatus() {
 
         <SettingsCard
           title="Keep Pro after your pass"
-          description="Subscribe to stay on Pro when the pass ends. Cancel anytime."
+          description={
+            // Mirrors the checkout route (lib/subscription/pass-trial.ts):
+            // Stripe needs a trial end at least 48 hours out.
+            passEnd.getTime() - Date.now() > MIN_PASS_TRIAL_MS
+              ? `Subscribe now and billing starts when your pass ends, on ${formatPassEnd(passEnd)}. Cancel anytime before then and you pay nothing.`
+              : 'Subscribe to stay on Pro when the pass ends. Billing starts today. Cancel anytime.'
+          }
         >
           <form onSubmit={handleCheckout} className="space-y-4 px-6 py-5">
             <PlanPicker

@@ -483,7 +483,49 @@ describe('POST /api/checkout-session export_single', () => {
     mocks.sessionsCreate.mockResolvedValue({ id: 'cs_test_1', url: 'https://checkout.stripe.com/c/cs_test_1' });
     const response = await POST(post({ plan: 'monthly', projectId }));
     expect(response.status).toBe(200);
-    expect(mocks.from).not.toHaveBeenCalled();
+    // Only the billing row (for a Deadline Pass trial), never projects.
+    expect(mocks.from).not.toHaveBeenCalledWith('projects');
     expect(mocks.sessionsCreate.mock.calls[0][0].metadata).not.toHaveProperty('export_project_id');
+  });
+});
+
+describe('POST /api/checkout-session and a running Deadline Pass', () => {
+  const row = (fields: Record<string, unknown>) => ({
+    select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: fields }) }) }),
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.getUser.mockResolvedValue({ data: { user }, error: null });
+    mocks.getOrCreatePrice.mockResolvedValue('price_123');
+    mocks.resolveStripeCustomer.mockResolvedValue({ customerId: 'cus_1' });
+    mocks.sessionsCreate.mockResolvedValue({ id: 'cs_t', url: 'https://checkout.stripe.com/c/cs_t' });
+  });
+
+  it('lets a user whose renewal failed (past_due, stale is_pro) buy a pass', async () => {
+    mocks.from.mockReturnValue(
+      row({ subscription_status: 'past_due', stripe_subscription_id: 'sub_1', current_period_end: null, pro_until: null })
+    );
+    const response = await POST(post({ plan: 'deadline_pass', source: 'paywall' }));
+    expect(response.status).toBe(200);
+  });
+
+  it('starts billing at the pass end when the pass runs for more than 48 hours (from the DB row)', async () => {
+    const passEnd = new Date(Date.now() + 5 * 24 * 3600 * 1000).toISOString();
+    mocks.from.mockReturnValue(
+      row({ subscription_status: 'inactive', stripe_subscription_id: null, current_period_end: null, pro_until: passEnd })
+    );
+    await POST(post({ plan: 'monthly', source: 'settings', trialEnd: 1 }));
+    const params = mocks.sessionsCreate.mock.calls[0][0];
+    expect(params.subscription_data.trial_end).toBe(Math.floor(Date.parse(passEnd) / 1000));
+  });
+
+  it('bills today when the pass ends within 48 hours', async () => {
+    const passEnd = new Date(Date.now() + 24 * 3600 * 1000).toISOString();
+    mocks.from.mockReturnValue(
+      row({ subscription_status: 'inactive', stripe_subscription_id: null, current_period_end: null, pro_until: passEnd })
+    );
+    await POST(post({ plan: 'monthly', source: 'settings' }));
+    expect(mocks.sessionsCreate.mock.calls[0][0].subscription_data.trial_end).toBeUndefined();
   });
 });

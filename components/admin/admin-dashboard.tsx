@@ -167,6 +167,7 @@ export function AdminDashboard() {
                     <TableHead>Pro</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Period End</TableHead>
+                    <TableHead>Pass Until</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -177,6 +178,9 @@ export function AdminDashboard() {
                       <TableCell>{sub.subscription_status ?? '-'}</TableCell>
                       <TableCell>
                         {sub.current_period_end ? formatDate(sub.current_period_end) : '-'}
+                      </TableCell>
+                      <TableCell>
+                        {sub.pro_until && Date.parse(sub.pro_until) > Date.now() ? formatDate(sub.pro_until) : '-'}
                       </TableCell>
                     </TableRow>
                   ))}

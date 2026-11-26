@@ -12,7 +12,7 @@ import { hasUnlimitedEdits } from '@/lib/paywall';
 import {
   isRevokingStripeStatus,
   proEntitlement,
-  proPassActive,
+  usesProQuota,
   revokedRowStatus,
   rowClaimsPro,
   type RevokingStripeStatus,
@@ -204,10 +204,8 @@ function buildUsageResponse(
   const editCount = usageData?.edit_count || 0;
   const monthlyEditCount = usageData?.monthly_edit_count || 0;
   // Paused collection reads as the free tier once the paid period has ended
-  // (see lib/stripe-subscription.ts). `usageData.is_pro` was read before the
-  // RPC below rewrote it, so it must not be trusted for a paused subscription.
+  // (see lib/stripe-subscription.ts).
   const effectiveStatus = subscription ? effectiveSubscriptionStatus(subscription) : null;
-  const isActive = effectiveStatus === 'active';
 
   // Pro by the shared rule (lib/subscription/entitlement.ts): Stripe's
   // answer when there is one, else the allowlist, the `unlimited` grant, or
@@ -218,10 +216,11 @@ function buildUsageResponse(
     hasUnlimited,
   });
 
-  // The monthly Pro allowance applies to an active subscription and to a
-  // running Deadline Pass (the same rule as increment_edit_count).
-  const passActive = proPassActive(usageData);
-  const proQuota = isActive || passActive;
+  // Which allowance the counters are on: exactly increment_edit_count's
+  // rule (is_pro, which includes trialing, or a running Deadline Pass;
+  // lib/subscription/entitlement.ts usesProQuota), so the limit flags the
+  // client gates on match what the database will allow.
+  const proQuota = usesProQuota(usageData);
 
   const baseRemainingEdits = proQuota
     ? Math.max(0, PRO_MONTHLY_EDIT_LIMIT - monthlyEditCount)

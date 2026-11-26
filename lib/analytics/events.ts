@@ -72,6 +72,8 @@ export const AnalyticsEvents = {
   EXPORT_UNLOCKED: 'export_unlocked',
   // A Deadline Pass was paid and user_usage.pro_until extended (Stripe webhook or /success).
   PRO_PASS_PURCHASED: 'pro_pass_purchased',
+  // A Deadline Pass was fully refunded or disputed and its days taken back (Stripe webhook).
+  PRO_PASS_REVOKED: 'pro_pass_revoked',
   // The free first export was used on a project (actions/claim-free-export.ts).
   EXPORT_FREE_USED: 'export_free_used',
   // Billing recovery (Stripe webhook + lifecycle cron)
@@ -424,6 +426,8 @@ export interface AnalyticsEventProperties {
     offer_applied?: boolean;
     /** The checkout came from the onboarding plan step while it had no free path. */
     onboarding_paywall?: boolean;
+    /** A subscription bought during a Deadline Pass: billing starts when the pass ends (trial_end). */
+    trial_until_pass_end?: boolean;
   };
   /**
    * The /buy offer banner. `auto: true` when the page applied the
@@ -567,6 +571,12 @@ export interface AnalyticsEventProperties {
   [AnalyticsEvents.EXPORT_FREE_USED]: {
     project_id: string;
     format: ExportFormat;
+  };
+  [AnalyticsEvents.PRO_PASS_REVOKED]: {
+    reason: 'refund' | 'dispute';
+    session_id: string;
+    /** ISO pro_until after the rollback (never earlier than the moment of the refund). */
+    pro_until: string;
   };
   [AnalyticsEvents.PRO_PASS_PURCHASED]: {
     plan: 'deadline_pass';

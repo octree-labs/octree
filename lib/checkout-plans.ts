@@ -307,6 +307,13 @@ export interface CheckoutSessionInput {
    */
   priceTier?: PriceTier;
   country?: string | null;
+  /**
+   * Subscription plans: `subscription_data.trial_end` (unix seconds), set
+   * by the route when the buyer has a Deadline Pass running for more than
+   * 48 hours (lib/subscription/pass-trial.ts), so billing starts when the
+   * pass ends. Takes precedence over `withTrial`.
+   */
+  trialEnd?: number;
 }
 
 /**
@@ -428,8 +435,15 @@ export function buildCheckoutSessionParams(
 
   if (isSubscriptionPlan(plan)) {
     params.subscription_data = { metadata };
-    if (withTrial) params.subscription_data.trial_period_days = 3;
+    if (input.trialEnd) params.subscription_data.trial_end = input.trialEnd;
+    else if (withTrial) params.subscription_data.trial_period_days = 3;
   } else {
+    if (isPassPlan(plan)) {
+      // The pass is already the cheap way in: no promotion codes (a 100%
+      // code would make it free), on the session or its recovery link.
+      params.allow_promotion_codes = false;
+      params.after_expiration = { recovery: { enabled: true, allow_promotion_codes: false } };
+    }
     // Each one-off carries only its own key, so the webhook grants exactly
     // one product per session (export_single: export_project_id, above).
     params.metadata = isGenerationPlan(plan)

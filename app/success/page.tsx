@@ -9,6 +9,7 @@ import {
   checkoutAttributionFromMetadata,
   grantProPass,
   isOctreeCheckoutSession,
+  isProPassSession,
   proPassDaysFromSession,
 } from '@/lib/stripe-webhook';
 import { createClient } from '@/lib/supabase/server';
@@ -16,6 +17,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { AnalyticsEvents } from '@/lib/analytics/events';
 import { captureServerEventAfterResponse } from '@/lib/posthog-server';
 import { Button } from '@/components/ui/button';
+import { PassEndDate } from '@/components/subscription/pass-end-date';
 import {
   Card,
   CardContent,
@@ -46,8 +48,12 @@ export default async function Success({ searchParams }: SuccessPageProps) {
 
   if (session.status === 'complete') {
     await markOnboardedAfterPayment(session);
-    const passEnd = await grantPassAfterPayment(session);
-    const isPass = proPassDaysFromSession(session) > 0;
+    // Decided from the session's metadata alone, so a pass (paid or still
+    // settling) never falls through to the credit-pack copy.
+    const isPass = isProPassSession(session);
+    const passEnd = isPass ? await grantPassAfterPayment(session) : null;
+    // "Active" only while the pass end is still ahead (not refunded, not lapsed).
+    const passActive = !!passEnd && Date.parse(passEnd) > Date.now();
 
     return (
       <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-neutral-50 to-neutral-100 p-4">
@@ -66,17 +72,19 @@ export default async function Success({ searchParams }: SuccessPageProps) {
           <CardContent className="space-y-6">
             <div className="rounded-lg bg-neutral-50 p-4 text-center border">
               <p className="text-left text-sm text-neutral-600">
-                {isPass ? (
+                {isPass && passActive && passEnd ? (
                   <>
-                    Your <b>Deadline Pass</b> is active: you have <b>Pro</b>
-                    {passEnd ? (
-                      <>
-                        {' '}until <b>{formatPassEnd(passEnd)}</b>
-                      </>
-                    ) : (
-                      ` for ${proPassDaysFromSession(session)} days`
-                    )}
+                    Your <b>Deadline Pass</b> is active: you have <b>Pro</b> until{' '}
+                    <b>
+                      <PassEndDate iso={passEnd} />
+                    </b>
                     . Nothing renews; it simply ends.
+                  </>
+                ) : isPass ? (
+                  <>
+                    Thanks for buying the <b>Deadline Pass</b>. It is being activated and can take a
+                    minute: refresh this page, or check Settings → Billing. If it does not show up,
+                    contact support.
                   </>
                 ) : session.mode === 'payment' ? (
                   <>
@@ -118,13 +126,6 @@ export default async function Success({ searchParams }: SuccessPageProps) {
       </div>
     );
   }
-}
-
-function formatPassEnd(iso: string): string {
-  const date = new Date(iso);
-  return Number.isFinite(date.getTime())
-    ? date.toLocaleString('en-US', { month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'UTC', timeZoneName: 'short' })
-    : iso;
 }
 
 /**

@@ -132,11 +132,15 @@ export function PaywallDialog() {
   const pricing = useRegionalPricing();
   // `onboarding-offer-v2`: the variant also decides this dialog's value list,
   // the guarantee line and the downsell on close.
-  const offerResponse = useOffer();
+  // Asked only once the dialog opens (GET /api/offer assigns the arm, so a
+  // user who never sees a paywall is never exposed to the experiment).
+  const offerResponse = useOffer({ enabled: open });
   const offerVariant = offerResponse?.variant ?? null;
   const isOfferV2 = offerVariant === 'offer_v2';
   useEffect(() => {
-    PaywallActions.setOfferVariant(offerVariant);
+    // Sticky: a closed dialog (no request) keeps the last known arm for the
+    // next open's `paywall_shown`.
+    if (offerVariant) PaywallActions.setOfferVariant(offerVariant);
   }, [offerVariant]);
   useEffect(() => {
     if (open) setShowDownsell(false);
@@ -356,6 +360,7 @@ export function PaywallDialog() {
               ? offerCopy.button
               : `Go Pro for ${pricing.proPlans.monthly.price}/mo`}
         </Button>
+        {guaranteeNote && <div className="mt-3">{guaranteeNote}</div>}
       </div>
     );
 
@@ -379,7 +384,6 @@ export function PaywallDialog() {
                 {proCard}
               </>
             )}
-            {guaranteeNote}
 
             <Button
               variant="link"

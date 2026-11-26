@@ -32,6 +32,12 @@ export const SAVE_COUPON_MONTHS = 2;
 export const SAVE_ONCE_COUPON_ID = 'octree_save50_once';
 export const SAVE_ONCE_PERCENT_OFF = 50;
 export const SAVE_OFFER_USED_KEY = 'save_offer_once_used';
+/**
+ * Set when the first screen's discount (SAVE_COUPON_ID, 50% off 2 months)
+ * is applied. The two discounts exclude each other for good on a
+ * subscription, even after the 2-month coupon has run out.
+ */
+export const SAVE_DISCOUNT_USED_KEY = 'save_discount_used';
 /** The save step's pause: one month (a PAUSE_MONTH_OPTIONS value). */
 export const SAVE_STEP_PAUSE_MONTHS = 1;
 /** "Which feature?" on a `missing_features` cancellation. */
@@ -177,7 +183,7 @@ export function cancellationComment(comment: string | undefined, missingFeature:
   return parts.join(' | ').slice(0, CANCEL_COMMENT_MAX_LENGTH);
 }
 
-export type SaveOfferEligibility = 'eligible' | 'already_used' | 'has_discount' | 'paused';
+export type SaveOfferEligibility = 'eligible' | 'already_used' | 'other_offer_used' | 'has_discount' | 'paused';
 
 /**
  * Whether the save step's 50%-off-once discount can be applied: never twice
@@ -187,6 +193,20 @@ export type SaveOfferEligibility = 'eligible' | 'already_used' | 'has_discount' 
  */
 export function saveOfferEligibility(subscription: SubscriptionLike): SaveOfferEligibility {
   if (subscription.metadata?.[SAVE_OFFER_USED_KEY]) return 'already_used';
+  if (subscription.metadata?.[SAVE_DISCOUNT_USED_KEY]) return 'other_offer_used';
+  if (subscriptionHasDiscount(subscription)) return 'has_discount';
+  if (isSubscriptionPaused(subscription)) return 'paused';
+  return 'eligible';
+}
+
+/**
+ * The first screen's 50%-off-2-months discount (app/api/subscription/
+ * discount): refused once either save discount has been used on the
+ * subscription, or while any discount is applied, or while paused.
+ */
+export function saveDiscountEligibility(subscription: SubscriptionLike): SaveOfferEligibility {
+  if (subscription.metadata?.[SAVE_DISCOUNT_USED_KEY]) return 'already_used';
+  if (subscription.metadata?.[SAVE_OFFER_USED_KEY]) return 'other_offer_used';
   if (subscriptionHasDiscount(subscription)) return 'has_discount';
   if (isSubscriptionPaused(subscription)) return 'paused';
   return 'eligible';
@@ -207,6 +227,8 @@ export interface SubscriptionOfferState {
   discount_coupon_id: string | null;
   /** The save step's 50%-off-once discount can still be applied (saveOfferEligibility). */
   save_offer_available: boolean;
+  /** The first screen's 50%-off-2-months discount can still be applied (saveDiscountEligibility). */
+  discount_available: boolean;
   price: {
     unit_amount: number | null;
     currency: string;
@@ -228,6 +250,7 @@ export function describeSubscriptionOffers(subscription: Stripe.Subscription): S
     has_discount: subscriptionHasDiscount(subscription),
     discount_coupon_id: appliedCouponId(subscription),
     save_offer_available: saveOfferEligibility(subscription) === 'eligible',
+    discount_available: saveDiscountEligibility(subscription) === 'eligible',
     price: price
       ? {
           unit_amount: price.unit_amount,

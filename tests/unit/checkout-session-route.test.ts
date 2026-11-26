@@ -21,12 +21,8 @@ const mocks = vi.hoisted(() => ({
   // The already-unlocked read: from('project_export_unlocks').select().eq().limit().
   unlockLimit: vi.fn(),
   from: vi.fn(),
-  getOfferVariant: vi.fn(),
 }));
 
-vi.mock('@/lib/offer-v2/variant-server', () => ({
-  getOfferVariant: mocks.getOfferVariant,
-}));
 
 vi.mock('@/lib/checkout-offers-stripe', () => ({
   ensureOfferPromotionCode: mocks.ensureOfferPromotionCode,
@@ -86,7 +82,6 @@ describe('POST /api/checkout-session analytics', () => {
     mocks.resolveStripeCustomer.mockResolvedValue({ customerId: 'cus_1' });
     mocks.sessionsCreate.mockResolvedValue({ id: 'cs_test_1', url: 'https://checkout.stripe.com/c/cs_test_1' });
     mocks.ensureOfferPromotionCode.mockResolvedValue('promo_welcome');
-    mocks.getOfferVariant.mockResolvedValue('control');
   });
 
   it('captures checkout_started for the user with the plan, source and session', async () => {
@@ -538,6 +533,18 @@ describe('POST /api/checkout-session and a running Deadline Pass', () => {
   });
 });
 
+function storedRow(fields: Record<string, unknown>) {
+  mocks.from.mockReturnValue({
+    select: () => ({
+      eq: () => ({
+        maybeSingle: async () => ({
+          data: { subscription_status: 'inactive', stripe_subscription_id: null, current_period_end: null, pro_until: null, ...fields },
+        }),
+      }),
+    }),
+  });
+}
+
 describe('POST /api/checkout-session onboarding-offer-v2 and the Deadline Pass', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -545,7 +552,14 @@ describe('POST /api/checkout-session onboarding-offer-v2 and the Deadline Pass',
     mocks.getOrCreatePrice.mockResolvedValue('price_123');
     mocks.resolveStripeCustomer.mockResolvedValue({ customerId: 'cus_1' });
     mocks.sessionsCreate.mockResolvedValue({ id: 'cs_test_2', url: 'https://checkout.stripe.com/c/cs_test_2' });
-    mocks.getOfferVariant.mockResolvedValue('offer_v2');
+    // The stored arm (user_usage.offer_variant, assigned by GET /api/offer).
+    storedRow({ offer_variant: 'offer_v2' });
+  });
+
+  it('never evaluates the flag: a user with no stored arm checks out as control', async () => {
+    storedRow({ offer_variant: null });
+    await POST(post({ plan: 'annual', source: 'onboarding' }));
+    expect(mocks.sessionsCreate.mock.calls[0][0].metadata.offer_variant).toBe('control');
   });
 
   it('tags offer_v2 on the metadata and checkout_started, and shows the guarantee on Checkout', async () => {
@@ -564,7 +578,7 @@ describe('POST /api/checkout-session onboarding-offer-v2 and the Deadline Pass',
   });
 
   it('control gets no guarantee text on Checkout', async () => {
-    mocks.getOfferVariant.mockResolvedValue('control');
+    storedRow({ offer_variant: 'control' });
     await POST(post({ plan: 'annual', source: 'onboarding' }));
     expect(mocks.sessionsCreate.mock.calls[0][0].custom_text).toBeUndefined();
   });
@@ -588,7 +602,13 @@ describe('POST /api/checkout-session onboarding-offer-v2 and the Deadline Pass',
 
   it('refuses a Deadline Pass for a user with a live subscription (409)', async () => {
     mocks.from.mockReturnValue({
-      select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { is_pro: true, subscription_status: 'active' } }) }) }),
+      select: () => ({
+        eq: () => ({
+          maybeSingle: async () => ({
+            data: { is_pro: true, subscription_status: 'active', stripe_subscription_id: 'sub_1', current_period_end: null },
+          }),
+        }),
+      }),
     });
     const response = await POST(post({ plan: 'deadline_pass', source: 'paywall' }));
     expect(response.status).toBe(409);

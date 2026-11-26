@@ -176,6 +176,7 @@ describe('GET /api/subscription/offers', () => {
         has_discount: false,
         discount_coupon_id: null,
         save_offer_available: true,
+        discount_available: true,
         price: { unit_amount: 999, currency: 'usd', interval: 'month' },
       },
     });
@@ -307,6 +308,7 @@ describe('POST /api/subscription/discount', () => {
     expect(mocks.subscriptionsUpdate).toHaveBeenCalledWith('sub_1', {
       discounts: [{ coupon: 'save50-2mo' }],
       cancel_at_period_end: false,
+      metadata: { save_discount_used: expect.any(String) },
     });
     await expect(res.json()).resolves.toMatchObject({
       success: true,
@@ -467,7 +469,7 @@ describe('POST /api/subscription/save-offer (the save step after the cancel reas
     mocks.couponsRetrieve.mockRejectedValueOnce(stripeError('resource_missing'));
     mocks.couponsCreate.mockResolvedValue({ id: 'octree_save50_once', percent_off: 50, duration: 'once' });
 
-    const res = await saveOffer(post());
+    const res = await saveOffer(post({ feedback: 'too_expensive' }));
 
     expect(res.status).toBe(200);
     expect(mocks.couponsCreate).toHaveBeenCalledWith(
@@ -478,7 +480,7 @@ describe('POST /api/subscription/save-offer (the save step after the cancel reas
   it('is applied once per subscription: a second request is refused (409) without touching Stripe', async () => {
     signedInWith(subscription({ metadata: { user_id: 'user-1', save_offer_once_used: '2026-11-26T00:00:00Z' } }));
 
-    const res = await saveOffer(post());
+    const res = await saveOffer(post({ feedback: 'unused' }));
 
     expect(res.status).toBe(409);
     await expect(res.json()).resolves.toMatchObject({ reason: 'already_used' });
@@ -488,10 +490,10 @@ describe('POST /api/subscription/save-offer (the save step after the cancel reas
 
   it('refuses on top of another discount, and while paused', async () => {
     signedInWith(subscription({ discounts: [{ coupon: { id: 'save50-2mo' } }] }));
-    expect((await saveOffer(post())).status).toBe(409);
+    expect((await saveOffer(post({ feedback: 'unused' }))).status).toBe(409);
 
     signedInWith(subscription({ pause_collection: { behavior: 'void', resumes_at: 1_705_000_000 } }));
-    expect((await saveOffer(post())).status).toBe(409);
+    expect((await saveOffer(post({ feedback: 'unused' }))).status).toBe(409);
     expect(mocks.subscriptionsUpdate).not.toHaveBeenCalled();
   });
 
@@ -540,5 +542,46 @@ describe('POST /api/subscription/save-offer (the save step after the cancel reas
 
     const [, params] = mocks.subscriptionsUpdate.mock.calls[0];
     expect(params.cancellation_details).toEqual({ feedback: 'too_expensive' });
+  });
+});
+
+describe('save discounts exclude each other, and the save step needs a reason', () => {
+  beforeEach(() => {
+    mocks.couponsRetrieve.mockResolvedValue({ id: 'octree_save50_once', percent_off: 50, duration: 'once' });
+  });
+
+  it('save-offer without a pending cancel reason is a 400', async () => {
+    signedInWith(subscription());
+    expect((await saveOffer(post())).status).toBe(400);
+    expect((await saveOffer(post({ feedback: 'nope' }))).status).toBe(400);
+    expect(mocks.subscriptionsUpdate).not.toHaveBeenCalled();
+  });
+
+  it('save-offer is refused once the 2-month discount was ever used (even after it ran out)', async () => {
+    signedInWith(subscription({ metadata: { user_id: 'user-1', save_discount_used: '2026-10-01T00:00:00Z' } }));
+    const res = await saveOffer(post({ feedback: 'too_expensive' }));
+    expect(res.status).toBe(409);
+    await expect(res.json()).resolves.toMatchObject({ reason: 'other_offer_used' });
+    expect(mocks.subscriptionsUpdate).not.toHaveBeenCalled();
+  });
+
+  it('the 2-month discount is refused once the save step discount was used', async () => {
+    signedInWith(subscription({ metadata: { user_id: 'user-1', save_offer_once_used: '2026-11-01T00:00:00Z' } }));
+    const res = await discount();
+    expect(res.status).toBe(409);
+    expect(mocks.subscriptionsUpdate).not.toHaveBeenCalled();
+  });
+
+  it('the offers route reports both as unavailable after either one', async () => {
+    signedInWith(subscription({ metadata: { user_id: 'user-1', save_offer_once_used: 'x' } }));
+    const body = await (await offers()).json();
+    expect(body.subscription).toMatchObject({ save_offer_available: false, discount_available: false });
+  });
+
+  it('the save step pause is not also counted as a first-screen cancel_offer_accepted', async () => {
+    signedInWith(subscription());
+    await pause(post({ months: 1, via: 'save_offer', feedback: 'unused' }));
+    expect(mocks.captureEvent).not.toHaveBeenCalledWith('user-1', 'cancel_offer_accepted', expect.anything());
+    expect(mocks.captureEvent).toHaveBeenCalledWith('user-1', 'cancel_save_offer_accepted', { offer: 'pause_1m', feedback: 'unused' });
   });
 });

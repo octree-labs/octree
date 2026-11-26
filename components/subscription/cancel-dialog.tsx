@@ -202,7 +202,7 @@ export function CancelDialog({ open, onOpenChange }: CancelDialogProps) {
   const alreadyPaused = offers ? offers.paused_until != null || offers.effective_status === 'paused' : false;
   const isOnFreePlan = offers?.effective_status === 'paused';
   const canPause = offers ? !alreadyPaused : false;
-  const canDiscount = offers ? !offers.has_discount && !alreadyPaused : false;
+  const canDiscount = offers ? offers.discount_available !== false && !offers.has_discount && !alreadyPaused : false;
   const hasOffers = canPause || canDiscount;
   const periodEndLabel = offers ? formatDate(offers.current_period_end) : '';
   const price = offers?.price;

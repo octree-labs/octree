@@ -9,6 +9,8 @@ export interface BillingRow {
   stripe_subscription_id: string | null;
   current_period_end: string | null;
   pro_until: string | null;
+  /** user_usage.offer_variant (lib/offer-v2): read alongside, for the checkout metadata. */
+  offer_variant?: string | null;
 }
 
 /**

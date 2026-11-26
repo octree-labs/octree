@@ -19,6 +19,7 @@ import {
 
 const REFUSALS = {
   already_used: 'This offer was already used on your subscription',
+  other_offer_used: 'A save discount was already used on your subscription',
   has_discount: 'A discount is already applied to this subscription',
   paused: 'Resume the subscription before applying a discount',
 } as const;
@@ -30,8 +31,10 @@ const REFUSALS = {
  * the subscription already used it (`metadata.save_offer_once_used`), has
  * any other discount, or is paused. Taking it turns renewal back on.
  *
- * Body (optional): `{ feedback }`, the cancel reason that led here, for
- * `cancel_save_offer_accepted`.
+ * Body: `{ feedback }`, the cancel reason chosen just before (required: the
+ * offer exists only inside the cancel flow). Refused (409) as well when the
+ * first screen's 50%-off-2-months discount was ever used on the
+ * subscription (`metadata.save_discount_used`): one save discount each.
  */
 export async function POST(request: Request) {
   try {
@@ -41,7 +44,11 @@ export async function POST(request: Request) {
     } catch {
       body = {};
     }
-    const feedback = isCancelFeedback(body.feedback) ? body.feedback : undefined;
+    // Only from the cancel dialog's save step, which comes after the reason.
+    if (!isCancelFeedback(body.feedback)) {
+      return NextResponse.json({ error: 'A cancellation reason is required' }, { status: 400 });
+    }
+    const feedback = body.feedback;
 
     const owned = await requireOwnedSubscription();
     if (!owned.ok) return owned.response;
@@ -62,7 +69,7 @@ export async function POST(request: Request) {
 
     captureServerEventAfterResponse(user.id, AnalyticsEvents.CANCEL_SAVE_OFFER_ACCEPTED, {
       offer: 'discount_once',
-      ...(feedback ? { feedback } : {}),
+      feedback,
     });
 
     return NextResponse.json({

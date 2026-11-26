@@ -42,6 +42,8 @@ export const AnalyticsEvents = {
   PAYWALL_DISMISSED: 'paywall_dismissed',
   // offer_v2: the Deadline Pass downsell was revealed (onboarding link, or the dialog's close).
   PAYWALL_DOWNSELL_SHOWN: 'paywall_downsell_shown',
+  // Server: a user's onboarding-offer-v2 arm was assigned and stored (once per user; sets the person property).
+  OFFER_VARIANT_ASSIGNED: 'offer_variant_assigned',
   EDIT_LIMIT_HIT: 'edit_limit_hit',
   DUNNING_BANNER_CLICKED: 'dunning_banner_clicked',
   // /buy?offer=<id>: the discount banner rendered (app/buy/buy-page-client.tsx).
@@ -406,6 +408,11 @@ export interface AnalyticsEventProperties {
     placement?: PaywallPlacement;
     /** `onboarding-offer-v2` variant; absent before the experiment. */
     offer_variant?: OfferVariantProperty;
+  };
+  [AnalyticsEvents.OFFER_VARIANT_ASSIGNED]: {
+    offer_variant: OfferVariantProperty;
+    /** PostHog person property, so every event can be split by arm. */
+    $set: { offer_variant: OfferVariantProperty };
   };
   [AnalyticsEvents.PAYWALL_DOWNSELL_SHOWN]: {
     placement: PaywallPlacement;

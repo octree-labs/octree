@@ -42,3 +42,21 @@ export function resolveOfferVariant(input: {
 }): OfferVariant {
   return offerVariantOverride(input.override) ?? offerVariantFromFlag(input.flagValue);
 }
+
+/** Whether an account (auth.users.created_at) is in the experiment; unknown dates are not. */
+export function inOfferExperiment(createdAt: string | null | undefined, since: string): boolean {
+  const created = Date.parse(createdAt ?? '');
+  return Number.isFinite(created) && created >= Date.parse(since);
+}
+
+/**
+ * The variant a request acts on, from what is stored: the env override,
+ * else the persisted assignment (user_usage.offer_variant), else control.
+ * Checkout uses this; it never evaluates the flag.
+ */
+export function effectiveOfferVariant(
+  persisted: unknown,
+  override: string | null | undefined
+): OfferVariant {
+  return offerVariantOverride(override) ?? (isOfferVariant(persisted) ? persisted : DEFAULT_OFFER_VARIANT);
+}

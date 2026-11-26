@@ -320,7 +320,7 @@ export interface CheckoutSessionInput {
    * The `onboarding-offer-v2` variant (lib/offer-v2/variant-server.ts),
    * written to the metadata so `subscription_started` can be split by it.
    * `offer_v2` also shows the money-back guarantee on the Checkout page
-   * (`custom_text.submit.message`).
+   * (`custom_text.submit.message`) for Pro plans (subscription or pass).
    */
   offerVariant?: OfferVariant;
 }
@@ -424,7 +424,9 @@ export function buildCheckoutSessionParams(
     after_expiration: { recovery: { enabled: true, allow_promotion_codes: true } },
   };
 
-  if (input.offerVariant === 'offer_v2') {
+  // The guarantee is about Pro (a subscription or a Deadline Pass); never on
+  // the export unlock, a generation credit or a credit pack.
+  if (input.offerVariant === 'offer_v2' && grantsPro(plan)) {
     params.custom_text = { submit: { message: guaranteeLine() } };
   }
 

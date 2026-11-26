@@ -4,16 +4,21 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import {
   API_PRO_DAILY_COMPILES,
   MONEY_BACK_GUARANTEE_DAYS,
+  OFFER_V2_SINCE,
   PRO_MONTHLY_EDIT_LIMIT,
   SUPPORT_EMAIL,
 } from '@/data/constants';
 import {
   OFFER_V2_FLAG_KEY,
+  effectiveOfferVariant,
+  inOfferExperiment,
   offerVariantFromFlag,
   offerVariantOverride,
   resolveOfferVariant,
 } from '@/lib/offer-v2/variant';
-import { getOfferVariant, resetOfferVariantCacheForTests } from '@/lib/offer-v2/variant-server';
+import { assignOfferVariant, decideOfferVariant, evaluateOfferFlag } from '@/lib/offer-v2/variant-server';
+import { projectsCreatedLastWeek, resetProofCacheForTests } from '@/lib/offer-v2/proof-server';
+import { fetchOffer } from '@/hooks/use-offer';
 import {
   MIN_PROOF_COUNT,
   OFFER_DEADLINE_HOURS,
@@ -32,10 +37,14 @@ import { buildCheckoutSessionParams } from '@/lib/checkout-plans';
 import { OfferV2Plans } from '@/components/subscription/offer-v2-plans';
 
 vi.mock('server-only', () => ({}));
-vi.mock('@/lib/posthog-server', () => ({ getPostHogServer: () => null }));
+vi.mock('@/lib/posthog-server', () => ({
+  getPostHogServer: () => null,
+  captureServerEventAfterResponse: vi.fn(),
+}));
 
 describe('onboarding-offer-v2 variant resolution', () => {
-  beforeEach(() => resetOfferVariantCacheForTests());
+  const NEW = '2026-11-27T10:00:00Z';
+  const OLD = '2026-11-20T10:00:00Z';
 
   it('NEXT_PUBLIC_OFFER_V2=on|off forces the variant; anything else defers to the flag', () => {
     expect(offerVariantOverride('on')).toBe('offer_v2');
@@ -49,49 +58,113 @@ describe('onboarding-offer-v2 variant resolution', () => {
 
   it('an unknown or missing flag value is control', () => {
     expect(offerVariantFromFlag('offer_v2')).toBe('offer_v2');
-    expect(offerVariantFromFlag('control')).toBe('control');
     for (const value of [undefined, null, true, false, 'test', 42]) {
       expect(offerVariantFromFlag(value)).toBe('control');
     }
   });
 
-  it('asks PostHog for the user id with the flag key', async () => {
+  it('only accounts created at or after OFFER_V2_SINCE are in the experiment', () => {
+    expect(OFFER_V2_SINCE).toBe('2026-11-26T00:00:00Z');
+    expect(inOfferExperiment('2026-11-26T00:00:00Z', OFFER_V2_SINCE)).toBe(true);
+    expect(inOfferExperiment('2026-11-25T23:59:59Z', OFFER_V2_SINCE)).toBe(false);
+    expect(inOfferExperiment(null, OFFER_V2_SINCE)).toBe(false);
+  });
+
+  it('asks PostHog for a new account and stores the answer', async () => {
     const client = { getFeatureFlag: vi.fn().mockResolvedValue('offer_v2') };
-    await expect(getOfferVariant('user-1', { env: {}, client })).resolves.toBe('offer_v2');
+    await expect(
+      decideOfferVariant({ userId: 'user-1', createdAt: NEW, persisted: null, env: {}, client })
+    ).resolves.toEqual({ variant: 'offer_v2', persist: true });
     expect(client.getFeatureFlag).toHaveBeenCalledWith(OFFER_V2_FLAG_KEY, 'user-1');
   });
 
-  it('the env override wins without calling PostHog', async () => {
-    const client = { getFeatureFlag: vi.fn().mockResolvedValue('control') };
-    await expect(getOfferVariant('user-1', { env: { NEXT_PUBLIC_OFFER_V2: 'on' }, client })).resolves.toBe('offer_v2');
-    await expect(getOfferVariant('user-2', { env: { NEXT_PUBLIC_OFFER_V2: 'off' }, client })).resolves.toBe('control');
+  it('an account created before OFFER_V2_SINCE is control without asking PostHog', async () => {
+    const client = { getFeatureFlag: vi.fn().mockResolvedValue('offer_v2') };
+    await expect(
+      decideOfferVariant({ userId: 'old', createdAt: OLD, persisted: null, env: {}, client })
+    ).resolves.toEqual({ variant: 'control', persist: false });
     expect(client.getFeatureFlag).not.toHaveBeenCalled();
   });
 
-  it('falls back to control when PostHog is not configured, fails, or is slow', async () => {
-    await expect(getOfferVariant('u-none', { env: {}, client: null })).resolves.toBe('control');
-    const failing = { getFeatureFlag: vi.fn().mockRejectedValue(new Error('network')) };
+  it('a stored assignment wins over PostHog; the env override wins over everything and is never stored', async () => {
+    const client = { getFeatureFlag: vi.fn().mockResolvedValue('control') };
+    await expect(
+      decideOfferVariant({ userId: 'u', createdAt: NEW, persisted: 'offer_v2', env: {}, client })
+    ).resolves.toEqual({ variant: 'offer_v2', persist: false });
+    await expect(
+      decideOfferVariant({ userId: 'u', createdAt: OLD, persisted: 'control', env: { NEXT_PUBLIC_OFFER_V2: 'on' }, client })
+    ).resolves.toEqual({ variant: 'offer_v2', persist: false });
+    await expect(
+      decideOfferVariant({ userId: 'u', createdAt: NEW, persisted: 'offer_v2', env: { NEXT_PUBLIC_OFFER_V2: 'off' }, client })
+    ).resolves.toEqual({ variant: 'control', persist: false });
+    expect(client.getFeatureFlag).not.toHaveBeenCalled();
+  });
+
+  it('no PostHog, an error or a timeout: control for now, nothing stored (asked again next time)', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
-    await expect(getOfferVariant('u-fail', { env: {}, client: failing })).resolves.toBe('control');
+    await expect(evaluateOfferFlag('u', null)).resolves.toBeNull();
+    await expect(
+      evaluateOfferFlag('u', { getFeatureFlag: vi.fn().mockRejectedValue(new Error('network')) })
+    ).resolves.toBeNull();
+    await expect(
+      decideOfferVariant({
+        userId: 'u',
+        createdAt: NEW,
+        persisted: null,
+        env: {},
+        client: { getFeatureFlag: vi.fn().mockRejectedValue(new Error('network')) },
+      })
+    ).resolves.toEqual({ variant: 'control', persist: false });
 
     vi.useFakeTimers();
     try {
-      const slow = { getFeatureFlag: vi.fn(() => new Promise(() => {})) };
-      const pending = getOfferVariant('u-slow', { env: {}, client: slow });
+      const pending = evaluateOfferFlag('u', { getFeatureFlag: vi.fn(() => new Promise(() => {})) });
       await vi.advanceTimersByTimeAsync(1600);
-      await expect(pending).resolves.toBe('control');
+      await expect(pending).resolves.toBeNull();
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it('caches an answer per user for a while (assignments are sticky)', async () => {
-    const client = { getFeatureFlag: vi.fn().mockResolvedValue('offer_v2') };
-    await getOfferVariant('user-c', { env: {}, client, now: 0 });
-    await getOfferVariant('user-c', { env: {}, client, now: 60_000 });
-    expect(client.getFeatureFlag).toHaveBeenCalledTimes(1);
-    await getOfferVariant('user-c', { env: {}, client, now: 11 * 60_000 });
-    expect(client.getFeatureFlag).toHaveBeenCalledTimes(2);
+  describe('assignOfferVariant (GET /api/offer, service role)', () => {
+    function admin(stored: string | null, written: unknown[] = [{ offer_variant: 'offer_v2' }]) {
+      const select = vi.fn().mockReturnValue({ eq: () => ({ maybeSingle: async () => ({ data: { offer_variant: stored } }) }) });
+      const updateSelect = vi.fn().mockResolvedValue({ data: written, error: null });
+      const is = vi.fn().mockReturnValue({ select: updateSelect });
+      const eq = vi.fn().mockReturnValue({ is });
+      const update = vi.fn().mockReturnValue({ eq });
+      return { client: { from: vi.fn().mockReturnValue({ select, update }) } as any, update, is };
+    }
+
+    it('stores a fresh answer once, only where nothing is stored yet', async () => {
+      const a = admin(null);
+      const client = { getFeatureFlag: vi.fn().mockResolvedValue('offer_v2') };
+      await expect(assignOfferVariant(a.client, { id: 'u', created_at: NEW }, { env: {}, client })).resolves.toBe('offer_v2');
+      expect(a.update).toHaveBeenCalledWith({ offer_variant: 'offer_v2' });
+      expect(a.is).toHaveBeenCalledWith('offer_variant', null);
+    });
+
+    it('returns the stored arm without asking PostHog or writing', async () => {
+      const a = admin('control');
+      const client = { getFeatureFlag: vi.fn() };
+      await expect(assignOfferVariant(a.client, { id: 'u', created_at: NEW }, { env: {}, client })).resolves.toBe('control');
+      expect(client.getFeatureFlag).not.toHaveBeenCalled();
+      expect(a.update).not.toHaveBeenCalled();
+    });
+
+    it('never writes for an old account', async () => {
+      const a = admin(null);
+      const client = { getFeatureFlag: vi.fn() };
+      await expect(assignOfferVariant(a.client, { id: 'u', created_at: OLD }, { env: {}, client })).resolves.toBe('control');
+      expect(a.update).not.toHaveBeenCalled();
+    });
+  });
+
+  it('checkout reads the stored arm (control when none); the override still wins', () => {
+    expect(effectiveOfferVariant('offer_v2', undefined)).toBe('offer_v2');
+    expect(effectiveOfferVariant(null, undefined)).toBe('control');
+    expect(effectiveOfferVariant('garbage', undefined)).toBe('control');
+    expect(effectiveOfferVariant('control', 'on')).toBe('offer_v2');
   });
 });
 
@@ -239,5 +312,57 @@ describe('<OfferV2Plans />', () => {
     );
     expect(screen.queryByRole('status')).toBeNull();
     expect(screen.getByRole('radio', { name: 'Deadline Pass' }).getAttribute('aria-checked')).toBe('true');
+  });
+});
+
+describe('bounded fetches', () => {
+  it('useOffer falls back to control on a network error or a timeout', async () => {
+    const original = global.fetch;
+    try {
+      global.fetch = vi.fn().mockRejectedValue(new DOMException('timed out', 'TimeoutError')) as any;
+      await expect(fetchOffer('/api/offer', 10)).resolves.toEqual({ variant: 'control' });
+      global.fetch = vi.fn().mockResolvedValue({ ok: false }) as any;
+      await expect(fetchOffer('/api/offer', 10)).resolves.toEqual({ variant: 'control' });
+      global.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ variant: 'offer_v2' }) }) as any;
+      await expect(fetchOffer('/api/offer', 10)).resolves.toEqual({ variant: 'offer_v2' });
+    } finally {
+      global.fetch = original;
+    }
+  });
+
+  it('the proof count is skipped (null, not cached) on a slow or failing query', async () => {
+    resetProofCacheForTests();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const slow = { from: () => ({ select: () => ({ gte: () => new Promise(() => {}) }) }) } as any;
+    await expect(projectsCreatedLastWeek(slow, 0, 10)).resolves.toBeNull();
+    const failing = { from: () => ({ select: () => ({ gte: async () => ({ count: null, error: new Error('x') }) }) }) } as any;
+    await expect(projectsCreatedLastWeek(failing, 0, 10)).resolves.toBeNull();
+    const ok = { from: () => ({ select: () => ({ gte: async () => ({ count: 321, error: null }) }) }) } as any;
+    await expect(projectsCreatedLastWeek(ok, 0, 10)).resolves.toBe(321);
+    // Cached now: the failing client is not consulted.
+    await expect(projectsCreatedLastWeek(failing, 1000, 10)).resolves.toBe(321);
+  });
+});
+
+describe('Checkout guarantee only on Pro plans', () => {
+  it('no custom text for the export unlock, a generation credit or a credit pack', () => {
+    const base = {
+      priceId: 'p',
+      userId: 'user-1',
+      customerId: null,
+      email: null,
+      origin: 'https://app.example',
+      withTrial: false,
+      nowSeconds: 1_000_000,
+      offerVariant: 'offer_v2' as const,
+    };
+    expect(buildCheckoutSessionParams({ ...base, plan: 'credits_100' }).custom_text).toBeUndefined();
+    expect(buildCheckoutSessionParams({ ...base, plan: 'generate_single' }).custom_text).toBeUndefined();
+    expect(
+      buildCheckoutSessionParams({ ...base, plan: 'export_single', projectId: '2f1c7d4e-8a9b-4c3d-9e2f-1a2b3c4d5e6f' }).custom_text
+    ).toBeUndefined();
+    expect(buildCheckoutSessionParams({ ...base, plan: 'deadline_pass' }).custom_text).toEqual({
+      submit: { message: guaranteeLine() },
+    });
   });
 });

@@ -88,7 +88,8 @@ export default function OnboardingPage() {
   const [paywallRequired, setPaywallRequired] = useState(ONBOARDING_PAYWALL_REQUIRED);
   const router = useRouter();
   // `onboarding-offer-v2` (GET /api/offer): which plan step this user sees.
-  const offer = useOffer();
+  // Asked only on the plan step: GET /api/offer assigns the arm.
+  const offer = useOffer({ enabled: currentStep === PLAN_STEP });
   const isOfferV2 = offer?.variant === 'offer_v2';
   const pricing = useRegionalPricing();
   const deadline = isOfferV2 ? offer?.deadline ?? null : null;
@@ -98,7 +99,13 @@ export default function OnboardingPage() {
   const [v2Plan, setV2Plan] = useState<OfferPlan | null>(null);
   const [passRevealed, setPassRevealed] = useState(false);
   // Annual first; while the sign-up offer runs, its plan (monthly) is preselected.
-  const selectedV2Plan: OfferPlan = v2Plan ?? (deadlineOffer ? 'monthly' : 'annual');
+  const defaultV2Plan: OfferPlan = deadlineOffer ? 'monthly' : 'annual';
+  const selectedV2Plan: OfferPlan = v2Plan ?? defaultV2Plan;
+  // Fix the default into state once the offer is known, so the countdown
+  // running out only drops the discount and never switches the plan.
+  useEffect(() => {
+    if (isOfferV2 && v2Plan === null) setV2Plan(defaultV2Plan);
+  }, [isOfferV2, v2Plan, defaultV2Plan]);
   const v2Plans = useMemo(() => {
     const percentOff = deadlineOffer ? CHECKOUT_OFFERS[deadlineOffer].percentOff : 0;
     const firstMonth = deadlineOffer

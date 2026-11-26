@@ -69,9 +69,12 @@ export async function POST(request: Request) {
       metadata: { [PAUSE_PAID_THROUGH_KEY]: String(paidThrough) },
     });
 
-    captureServerEventAfterResponse(user.id, AnalyticsEvents.CANCEL_OFFER_ACCEPTED, {
-      offer: 'pause',
-    });
+    // The first screen's offer; the save step's pause is counted below instead.
+    if (via !== 'save_offer') {
+      captureServerEventAfterResponse(user.id, AnalyticsEvents.CANCEL_OFFER_ACCEPTED, {
+        offer: 'pause',
+      });
+    }
     // `via: 'save_offer'`: the pause offered on the save step after the reason.
     if (via === 'save_offer' && months === SAVE_STEP_PAUSE_MONTHS) {
       captureServerEventAfterResponse(user.id, AnalyticsEvents.CANCEL_SAVE_OFFER_ACCEPTED, {

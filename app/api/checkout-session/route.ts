@@ -17,7 +17,7 @@ import { countryFromHeaders, priceTierForCountry } from '@/lib/regional-pricing'
 import { EXPORT_ALREADY_UNLOCKED_MESSAGE, readExportUnlocked } from '@/lib/export-unlock';
 import { AnalyticsEvents } from '@/lib/analytics/events';
 import { hasLiveSubscription, passTrialEnd, type BillingRow } from '@/lib/subscription/pass-trial';
-import { getOfferVariant } from '@/lib/offer-v2/variant-server';
+import { effectiveOfferVariant } from '@/lib/offer-v2/variant';
 import {
   captureServerEventAfterResponse,
   captureServerExceptionAfterResponse,
@@ -111,8 +111,10 @@ export async function POST(request: Request) {
     // A Deadline Pass on top of a live (active/trialing) subscription buys
     // nothing: they are Pro already. A failed renewal (past_due, unpaid,
     // incomplete) or a stale is_pro does not block it: that user is not Pro.
-    const billingRow =
-      isPassPlan(resolved.plan) || isSubscriptionPlan(resolved.plan) ? await readBillingRow(supabase, user.id) : null;
+    // Also carries the stored onboarding-offer-v2 arm (assigned by GET
+    // /api/offer); checkout never evaluates the flag itself.
+    const billingRow = await readBillingRow(supabase, user.id);
+    const offerVariant = effectiveOfferVariant(billingRow?.offer_variant, process.env.NEXT_PUBLIC_OFFER_V2);
     if (isPassPlan(resolved.plan) && hasLiveSubscription(billingRow)) {
       return NextResponse.json({ error: PASS_WHILE_SUBSCRIBED_MESSAGE }, { status: 409 });
     }
@@ -143,7 +145,7 @@ export async function POST(request: Request) {
     const lookupKey = lookupKeyForPlan(resolved.plan);
     const country = countryFromHeaders(headersList);
     let priceTier = priceTierForCountry(country);
-    const [priceId, customer, promotionCodeId, offerVariant] = await Promise.all([
+    const [priceId, customer, promotionCodeId] = await Promise.all([
       // A regional price that cannot be resolved (Stripe hiccup, creation
       // refused) must not cost the visitor their checkout: open it at the
       // list price instead, which Stripe shows them before they pay.
@@ -158,8 +160,6 @@ export async function POST(request: Request) {
         return null;
       }),
       resolved.offer ? ensureOfferPromotionCode(resolved.offer, stripe) : Promise.resolve(null),
-      // `onboarding-offer-v2` (bounded, never throws; control on any failure).
-      getOfferVariant(user.id),
     ]);
 
     const sessionInput = {
@@ -248,7 +248,7 @@ async function readBillingRow(
 ): Promise<BillingRow | null> {
   try {
     const { data } = await (supabase.from('user_usage') as any)
-      .select('subscription_status, stripe_subscription_id, current_period_end, pro_until')
+      .select('subscription_status, stripe_subscription_id, current_period_end, pro_until, offer_variant')
       .eq('user_id', userId)
       .maybeSingle();
     return (data as BillingRow | null) ?? null;

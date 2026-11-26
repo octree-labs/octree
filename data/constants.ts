@@ -51,6 +51,13 @@ export const DEADLINE_PASS_PRICE = {
  */
 export const SUPPORT_EMAIL = 'basil@useoctree.com';
 
+/**
+ * The `onboarding-offer-v2` experiment (lib/offer-v2/variant.ts) covers
+ * accounts created at or after this instant; older accounts always get
+ * `control`, without PostHog being asked.
+ */
+export const OFFER_V2_SINCE = '2026-11-26T00:00:00Z';
+
 /** The money-back window shown with the offer (paywall, Checkout, /success, refund policy). */
 export const MONEY_BACK_GUARANTEE_DAYS = 7;
 

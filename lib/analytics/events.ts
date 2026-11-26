@@ -88,6 +88,13 @@ export const AnalyticsEvents = {
   DEVICE_AUTHORIZATION_APPROVED: 'device_authorization_approved',
   DEVICE_AUTHORIZATION_DENIED: 'device_authorization_denied',
   DEVICE_TOKEN_ISSUED: 'device_token_issued',
+  // OAuth 2.1 authorization server for MCP clients (app/oauth, lib/oauth)
+  OAUTH_CLIENT_REGISTERED: 'oauth_client_registered',
+  OAUTH_AUTHORIZED: 'oauth_authorized',
+  OAUTH_DENIED: 'oauth_denied',
+  OAUTH_TOKEN_ISSUED: 'oauth_token_issued',
+  OAUTH_TOKEN_REFRESHED: 'oauth_token_refreshed',
+  OAUTH_TOKEN_REVOKED: 'oauth_token_revoked',
 } as const;
 
 export type AnalyticsEvent = (typeof AnalyticsEvents)[keyof typeof AnalyticsEvents];
@@ -192,6 +199,7 @@ export type CompileErrorKind =
   | 'network';
 /** Which surface of the public API served a request. */
 export type ApiVia = 'rest' | 'mcp';
+export type ApiAuthMethod = 'api_key' | 'device' | 'oauth';
 export type CancelOffer = 'pause' | 'discount';
 /** Stripe's `cancellation_details.feedback` enum. */
 export type CancelFeedback =
@@ -589,6 +597,8 @@ export interface AnalyticsEventProperties {
     mode?: 'compile' | 'check';
     /** Whether a signed PDF link was handed out (successful compiles that asked for one). */
     pdf_url?: boolean;
+    /** How the caller authenticated: a Settings key, a device-flow key, or an OAuth access token. */
+    auth_method?: ApiAuthMethod;
   };
   /** A compile was refused by the daily API quota (lib/api/quota.ts). */
   [AnalyticsEvents.API_QUOTA_EXCEEDED]: {
@@ -622,6 +632,45 @@ export interface AnalyticsEventProperties {
     request_id: string;
     /** Seconds from issue to collection. */
     seconds_to_complete: number;
+  };
+  /**
+   * A client registered at POST /oauth/register (RFC 7591). distinct_id is
+   * `oauth-client:<client id>` (no user yet).
+   */
+  [AnalyticsEvents.OAUTH_CLIENT_REGISTERED]: {
+    client_id: string;
+    client_name: string | null;
+    redirect_kinds: string;
+    $process_person_profile?: boolean;
+  };
+  /** The user approved a client on /oauth/authorize (a code was issued; never sent). */
+  [AnalyticsEvents.OAUTH_AUTHORIZED]: {
+    client_kind: 'dcr' | 'cimd';
+    client_name: string | null;
+    /** cimd: the metadata document host; dcr: null. */
+    client_host: string | null;
+    scope: string;
+  };
+  [AnalyticsEvents.OAUTH_DENIED]: {
+    client_kind: 'dcr' | 'cimd';
+    client_name: string | null;
+    client_host: string | null;
+  };
+  /** A code was exchanged for tokens (a new grant). Tokens are never sent. */
+  [AnalyticsEvents.OAUTH_TOKEN_ISSUED]: {
+    grant_id: string;
+    client_kind: 'dcr' | 'cimd';
+    client_name: string | null;
+  };
+  [AnalyticsEvents.OAUTH_TOKEN_REFRESHED]: {
+    grant_id: string;
+    client_kind: 'dcr' | 'cimd';
+  };
+  /** A grant or OAuth access token was revoked: by the user (Settings) or the client (/oauth/revoke). */
+  [AnalyticsEvents.OAUTH_TOKEN_REVOKED]: {
+    grant_id: string;
+    by: 'user' | 'client';
+    what: 'grant' | 'access_token';
   };
 }
 

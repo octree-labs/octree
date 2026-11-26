@@ -40,10 +40,14 @@ const LIMIT_MESSAGE = `You can have at most ${MAX_ACTIVE_API_KEYS} active keys. 
 
 type SessionClient = Awaited<ReturnType<typeof createClient>>;
 
+/** 'device' for keys created by a device approval (/activate); OAuth keys are created elsewhere (lib/oauth/store.ts). */
+export type UserKeyKind = 'manual' | 'device';
+
 export async function createApiKeyForUser(
   supabase: SessionClient,
   userId: string,
-  name: string
+  name: string,
+  kind: UserKeyKind = 'manual'
 ): Promise<CreateKeyForUserResult> {
   const cleanName = normalizeApiKeyName(name);
   if (!cleanName) return { ok: false, reason: 'invalid_name', error: 'Give the key a name (1 to 64 characters).' };
@@ -52,7 +56,8 @@ export async function createApiKeyForUser(
     .from('api_keys')
     .select('id', { count: 'exact', head: true })
     .eq('user_id', userId)
-    .is('revoked_at', null);
+    .is('revoked_at', null)
+    .neq('kind', 'oauth');
   if (countError) {
     console.error('[api-keys] count failed:', countError.message);
     return { ok: false, reason: 'failed', error: 'Could not create the key. Try again.' };
@@ -66,6 +71,7 @@ export async function createApiKeyForUser(
     name: cleanName,
     key_prefix: keyPrefix,
     key_hash: hashApiKey(key),
+    ...(kind === 'device' ? { kind } : {}),
   };
   // No RETURNING: key_hash is not selectable by users, so the row is read
   // back by prefix. (`as any`: the SSR client's insert/update typing, as in
@@ -84,6 +90,7 @@ export async function createApiKeyForUser(
     .eq('user_id', userId)
     .eq('key_prefix', keyPrefix)
     .is('revoked_at', null)
+    .neq('kind', 'oauth')
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();

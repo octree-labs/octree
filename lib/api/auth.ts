@@ -8,7 +8,9 @@ import { clientIp, createRateLimiter } from '@/lib/import/rate-limit';
 import { bearerToken, hashApiKey, isApiKeyFormat } from '@/lib/api/keys';
 import { apiJson } from '@/lib/api/http';
 import type { ApiPlan } from '@/lib/api/quota';
+import type { ApiAuthMethod } from '@/lib/analytics/events';
 import { credentialHints, noCredentialsMessage } from '@/lib/device/codes';
+import { bearerChallenge, protectedResourceMetadataUrl } from '@/lib/oauth/metadata';
 
 /**
  * Bearer API-key authentication for the public API and the MCP server.
@@ -20,12 +22,19 @@ import { credentialHints, noCredentialsMessage } from '@/lib/device/codes';
  * are limited per IP (10 a minute, per process, like the import preview);
  * past that the IP gets 429 without a database lookup until the window
  * clears. `last_used_at` is written at most every 5 minutes per key.
+ *
+ * OAuth access tokens (lib/oauth) are API keys of kind 'oauth' with an
+ * `expires_at` one hour out: past it they get 401 `invalid_token`, which
+ * makes MCP clients refresh. Expired tokens do not count as failures (many
+ * users' clients share egress IPs, e.g. Claude's).
  */
 
 export interface ApiPrincipal {
   userId: string;
   keyId: string;
   plan: ApiPlan;
+  /** Settings key, device-flow key, or OAuth access token (analytics). */
+  authMethod?: ApiAuthMethod;
 }
 
 export type ApiAuthResult = { ok: true; principal: ApiPrincipal } | { ok: false; response: Response };
@@ -39,6 +48,8 @@ const PRINCIPAL_CACHE_MAX = 5_000;
 interface CachedPrincipal {
   principal: ApiPrincipal;
   expiresAt: number;
+  /** When the key itself expires (OAuth access tokens), else null. */
+  keyExpiresAt: number | null;
 }
 
 const globalForApiAuth = globalThis as unknown as {
@@ -54,13 +65,28 @@ const lastUsedWrites = (globalForApiAuth.__octreeApiLastUsed__ ??= new Map());
 
 /**
  * 401 + WWW-Authenticate (RFC 6750: no error code when no credentials were
- * sent). The body also carries device authorization hints
+ * sent), with the RFC 9728 `resource_metadata` pointer MCP clients use to
+ * find the OAuth server. The body also carries device authorization hints
  * (lib/device/codes.ts credentialHints) so headless agents can get a key.
  */
-export function unauthorizedResponse(message: string, invalidToken = true, origin = 'https://app.useoctree.com'): Response {
-  return apiJson({ error: 'unauthorized', message, ...credentialHints(origin) }, 401, {
-    'WWW-Authenticate': invalidToken ? 'Bearer realm="octree", error="invalid_token"' : 'Bearer realm="octree"',
-  });
+export function unauthorizedResponse(
+  message: string,
+  invalidToken = true,
+  origin = 'https://app.useoctree.com',
+  description?: string
+): Response {
+  return apiJson(
+    {
+      error: 'unauthorized',
+      message,
+      ...credentialHints(origin),
+      resource_metadata: protectedResourceMetadataUrl(origin),
+    },
+    401,
+    {
+      'WWW-Authenticate': bearerChallenge(origin, invalidToken ? { error: 'invalid_token', description } : {}),
+    }
+  );
 }
 
 function rateLimitedResponse(retryAfterSeconds: number): Response {
@@ -120,6 +146,19 @@ function touchLastUsed(admin: ReturnType<typeof createAdminClient>, keyId: strin
   });
 }
 
+function authMethodOf(kind: string | null | undefined): ApiAuthMethod {
+  return kind === 'oauth' ? 'oauth' : kind === 'device' ? 'device' : 'api_key';
+}
+
+function expiredResponse(origin: string): Response {
+  return unauthorizedResponse(
+    'The access token has expired. Refresh it at the token endpoint.',
+    true,
+    origin,
+    'The access token expired'
+  );
+}
+
 function lookupUnavailable(): ApiAuthResult {
   return {
     ok: false,
@@ -163,27 +202,41 @@ async function authenticate(request: Request): Promise<ApiAuthResult> {
   const cached = principals.get(hash);
   const admin = createAdminClient();
   if (cached && cached.expiresAt > now) {
+    if (cached.keyExpiresAt !== null && cached.keyExpiresAt <= now) {
+      principals.delete(hash);
+      return { ok: false, response: expiredResponse(origin) };
+    }
     touchLastUsed(admin, cached.principal.keyId, now);
     return { ok: true, principal: cached.principal };
   }
 
   const { data: key, error } = await admin
     .from('api_keys')
-    .select('id, user_id, revoked_at')
+    .select('id, user_id, revoked_at, kind, expires_at')
     .eq('key_hash', hash)
     .maybeSingle();
   if (error) {
     console.error('[api-auth] key lookup failed:', error.message);
     return lookupUnavailable();
   }
+  if (key && key.revoked_at && key.kind === 'oauth') {
+    // A revoked OAuth token is a normal event (rotation, a revoked grant), not a guess.
+    principals.delete(hash);
+    return { ok: false, response: unauthorizedResponse('This access token was revoked.', true, origin, 'The access token was revoked') };
+  }
   if (!key || key.revoked_at) {
     principals.delete(hash);
     return { ok: false, response: recordFailure(ip, 'Invalid or revoked API key.', origin) };
   }
+  const keyExpiresAt = key.expires_at ? Date.parse(key.expires_at) : null;
+  if (keyExpiresAt !== null && !(keyExpiresAt > now)) {
+    principals.delete(hash);
+    return { ok: false, response: expiredResponse(origin) };
+  }
 
   const plan = await resolvePlan(admin, key.user_id);
-  const principal: ApiPrincipal = { userId: key.user_id, keyId: key.id, plan };
-  principals.set(hash, { principal, expiresAt: now + PRINCIPAL_CACHE_MS });
+  const principal: ApiPrincipal = { userId: key.user_id, keyId: key.id, plan, authMethod: authMethodOf(key.kind) };
+  principals.set(hash, { principal, expiresAt: now + PRINCIPAL_CACHE_MS, keyExpiresAt });
   if (principals.size > PRINCIPAL_CACHE_MAX) principals.delete(principals.keys().next().value as string);
   touchLastUsed(admin, key.id, now);
   return { ok: true, principal };

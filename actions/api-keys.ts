@@ -35,6 +35,8 @@ export async function listApiKeys(): Promise<ApiKeySummary[]> {
     .select(API_KEY_SUMMARY_COLUMNS)
     .eq('user_id', user.id)
     .is('revoked_at', null)
+    // OAuth access tokens are listed per connection (Connected apps), not as keys.
+    .neq('kind', 'oauth')
     .order('created_at', { ascending: false });
   if (error) {
     console.error('[api-keys] list failed:', error.message);

@@ -42,31 +42,40 @@ export type Database = {
       api_keys: {
         Row: {
           created_at: string
+          expires_at: string | null
           id: string
           key_hash: string
           key_prefix: string
+          kind: string
           last_used_at: string | null
           name: string
+          oauth_grant_id: string | null
           revoked_at: string | null
           user_id: string
         }
         Insert: {
           created_at?: string
+          expires_at?: string | null
           id?: string
           key_hash: string
           key_prefix: string
+          kind?: string
           last_used_at?: string | null
           name: string
+          oauth_grant_id?: string | null
           revoked_at?: string | null
           user_id: string
         }
         Update: {
           created_at?: string
+          expires_at?: string | null
           id?: string
           key_hash?: string
           key_prefix?: string
+          kind?: string
           last_used_at?: string | null
           name?: string
+          oauth_grant_id?: string | null
           revoked_at?: string | null
           user_id?: string
         }
@@ -379,6 +388,162 @@ export type Database = {
           sent_at?: string
           template?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      oauth_authorization_codes: {
+        Row: {
+          client_id: string
+          client_kind: string
+          client_name: string | null
+          code_challenge: string
+          code_hash: string
+          created_at: string
+          expires_at: string
+          grant_id: string | null
+          id: string
+          redirect_uri: string
+          resource: string | null
+          scope: string
+          used_at: string | null
+          user_id: string
+        }
+        Insert: {
+          client_id: string
+          client_kind: string
+          client_name?: string | null
+          code_challenge: string
+          code_hash: string
+          created_at?: string
+          expires_at: string
+          grant_id?: string | null
+          id?: string
+          redirect_uri: string
+          resource?: string | null
+          scope: string
+          used_at?: string | null
+          user_id: string
+        }
+        Update: {
+          client_id?: string
+          client_kind?: string
+          client_name?: string | null
+          code_challenge?: string
+          code_hash?: string
+          created_at?: string
+          expires_at?: string
+          grant_id?: string | null
+          id?: string
+          redirect_uri?: string
+          resource?: string | null
+          scope?: string
+          used_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      oauth_clients: {
+        Row: {
+          client_name: string | null
+          client_uri: string | null
+          created_at: string
+          id: string
+          last_used_at: string | null
+          redirect_uris: string[]
+          registration_ip: string | null
+          software_id: string | null
+          software_version: string | null
+        }
+        Insert: {
+          client_name?: string | null
+          client_uri?: string | null
+          created_at?: string
+          id?: string
+          last_used_at?: string | null
+          redirect_uris: string[]
+          registration_ip?: string | null
+          software_id?: string | null
+          software_version?: string | null
+        }
+        Update: {
+          client_name?: string | null
+          client_uri?: string | null
+          created_at?: string
+          id?: string
+          last_used_at?: string | null
+          redirect_uris?: string[]
+          registration_ip?: string | null
+          software_id?: string | null
+          software_version?: string | null
+        }
+        Relationships: []
+      }
+      oauth_grants: {
+        Row: {
+          client_id: string
+          client_kind: string
+          client_name: string | null
+          created_at: string
+          id: string
+          last_refreshed_at: string | null
+          resource: string | null
+          revoked_at: string | null
+          revoked_reason: string | null
+          scope: string
+          user_id: string
+        }
+        Insert: {
+          client_id: string
+          client_kind: string
+          client_name?: string | null
+          created_at?: string
+          id?: string
+          last_refreshed_at?: string | null
+          resource?: string | null
+          revoked_at?: string | null
+          revoked_reason?: string | null
+          scope?: string
+          user_id: string
+        }
+        Update: {
+          client_id?: string
+          client_kind?: string
+          client_name?: string | null
+          created_at?: string
+          id?: string
+          last_refreshed_at?: string | null
+          resource?: string | null
+          revoked_at?: string | null
+          revoked_reason?: string | null
+          scope?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      oauth_refresh_tokens: {
+        Row: {
+          created_at: string
+          expires_at: string
+          grant_id: string
+          id: string
+          token_hash: string
+          used_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          expires_at: string
+          grant_id: string
+          id?: string
+          token_hash: string
+          used_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string
+          grant_id?: string
+          id?: string
+          token_hash?: string
+          used_at?: string | null
         }
         Relationships: []
       }

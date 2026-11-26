@@ -3,10 +3,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const mocks = vi.hoisted(() => ({ cleanup: vi.fn(), device: vi.fn() }));
+const mocks = vi.hoisted(() => ({ cleanup: vi.fn(), device: vi.fn(), oauth: vi.fn() }));
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: () => ({}) }));
 vi.mock('@/lib/api/artifacts', () => ({ cleanupApiArtifacts: mocks.cleanup }));
 vi.mock('@/lib/device/store', () => ({ cleanupDeviceAuthorizations: mocks.device }));
+vi.mock('@/lib/oauth/store', () => ({ cleanupOAuth: mocks.oauth }));
 
 import { GET } from '@/app/api/cron/api-artifacts/route';
 
@@ -18,6 +19,7 @@ describe('GET /api/cron/api-artifacts', () => {
     process.env.CRON_SECRET = 'cron-secret';
     mocks.cleanup.mockResolvedValue({ deleted: 2, days_scanned: 1, truncated: false });
     mocks.device.mockResolvedValue({ expired_uncollected: 1, deleted: 3 });
+    mocks.oauth.mockResolvedValue({ codes_deleted: 4 });
   });
   afterEach(() => {
     process.env = { ...ENV };
@@ -39,10 +41,12 @@ describe('GET /api/cron/api-artifacts', () => {
       days_scanned: 1,
       truncated: false,
       device: { expired_uncollected: 1, deleted: 3 },
+      oauth: { codes_deleted: 4 },
     });
     await GET(new Request('https://x/api/cron/api-artifacts?dry=1', auth));
     expect(mocks.cleanup).toHaveBeenLastCalledWith(expect.anything(), expect.any(Date), true);
     expect(mocks.device).toHaveBeenLastCalledWith(expect.anything(), expect.any(Date), true);
+    expect(mocks.oauth).toHaveBeenLastCalledWith(expect.anything(), expect.any(Date), true);
   });
 
   it('is scheduled in vercel.json', () => {

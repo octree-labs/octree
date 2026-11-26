@@ -17,17 +17,21 @@ const nextConfig: NextConfig = {
   async rewrites() {
     return posthogRelayRewrites(process.env.NEXT_PUBLIC_POSTHOG_HOST);
   },
-  // The device authorization consent page (app/activate) must never be
-  // framed: an invisible iframe could trick a signed-in user into Approve.
+  // The consent pages (app/activate for device authorization, app/oauth/authorize
+  // for OAuth) must never be framed: an invisible iframe could trick a
+  // signed-in user into Approve. The OAuth one also sends no Referer, so
+  // its query (state, PKCE challenge) is not passed on to other sites.
   async headers() {
+    const noFraming = [
+      { key: 'X-Frame-Options', value: 'DENY' },
+      { key: 'Content-Security-Policy', value: "frame-ancestors 'none'" },
+    ];
     return [
-      {
-        source: '/activate',
-        headers: [
-          { key: 'X-Frame-Options', value: 'DENY' },
-          { key: 'Content-Security-Policy', value: "frame-ancestors 'none'" },
-        ],
-      },
+      { source: '/activate', headers: noFraming },
+      // `same-origin`, not `no-referrer`: under no-referrer browsers send
+      // `Origin: null` on the consent form's POST, which the decision route's
+      // same-origin check (lib/oauth/consent.ts) would refuse.
+      { source: '/oauth/authorize', headers: [...noFraming, { key: 'Referrer-Policy', value: 'same-origin' }] },
     ];
   },
 };

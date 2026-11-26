@@ -132,3 +132,15 @@ export function buildRedirectUrl(
   if (url.origin !== baseUrl.origin) return new URL('/', baseUrl).toString();
   return url.toString();
 }
+
+/**
+ * A redirect whose Location is sent exactly as given. Next.js's `redirect()`
+ * and `NextResponse.redirect()` pass the URL through NextURL, which rewrites
+ * every loopback host anywhere in the string (127.0.0.1, [::1]) to
+ * "localhost" -- including inside a `next` query such as an OAuth
+ * `redirect_uri=http://127.0.0.1:PORT/callback`, which then no longer matches
+ * the registered URI. Cookies set through `cookies()` are still applied.
+ */
+export function exactRedirect(location: string | URL, status: 303 | 307 = 307): Response {
+  return new Response(null, { status, headers: { Location: String(location), 'Cache-Control': 'no-store' } });
+}

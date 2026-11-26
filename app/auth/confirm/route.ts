@@ -2,7 +2,7 @@ import { type EmailOtpType } from '@supabase/supabase-js';
 import { type NextRequest } from 'next/server';
 import { redirect } from 'next/navigation';
 
-import { safeRedirectPath } from '@/lib/auth/redirect';
+import { exactRedirect, safeRedirectPath } from '@/lib/auth/redirect';
 import { createClient } from '@/lib/supabase/server';
 import { inngest } from '@/lib/inngest/client';
 import { PENDING_DRAFT_COOKIE, isDraftId } from '@/lib/import/pending-draft';
@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      redirect(next);
+      return exactRedirect(next);
     }
   }
 

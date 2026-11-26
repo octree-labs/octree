@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { buildRedirectUrl, safeRedirectPath } from '@/lib/auth/redirect';
+import { buildRedirectUrl, safeRedirectPath, exactRedirect } from '@/lib/auth/redirect';
 import { createClient } from '@/lib/supabase/server';
 import { pendingDraftFromCookieHeader } from '@/lib/import/pending-draft';
 import { AnalyticsEvents } from '@/lib/analytics/events';
@@ -85,7 +85,7 @@ export async function GET(request: Request) {
       }
       
       const destination = buildRedirectUrl(request.headers, origin, next);
-      return NextResponse.redirect(destination, { status: 303 });
+      return exactRedirect(destination, 303);
     }
   }
 

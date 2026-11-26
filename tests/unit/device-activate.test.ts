@@ -95,7 +95,7 @@ afterEach(() => {
 describe('decideDeviceAuthorization', () => {
   it('approve creates a "<client> (device)" key and stores it encrypted', async () => {
     expect(await decide('approve')).toBe('/activate?done=approved');
-    expect(mocks.createKey).toHaveBeenCalledWith(expect.anything(), expect.any(String), 'Claude Code (device)');
+    expect(mocks.createKey).toHaveBeenCalledWith(expect.anything(), expect.any(String), 'Claude Code (device)', 'device');
     const row = mem.only();
     expect(row).toMatchObject({ status: 'approved', api_key_id: 'a1b2c3d4-0000-4000-8000-000000000001' });
     expect(row.key_ciphertext).toBeTruthy();

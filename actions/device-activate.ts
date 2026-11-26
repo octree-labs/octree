@@ -56,7 +56,7 @@ export async function decideDeviceAuthorization(formData: FormData): Promise<voi
             userId: user.id,
             now,
             secret: deviceFlowSecret(),
-            createKey: (name) => createApiKeyForUser(supabase, user.id, name),
+            createKey: (name) => createApiKeyForUser(supabase, user.id, name, 'device'),
           })
         : await denyDeviceAuthorization(store, { requestId, userCode, userId: user.id, now });
   } catch (error) {

@@ -8,6 +8,9 @@ import { DeleteAccountDialog } from '@/components/user/delete-account-dialog';
 import { ApiKeysSection } from '@/components/settings/api-keys-section';
 import { listApiKeys } from '@/actions/api-keys';
 import { MAX_ACTIVE_API_KEYS } from '@/lib/api/keys';
+import { ConnectedAppsSection } from '@/components/settings/connected-apps-section';
+import { listOAuthGrants } from '@/actions/oauth-grants';
+import { MAX_ACTIVE_OAUTH_GRANTS } from '@/lib/oauth/metadata';
 
 export default async function AccountSettingsPage() {
   const user = await getCurrentUser();
@@ -16,7 +19,7 @@ export default async function AccountSettingsPage() {
     redirect('/auth/login');
   }
 
-  const apiKeys = await listApiKeys();
+  const [apiKeys, oauthGrants] = await Promise.all([listApiKeys(), listOAuthGrants()]);
 
   return (
     <div className="space-y-6">
@@ -43,6 +46,8 @@ export default async function AccountSettingsPage() {
           <EditorSettings />
         </SettingsRow>
       </SettingsCard>
+
+      <ConnectedAppsSection initialGrants={oauthGrants} maxGrants={MAX_ACTIVE_OAUTH_GRANTS} />
 
       <ApiKeysSection initialKeys={apiKeys} maxKeys={MAX_ACTIVE_API_KEYS} />
 

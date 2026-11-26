@@ -16,8 +16,12 @@ export async function middleware(request: NextRequest) {
 // next.config.ts) must not pay for a Supabase session refresh on every event
 // batch, nor be redirected to /auth/login for signed-out visitors.
 // Matchers must be static literals, so the prefix is repeated here.
+// OAuth discovery (/.well-known/*) and the machine endpoints of the OAuth
+// server (/oauth/token, /oauth/register, /oauth/revoke) are called by MCP
+// clients without cookies: no session refresh, no login redirect.
+// /oauth/authorize and its decision route keep the session.
 export const config = {
   matcher: [
-    '/((?!_next/static|relay-o7(?:/|$)|_next/image|favicon.ico|robots\\.txt|sitemap\\.xml|llms\\.txt|assets/|logos/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|relay-o7(?:/|$)|\\.well-known/|oauth/(?:token|register|revoke)(?:/|$)|_next/image|favicon.ico|robots\\.txt|sitemap\\.xml|llms\\.txt|assets/|logos/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };

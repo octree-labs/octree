@@ -39,8 +39,12 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // Skip auth redirect for API routes - they will handle auth internally
-  const isApiRoute = request.nextUrl.pathname.startsWith('/api/');
+  // Skip auth redirect for API routes - they will handle auth internally.
+  // Same for OAuth: discovery documents and the token/register/revoke
+  // endpoints are public by spec, and /oauth/authorize (+ its decision
+  // route) sends signed-out users to login itself, keeping the request.
+  const path = request.nextUrl.pathname;
+  const isApiRoute = path.startsWith('/api/') || path.startsWith('/.well-known/') || path.startsWith('/oauth/');
   
   if (
     !user &&

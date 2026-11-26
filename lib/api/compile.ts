@@ -79,6 +79,7 @@ function track(
     source_bytes: request.sourceBytes,
     plan: principal.plan,
     ...(pdfUrl !== undefined ? { pdf_url: pdfUrl } : {}),
+    ...(principal.authMethod ? { auth_method: principal.authMethod } : {}),
   });
 }
 

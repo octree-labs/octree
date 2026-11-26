@@ -5,7 +5,28 @@ services:
     container_name: octra-agent
     env_file: .env
     ports:
-      - "8787:8787"
+      # AGENT_BIND=127.0.0.1 (in the server .env) keeps :8787 off the public
+      # internet once callers use https://agent.useoctree.com through Caddy.
+      - "${AGENT_BIND:-0.0.0.0}:8787:8787"
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  caddy:
+    image: caddy:2.8.4-alpine
+    container_name: agent-caddy
+    env_file: .env
+    ports:
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - agent
     restart: unless-stopped
     logging:
       driver: json-file
@@ -21,3 +42,7 @@ services:
       - ./vector.yaml:/etc/vector/vector.yaml:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
     restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:
